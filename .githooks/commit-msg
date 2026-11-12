@@ -1,0 +1,4 @@
+#!/bin/sh
+node scripts/forbidden-words.mjs --message "$1" || exit 1
+# The author must be the GitHub noreply address.
+case "$(git config user.email)" in *@users.noreply.github.com) ;; *) echo "Use your GitHub noreply email (git config user.email)"; exit 1 ;; esac

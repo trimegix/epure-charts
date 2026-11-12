@@ -1,0 +1,2 @@
+#!/bin/sh
+node scripts/forbidden-words.mjs || exit 1

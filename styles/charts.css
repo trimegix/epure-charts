@@ -1,0 +1,895 @@
+/* ─── epure-charts · engine styles ──────────────────────────────────────────
+   Everything goes through CSS variables (var(--…)): the host application keeps control
+   of colors, fonts, radii and shadows. Without a theme, also import
+   tokens.css (neutral defaults, light and dark).
+   Card layout: the default header (.chart-head) at the end of the file. */
+
+/* ── Chart options menu: a permanent icon, never a hidden gesture ───────── */
+.chart-opts-btn {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border-radius: 5px;
+  border: none;
+  background: none;
+  color: var(--gray-400);
+  cursor: pointer;
+  transition: background var(--transition), color var(--transition);
+}
+
+.chart-opts-btn:hover { background: var(--gray-100); color: var(--black); }
+
+.chart-opts-menu {
+  position: fixed;
+  z-index: 300;
+  width: 200px;
+  background: var(--white);
+  border: 1px solid var(--gray-200);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-hover);
+  padding: 8px 0;
+}
+
+.chart-opts-menu__label {
+  font-size: 10.5px;
+  font-weight: 600;
+  color: var(--gray-500);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  padding: 6px 12px 4px;
+}
+
+.chart-opts-menu__row { display: flex; gap: 6px; padding: 0 12px 6px; }
+
+.chart-opts-pill {
+  flex: 1;
+  font-size: 11px;
+  font-weight: 600;
+  padding: 4px 0;
+  border-radius: 5px;
+  border: 1px solid var(--gray-200);
+  background: none;
+  color: var(--gray-500);
+  cursor: pointer;
+}
+
+.chart-opts-pill.is-on { background: var(--gold-light); border-color: var(--gold); color: var(--gold-dark); }
+
+.chart-opts-check {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 6px 12px;
+  background: none;
+  border: none;
+  cursor: pointer;
+  font-size: 12px;
+  color: var(--black);
+  text-align: left;
+  font-family: var(--font);
+}
+
+.chart-opts-check:hover { background: var(--gray-100); }
+
+.chart-opts-check__box {
+  flex-shrink: 0;
+  width: 14px;
+  height: 14px;
+  border-radius: 3px;
+  border: 1px solid var(--gray-300);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--white);
+}
+
+.chart-opts-check__box.is-on { background: var(--gold); border-color: var(--gold); }
+
+/* ============================================================
+   CHART ENGINE: the SVG view
+   ------------------------------------------------------------
+   Series colors arrive as var(--token) from the scene:
+   nothing to recolor here. These rules only carry typography, the axis
+   and the tooltip.
+   ============================================================ */
+.chart-engine-box { position: relative; width: 100%; min-width: 0; }
+
+.chart-engine-box svg { display: block; overflow: visible; }
+
+.chart-engine svg text {
+  font-family: var(--font);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}
+
+.chart-engine-legend text { fill: var(--gray-500); }
+
+.chart-engine-axis text { fill: var(--gray-500); }
+
+.chart-engine-clickable { cursor: pointer; }
+
+/* What can be adjusted is signaled on hover (the object under the mouse lights up). */
+.chart-engine svg rect.chart-engine-clickable:hover { opacity: 0.88; }
+
+.chart-engine svg g.chart-engine-clickable:hover { opacity: 0.8; }
+
+.chart-engine svg text.chart-engine-clickable:hover { fill: var(--gold-dark); }
+
+.chart-engine-axis rect.chart-engine-clickable { fill: transparent; }
+
+.chart-engine-axis rect.chart-engine-clickable:hover { fill: var(--gold-light); opacity: 0.5; }
+
+/* Selected: the outline, the stroke or the cap color is enough; hover no longer lightens it. */
+.chart-engine svg rect.chart-engine-clickable.is-selected:hover { opacity: 1; }
+
+.chart-engine-axis rect.chart-engine-clickable.is-selected, .chart-engine-axis rect.chart-engine-clickable.is-selected:hover { fill: transparent; opacity: 1; }
+
+.chart-engine svg text.chart-engine-clickable.is-selected { fill: var(--gold-dark); }
+
+.chart-engine-legend.is-selected text { fill: var(--gold-dark); }
+
+.chart-engine-legend g.chart-engine-clickable:hover text { fill: var(--gold-dark); }
+
+.chart-engine-empty,
+.chart-engine-error {
+  font-size: 12px;
+  color: var(--gray-400);
+  padding: 12px 0;
+}
+
+.chart-engine-error { color: var(--red-text); }
+
+/* The reading tooltip waits a moment: passing over toward an object to adjust does not trigger it. */
+@keyframes chart-tip-in { from { opacity: 0; } to { opacity: 1; } }
+
+.chart-engine-tip {
+  animation: chart-tip-in 0.01s linear 0.3s both;
+  position: absolute;
+  transform: translate(12px, 0);
+  pointer-events: none;
+  min-width: 160px;
+  background: var(--white);
+  border: 1px solid var(--gray-200);
+  border-radius: var(--radius-sm);
+  box-shadow: var(--shadow-hover);
+  padding: 8px 10px;
+  font-size: 12px;
+  font-family: var(--font);
+  z-index: 2;
+}
+
+.chart-engine-tip--left { transform: translate(calc(-100% - 12px), 0); }
+
+/* The reading row: a row at the top right, level with the legend. */
+.chart-engine-tip--line { left: auto; transform: none; display: flex; align-items: center; gap: 12px; padding: 3px 8px; white-space: nowrap; }
+
+.chart-engine-tip--line .chart-engine-tip-head { margin: 0; }
+
+.chart-engine-tip--line .chart-engine-tip-row { line-height: 1.3; }
+
+.chart-engine-tip--line .chart-engine-tip-label { flex: none; }
+
+.chart-engine-tip-head { font-weight: 600; color: var(--black); margin-bottom: 4px; }
+
+.chart-engine-tip-row { display: flex; align-items: center; gap: 6px; line-height: 1.6; }
+
+.chart-engine-tip-label { color: var(--gray-500); flex: 1; white-space: nowrap; }
+
+.chart-engine-tip-value { color: var(--black); font-weight: 600; font-variant-numeric: tabular-nums; white-space: nowrap; }
+
+.chart-editor-bar__close {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-family: var(--font);
+  font-size: 11px;
+  font-weight: 600;
+  padding: 3px 8px;
+  border-radius: 5px;
+  border: 1px solid var(--gray-200);
+  background: var(--white);
+  color: var(--gray-500);
+  cursor: pointer;
+}
+
+.chart-editor-bar__close:hover { background: var(--gray-100); color: var(--black); }
+
+.chart-editor-pill {
+  font-family: var(--font);
+  font-size: 11px;
+  font-weight: 600;
+  padding: 4px 10px;
+  border-radius: 5px;
+  border: 1px solid var(--gray-200);
+  background: var(--white);
+  color: var(--gray-500);
+  cursor: pointer;
+}
+
+.chart-editor-pill:hover { background: var(--gray-100); color: var(--black); }
+
+.chart-editor-pill.is-on { background: var(--gold-light); border-color: var(--gold); color: var(--gold-dark); }
+
+.chart-editor-swatches { display: flex; flex-wrap: wrap; gap: 5px; max-width: 220px; }
+
+.chart-editor-swatch {
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  border-radius: 50%;
+  border: 2px solid var(--white);
+  box-shadow: 0 0 0 1px var(--gray-300);
+  cursor: pointer;
+}
+
+.chart-editor-swatch:hover { box-shadow: 0 0 0 1px var(--gray-500); }
+
+.chart-editor-swatch.is-on { box-shadow: 0 0 0 2px var(--black); }
+
+.chart-opts-menu__error { margin: 0 12px 6px; }
+
+/* ── Options menu fields (title, range) ── */
+.chart-opts-menu__fields { display: flex; gap: 6px; padding: 0 12px 6px; }
+
+.chart-opts-field { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+
+.chart-opts-field__label { font-size: 10.5px; color: var(--gray-500); }
+
+.chart-opts-input {
+  width: 100%;
+  min-width: 0;
+  font-family: var(--font);
+  font-size: 12px;
+  padding: 4px 6px;
+  border-radius: 5px;
+  border: 1px solid var(--gray-200);
+  background: var(--white);
+  color: var(--black);
+}
+
+.chart-opts-input:focus-visible { outline: 2px solid var(--gold); outline-offset: 0; }
+
+/* ── The wheel of a chart (settings button or click on a series) ── */
+.chart-wheel {
+  position: fixed;
+  z-index: 300;
+  width: 360px;
+  max-height: calc(100vh - 16px);
+  overflow-y: auto;
+  background: var(--white);
+  border: 1px solid var(--gray-200);
+  border-radius: var(--radius-sm);
+  box-shadow: var(--shadow-hover);
+  padding: 8px 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-family: var(--font);
+}
+
+.chart-wheel__head { display: flex; align-items: flex-start; gap: 6px; }
+
+.chart-wheel__series { flex: 1; min-width: 0; display: flex; flex-wrap: wrap; gap: 4px; }
+
+.chart-wheel__chip {
+  display: inline-flex; align-items: center; gap: 5px; max-width: 100%;
+  padding: 2px 7px; border-radius: 10px; border: 1px solid var(--gray-200);
+  background: none; color: var(--gray-600); font: 500 11px var(--font); cursor: pointer;
+}
+
+.chart-wheel__chip:hover { background: var(--gray-100); color: var(--black); }
+
+.chart-wheel__chip.is-on { border-color: var(--gold); background: var(--gold-light); color: var(--gold-dark); }
+
+.chart-wheel__chip-text { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 120px; }
+
+.chart-wheel__dot { width: 8px; height: 8px; border-radius: 2px; flex-shrink: 0; }
+
+.chart-wheel__title { flex: 1; font-size: 12px; font-weight: 600; color: var(--black); }
+
+.chart-wheel__point { font: 600 11px var(--font-mono); color: var(--gray-500); padding-top: 3px; white-space: nowrap; }
+
+.chart-wheel__close {
+  margin-left: auto; flex-shrink: 0; display: flex; align-items: center; justify-content: center;
+  width: 20px; height: 20px; border: none; border-radius: 4px; background: none; color: var(--gray-400); cursor: pointer;
+}
+
+.chart-wheel__close:hover { background: var(--gray-100); color: var(--black); }
+
+.chart-wheel__group { display: flex; flex-direction: column; gap: 6px; padding-top: 6px; border-top: 1px solid var(--gray-100); }
+
+.chart-wheel__row { display: flex; align-items: center; gap: 6px; min-height: 24px; }
+
+.chart-wheel__label { width: 64px; flex-shrink: 0; font-size: 10.5px; color: var(--gray-500); }
+
+.chart-wheel__tools { display: flex; flex-wrap: wrap; align-items: center; gap: 2px; }
+
+.chart-wheel__scope { display: inline-flex; gap: 2px; }
+
+.chart-wheel__sep { width: 1px; height: 26px; margin: 0 5px; background: var(--gray-300); }
+
+.chart-wheel__tool {
+  display: inline-flex; align-items: center; justify-content: center;
+  min-width: 24px; height: 24px; padding: 0 4px;
+  border: 1px solid transparent; border-radius: 5px; background: none;
+  color: var(--gray-600); font: 600 11px var(--font); cursor: pointer;
+}
+
+.chart-wheel__tool--wide { padding: 0 6px; font-weight: 500; }
+
+.chart-wheel__tool:hover:not(:disabled) { background: var(--gray-100); color: var(--black); }
+
+.chart-wheel__tool.is-on { background: var(--gold-light); border-color: var(--gold); color: var(--gold-dark); }
+
+.chart-wheel__tool:disabled { opacity: 0.4; cursor: default; }
+
+.chart-wheel__tool:focus-visible, .chart-wheel__chip:focus-visible, .chart-wheel__cat:focus-visible, .chart-wheel__action:focus-visible { outline: 2px solid var(--gold); outline-offset: 1px; }
+
+.chart-wheel__swatches { display: flex; flex-wrap: wrap; gap: 5px; padding-left: 50px; }
+
+.chart-wheel__fields { display: flex; gap: 6px; padding-left: 50px; }
+
+.chart-wheel__fields .chart-opts-input { min-width: 0; flex: 1; }
+
+.chart-wheel__cats { display: flex; flex-wrap: wrap; gap: 3px; max-height: 76px; overflow-y: auto; }
+
+.chart-wheel__cat {
+  padding: 1px 6px; border-radius: 4px; border: 1px solid var(--gray-200); background: none;
+  color: var(--gray-400); font: 500 10.5px var(--font-mono); text-decoration: line-through; cursor: pointer;
+}
+
+.chart-wheel__cat.is-on { color: var(--gray-700); text-decoration: none; }
+
+.chart-wheel__cat:hover { border-color: var(--gray-400); }
+
+.chart-wheel__foot { display: flex; justify-content: space-between; gap: 6px; padding-top: 6px; border-top: 1px solid var(--gray-100); }
+
+.chart-wheel__action {
+  display: inline-flex; align-items: center; gap: 5px; padding: 3px 6px; border: none; border-radius: 4px;
+  background: none; color: var(--gray-600); font: 500 11px var(--font); cursor: pointer;
+}
+
+.chart-wheel__action:hover { background: var(--gray-100); color: var(--black); }
+
+/* ── Mini toolbar of a waterfall step (click on the chart) ── */
+.chart-engine-toolbar {
+  position: fixed;
+  z-index: 50;
+  width: 270px;
+  background: var(--white);
+  border: 1px solid var(--gray-200);
+  border-radius: var(--radius-sm);
+  box-shadow: var(--shadow-hover);
+  padding: 8px 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-family: var(--font);
+}
+
+.chart-engine-toolbar__head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+
+.chart-engine-toolbar__name { font-size: 12px; font-weight: 600; color: var(--black); }
+
+.chart-engine-toolbar__row { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; }
+
+.chart-engine-toolbar__label { font-size: 11px; color: var(--gray-500); margin-right: 2px; }
+
+/* The per-object panel: tabs, context menu actions, fields. */
+.chart-wheel__head { align-items: center; }
+
+.chart-wheel__tabs { flex: 1; min-width: 0; display: flex; flex-wrap: wrap; gap: 2px; }
+
+.chart-wheel__tab {
+  padding: 3px 7px; border: none; border-radius: 5px; background: none;
+  color: var(--gray-500); font: 500 11.5px var(--font); cursor: pointer;
+}
+
+.chart-wheel__tab:hover { background: var(--gray-100); color: var(--black); }
+
+.chart-wheel__tab.is-on { background: var(--gray-100); color: var(--black); font-weight: 600; box-shadow: inset 0 -2px 0 var(--gold); }
+
+.chart-wheel__tab:focus-visible, .chart-wheel__act:focus-visible, .chart-wheel__scheme:focus-visible { outline: 2px solid var(--gold); outline-offset: 1px; }
+
+.chart-wheel__body { display: flex; flex-direction: column; gap: 6px; padding-top: 6px; border-top: 1px solid var(--gray-100); }
+
+.chart-wheel__ctx { font: 500 11px var(--font); color: var(--gray-500); }
+
+.chart-wheel__acts { display: flex; flex-wrap: wrap; gap: 4px; padding-bottom: 6px; border-bottom: 1px solid var(--gray-100); }
+
+.chart-wheel__act {
+  display: inline-flex; align-items: center; gap: 5px; padding: 3px 8px;
+  border: 1px solid var(--gray-200); border-radius: 12px; background: none;
+  color: var(--gray-700); font: 500 11px var(--font); cursor: pointer;
+}
+
+.chart-wheel__act:hover:not(:disabled) { background: var(--gray-100); color: var(--black); }
+
+.chart-wheel__act.is-on { background: var(--gold-light); border-color: var(--gold); color: var(--gold-dark); }
+
+.chart-wheel__act:disabled { opacity: 0.4; cursor: default; }
+
+.chart-wheel__field { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; font-size: 10.5px; color: var(--gray-500); }
+
+.chart-wheel__field .chart-opts-input { width: 100%; }
+
+.chart-wheel__sub { margin-top: 2px; padding-top: 6px; border-top: 1px solid var(--gray-100); font-size: 10.5px; font-weight: 600; color: var(--gray-500); text-transform: uppercase; letter-spacing: 0.05em; }
+
+.chart-wheel__hint { font-size: 10.5px; color: var(--gray-500); padding-left: 50px; }
+
+.chart-wheel__scheme {
+  display: inline-flex; gap: 1px; padding: 3px; border: 1px solid transparent; border-radius: 5px; background: none; cursor: pointer;
+}
+
+.chart-wheel__scheme span { width: 7px; height: 14px; border-radius: 1px; }
+
+.chart-wheel__scheme:hover { border-color: var(--gray-300); }
+
+.chart-wheel__scheme.is-on { border-color: var(--gold); background: var(--gold-light); }
+
+.chart-wheel__range { width: 120px; accent-color: var(--gold); }
+
+.chart-wheel__val { min-width: 34px; font: 500 11px var(--font-mono); color: var(--gray-600); }
+
+.chart-wheel__fields { padding-left: 0; }
+
+/* Three modes: action menu (right-click), mini toolbar (click), full panel (button). */
+.chart-wheel--menu { width: auto; min-width: 210px; padding: 4px; gap: 0; }
+
+.chart-wheel--mini { width: 344px; }
+
+.chart-menu { display: flex; flex-direction: column; }
+
+.chart-menu__item {
+  display: flex; align-items: center; gap: 8px; width: 100%; padding: 5px 8px;
+  border: none; border-radius: 4px; background: none; color: var(--gray-800);
+  font: 400 12px var(--font); text-align: left; cursor: pointer;
+}
+
+.chart-menu__item:hover:not(:disabled), .chart-menu__item:focus-visible { background: var(--gray-100); outline: none; }
+
+.chart-menu__item:disabled { color: var(--gray-400); cursor: default; }
+
+.chart-menu__icon { width: 14px; display: inline-flex; justify-content: center; color: var(--gray-500); }
+
+.chart-menu__item[aria-checked="true"] .chart-menu__icon { color: var(--gold-dark); }
+
+.chart-menu__text { flex: 1; }
+
+.chart-menu__kbd { font: 500 10px var(--font); color: var(--gray-400); border: none; background: none; }
+
+.chart-menu__sep { height: 1px; margin: 4px 6px; background: var(--gray-100); }
+
+.chart-wheel__title { flex: 1; min-width: 0; font-size: 12px; font-weight: 600; color: var(--black); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+.chart-wheel__link { border: none; background: none; padding: 2px 4px; color: var(--gold-dark); font: 500 11px var(--font); cursor: pointer; border-radius: 4px; }
+
+.chart-wheel__link:hover { background: var(--gray-100); }
+
+.chart-wheel__link:focus-visible { outline: 2px solid var(--gold); outline-offset: 1px; }
+
+.chart-wheel__input { width: 58px; padding: 3px 6px; font-size: 11px; }
+
+.chart-wheel__input--wide { width: 180px; }
+
+.chart-wheel__indent { padding-left: 70px; }
+
+.chart-wheel__indent .chart-wheel__swatches { padding-left: 0; }
+
+.chart-wheel__note { font-size: 10.5px; color: var(--gray-500); }
+
+.chart-wheel__more { width: 18px; height: 18px; display: inline-flex; align-items: center; justify-content: center; border: 1px dashed var(--gray-300); border-radius: 50%; background: none; color: var(--gray-500); cursor: pointer; }
+
+.chart-wheel__action.is-undo { color: var(--gold-dark); font-weight: 600; }
+
+/* ── The mini toolbar: a row of controls, each one opens its menu ── */
+.chart-wheel--bar { width: auto; max-width: calc(100vw - 16px); padding: 3px; gap: 0; overflow: visible; max-height: none; }
+
+.chart-bar { display: flex; flex-wrap: nowrap; align-items: center; gap: 1px; row-gap: 2px; white-space: nowrap; }
+
+.chart-bar__slot { position: relative; flex-shrink: 0; }
+
+.chart-bar__slot.is-object { flex-shrink: 0; }
+
+.chart-bar__slot > .chart-bar__ctl { max-width: 100%; }
+
+.chart-bar__slot.is-object { margin-right: 3px; padding-right: 3px; border-right: 1px solid var(--gray-200); }
+
+.chart-bar__slot.is-object .chart-bar__ctl { font-weight: 600; color: var(--black); }
+
+.chart-bar__ctl {
+  display: inline-flex; align-items: center; gap: 4px; height: 26px; padding: 0 5px;
+  border: 1px solid transparent; border-radius: 5px; background: none;
+  color: var(--gray-700); font: 500 11px var(--font); cursor: pointer;
+}
+
+.chart-bar__ctl:hover, .chart-bar__ctl.is-open { background: var(--gray-100); color: var(--black); }
+
+.chart-bar__ctl:focus-visible, .chart-bar__icon:focus-visible, .chart-seg__opt:focus-visible, .chart-check:focus-visible { outline: 2px solid var(--gold); outline-offset: 1px; }
+
+.chart-bar__ctl svg { color: var(--gray-400); }
+
+.chart-bar__ctl.is-icon { width: 26px; justify-content: center; padding: 0; }
+
+.chart-bar__ctl.is-icon svg { color: var(--gray-700); }
+
+.chart-bar__val { display: block; min-width: 0; max-width: 170px; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+
+.chart-bar__ctl > svg { flex-shrink: 0; }
+
+.chart-bar__dot { display: inline-block; width: 9px; height: 9px; border-radius: 2px; flex-shrink: 0; }
+
+.chart-bar__icon {
+  display: inline-flex; align-items: center; justify-content: center; width: 26px; height: 26px;
+  border: none; border-radius: 5px; background: none; color: var(--gray-500); cursor: pointer;
+}
+
+.chart-bar__icon:hover { background: var(--gray-100); color: var(--black); }
+
+.chart-bar__text { height: 26px; padding: 0 8px; border: 1px solid var(--gray-200); border-radius: 5px; background: none; color: var(--gray-600); font: 500 11.5px var(--font); cursor: pointer; }
+
+.chart-bar__text:hover { background: var(--gray-100); color: var(--black); }
+
+.chart-bar__undo { height: 26px; padding: 0 8px; border: none; border-radius: 5px; background: var(--gold-light); color: var(--gold-dark); font: 600 11px var(--font); cursor: pointer; }
+
+.chart-pop {
+  position: absolute; top: calc(100% + 6px); left: 0; z-index: 2; min-width: 310px; max-width: 460px;
+  padding: 8px 10px; display: flex; flex-direction: column; gap: 6px; white-space: normal;
+  background: var(--white); border: 1px solid var(--gray-200); border-radius: var(--radius-sm); box-shadow: var(--shadow-hover);
+}
+
+.chart-pop.is-right { left: auto; right: 0; }
+
+/* Little room under the bar: the menu opens above. */
+.chart-pop.is-up { top: auto; bottom: calc(100% + 6px); }
+
+.chart-pop__row { display: flex; align-items: flex-start; gap: 8px; }
+
+.chart-pop__row > .chart-pop__label { padding-top: 5px; }
+
+.chart-pop__label { width: 64px; flex-shrink: 0; font-size: 10.5px; color: var(--gray-500); }
+
+.chart-pop__tools { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+
+.chart-pop__swatches { display: flex; flex-wrap: wrap; gap: 5px; max-width: 250px; }
+
+.chart-pop__more { border: none; background: none; color: var(--gray-600); text-decoration: underline; text-underline-offset: 2px; font: 500 11px var(--font); cursor: pointer; padding: 0 4px; }
+
+.chart-pop__field { display: inline-flex; flex-direction: column; gap: 2px; font-size: 10.5px; color: var(--gray-500); }
+
+.chart-pop__field .chart-opts-input { width: 64px; padding: 3px 6px; font-size: 11px; }
+/* An ISO date fits whole (Gantt calendar). */
+.chart-pop__field .chart-opts-input[placeholder="YYYY-MM-DD"] { width: 92px; }
+
+.chart-pop__field .chart-opts-input.is-wide { width: 200px; }
+
+.chart-pop__note { font-size: 10.5px; color: var(--gray-500); }
+
+.chart-pop__link { align-self: flex-start; border: none; background: none; padding: 2px 0; color: var(--gold-dark); font: 500 11px var(--font); cursor: pointer; }
+
+.chart-pop__stack { display: flex; flex-direction: column; align-items: flex-start; gap: 4px; }
+
+.chart-pop__preview { font: 600 12px var(--font-mono); color: var(--black); padding-top: 4px; }
+
+.chart-pop__table { border-collapse: collapse; font: 500 11.5px var(--font); color: var(--gray-700); }
+
+.chart-pop__table th { font-size: 10.5px; font-weight: 500; color: var(--gray-500); padding: 0 8px 4px; text-align: center; white-space: nowrap; }
+
+.chart-pop__table td { padding: 2px 8px; white-space: nowrap; }
+
+.chart-pop__table td + td { text-align: center; }
+
+.chart-pop__table td:first-child { padding-left: 0; }
+
+.chart-pop__chips { display: flex; flex-wrap: wrap; gap: 4px; }
+
+.chart-pop__schemes { display: flex; flex-direction: column; gap: 2px; }
+
+.chart-pop__schemes .chart-wheel__scheme { display: flex; align-items: center; gap: 8px; padding: 4px 6px; font: 500 11.5px var(--font); color: var(--gray-700); text-align: left; }
+
+.chart-wheel__scheme-dots { display: inline-flex; gap: 1px; }
+
+.chart-wheel__scheme-dots span { width: 7px; height: 14px; border-radius: 1px; }
+
+.chart-pop__objects { display: flex; flex-direction: column; margin: -4px -6px; }
+
+.chart-seg { display: inline-flex; flex-wrap: nowrap; border: 1px solid var(--gray-200); border-radius: 6px; overflow: hidden; }
+
+.chart-seg__opt {
+  display: inline-flex; align-items: center; justify-content: center; min-width: 26px; height: 24px; padding: 0 8px;
+  border: none; border-right: 1px solid var(--gray-200); background: var(--white);
+  color: var(--gray-600); font: 500 11px var(--font); cursor: pointer; white-space: nowrap;
+}
+
+.chart-seg__opt:last-child { border-right: none; }
+
+.chart-seg__opt:hover { background: var(--gray-100); color: var(--black); }
+
+.chart-seg__opt.is-on { background: var(--gold-light); color: var(--gold-dark); font-weight: 600; }
+
+.chart-check { white-space: nowrap; display: inline-flex; align-items: center; gap: 6px; padding: 2px 0; border: none; background: none; color: var(--gray-700); font: 500 11.5px var(--font); cursor: pointer; }
+
+.chart-check__box { width: 13px; height: 13px; border-radius: 3px; border: 1px solid var(--gray-300); display: inline-flex; align-items: center; justify-content: center; color: var(--white); }
+
+.chart-check__box.is-on { background: var(--gold); border-color: var(--gold); }
+
+/* The handles of a selected annotation (CAGR, difference, value line). */
+.chart-engine-ann { cursor: pointer; }
+
+.chart-engine-handle { cursor: ew-resize; }
+
+.chart-engine-handle--y { cursor: ns-resize; }
+
+/* The settings icon of a chart without its own header: in the corner of the plot. */
+.chart-engine-float-menu { position: absolute; top: 0; right: 0; z-index: 2; }
+
+/* "No outline": a struck-through swatch. */
+.chart-engine-swatch--none { background: linear-gradient(to top right, var(--white) 45%, var(--red) 46%, var(--red) 54%, var(--white) 55%); }
+
+/* ── The data table, under the chart ── */
+.chart-datasheet { margin-top: 12px; border-top: 1px solid var(--gray-200); padding-top: 10px; font-family: var(--font); }
+
+.chart-datasheet__head { display: flex; align-items: center; gap: 10px; margin-bottom: 8px; }
+
+.chart-datasheet__title { font-size: 12px; font-weight: 600; color: var(--black); }
+
+.chart-datasheet__note { flex: 1; font-size: 11px; color: var(--gray-500); }
+
+.chart-datasheet__scroll { overflow-x: auto; }
+
+.chart-datasheet__table { border-collapse: collapse; font-size: 12px; width: max-content; min-width: 100%; }
+
+.chart-datasheet__table th, .chart-datasheet__table td { padding: 4px 8px; border-bottom: 1px solid var(--gray-200); white-space: nowrap; }
+
+.chart-datasheet__table th { font-size: 11px; font-weight: 500; color: var(--gray-500); text-align: left; }
+
+.chart-datasheet__table .num-col { text-align: right; font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
+
+.chart-datasheet__table td.is-forecast { color: var(--gray-500); font-style: italic; }
+
+.chart-datasheet__table tr.is-calc td { background: var(--gray-50); }
+
+.chart-datasheet__letter { width: 18px; color: var(--gray-400); font-weight: 600; }
+
+.chart-datasheet__label { display: flex; align-items: center; gap: 6px; }
+
+.chart-datasheet__swatch { width: 9px; height: 9px; border-radius: 2px; flex-shrink: 0; }
+
+.chart-datasheet__name { width: 110px; }
+
+.chart-datasheet__formula { width: 150px; }
+
+.chart-datasheet__error { color: var(--red-text); font-size: 11px; }
+
+.chart-datasheet__actions { display: flex; align-items: center; gap: 6px; }
+
+.chart-datasheet__plot { display: inline-flex; align-items: center; gap: 4px; font-size: 11px; color: var(--gray-600); }
+
+.chart-datasheet__add { margin-top: 8px; }
+
+/* ── The data sheet: Jspreadsheet CE styled with the tokens (light / dark) ── */
+.chart-datasheet__grid { --jss-border-color: var(--blue-chart); font-family: var(--font); font-size: 12px; }
+
+.chart-datasheet__grid .jss_container,
+.chart-datasheet__grid .jss_content,
+.chart-datasheet__grid .jss_worksheet { background-color: var(--surface); color: var(--gray-800); }
+
+.chart-datasheet__grid .jss_worksheet > tbody > tr > td {
+  background-color: var(--surface);
+  border-right-color: var(--gray-200);
+  border-bottom-color: var(--gray-200);
+  font-variant-numeric: tabular-nums;
+}
+
+.chart-datasheet__grid .jss_worksheet > thead > tr > td,
+.chart-datasheet__grid .jss_worksheet > tbody > tr > td:first-child {
+  background-color: var(--gray-50);
+  color: var(--gray-500);
+  border-color: var(--gray-200);
+}
+
+.chart-datasheet__grid .jss_worksheet > thead > tr > td.selected,
+.chart-datasheet__grid .jss_worksheet > tbody > tr.selected > td:first-child { background-color: var(--gray-200); }
+
+.chart-datasheet__grid .jss_worksheet .highlight { background-color: var(--blue-bg); }
+
+.chart-datasheet__grid .jss_worksheet .editor { background-color: var(--white); color: var(--black); }
+
+/* Row 1 (categories) and column A (series): the names. */
+.chart-datasheet__grid .jss_worksheet > tbody > tr > td.is-head { font-weight: 600; color: var(--black); }
+
+/* A cell typed here, different from the collected data. */
+.chart-datasheet__grid .jss_worksheet > tbody > tr > td.is-edited { background-image: linear-gradient(225deg, var(--amber, var(--gold)) 0 6px, transparent 6px); }
+
+.jcontextmenu { background-color: var(--white); border-color: var(--gray-200); color: var(--gray-800); font-family: var(--font); }
+
+.jcontextmenu > div:hover { background-color: var(--gray-100); }
+
+/* The chart draws figures edited in its sheet: it says so. */
+.chart-engine-edited { display: flex; align-items: center; gap: 8px; margin: 4px 0 6px; padding: 4px 8px; border-radius: var(--radius-sm); background: var(--amber-bg); color: var(--amber-text); font-size: 11.5px; font-family: var(--font); }
+
+.chart-engine-edited button { margin-left: auto; }
+
+.chart-opts-btn:focus-visible { outline: 2px solid var(--cap, var(--gold)); outline-offset: 1px; }
+
+/* ── The default header of a card (ChartHeader) ── */
+.chart-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; margin-bottom: 8px; font-family: var(--font); }
+.chart-head__title { font-size: 14px; font-weight: 600; color: var(--black); }
+.chart-head__sub { font-size: 12px; color: var(--gray-500); margin-top: 2px; }
+.chart-head__tools { display: flex; align-items: center; gap: 4px; }
+
+.chart-pop__example { width: 200px; }
+.chart-seg__opt.chart-pop__recent { border: 1px solid var(--gray-200); border-radius: 5px; margin-right: 4px; font-family: var(--font-mono); }
+
+.chart-pop__hint { font-size: 11px; color: var(--gray-500); }
+
+/* ── Scatter / bubbles and pie: direct manipulation handles ── */
+.chart-engine-handle--move { cursor: move; }
+
+.chart-engine-handle--rotate { cursor: grab; }
+
+.chart-engine-draglabel { cursor: grab; }
+
+.chart-engine-knob { fill: var(--surface, var(--white)); stroke: var(--gray-500); stroke-width: 1.25; opacity: 0; transition: opacity 0.12s; }
+
+.chart-engine-knob.is-on { stroke: var(--gold); }
+
+.chart-scatter:hover .chart-engine-knob, .chart-engine-knob.is-on { opacity: 1; }
+
+.chart-pie__handles { opacity: 0; transition: opacity 0.12s; }
+
+.chart-pie:hover .chart-pie__handles, .chart-pie__handles.is-on { opacity: 1; }
+
+.chart-pop__order { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 6px; }
+
+.chart-datasheet__base100 { display: flex; align-items: center; gap: 4px; padding: 6px 8px; border-bottom: 1px solid var(--gray-200); overflow-x: auto; }
+.chart-datasheet__base100-head { font-family: var(--font-mono); font-size: 11px; font-weight: 600; color: var(--gray-700); min-width: 166px; }
+.chart-datasheet__base100 .chart-opts-input { width: 80px; text-align: right; }
+.chart-editor-pill.is-on { background: var(--gold-light, var(--gray-100)); }
+
+/* ── Table (TableView): header, bands, rules, selection, width handle ── */
+.chart-table { font-family: var(--font); }
+.chart-table__head { fill: var(--gray-50); }
+.chart-table__stripe { fill: var(--gray-50); pointer-events: none; }
+.chart-table__total { fill: var(--gray-100); pointer-events: none; }
+.chart-table__line { stroke: var(--gray-200); stroke-width: 1; pointer-events: none; }
+.chart-table__line.is-strong { stroke: var(--gray-400); }
+.chart-engine svg g.chart-table__cell:hover { opacity: 1; }
+.chart-table__cell:hover > rect:first-child { fill: var(--gold-light); fill-opacity: 0.35; }
+.chart-table__cell:focus-visible { outline: none; }
+.chart-table__cell:focus-visible > rect:first-child { stroke: var(--gold); stroke-width: 1.5; }
+.chart-table__sel { fill: none; stroke: var(--gold); stroke-width: 2; }
+.chart-table__resize { fill: transparent; cursor: col-resize; }
+.chart-table__resize:hover { fill: var(--gold); fill-opacity: 0.5; }
+
+/* ── Gantt: plan editing (rows, drag, row sheet) ── */
+.chart-gantt:focus { outline: none; }
+.chart-gantt:focus-visible { outline: 2px solid var(--gold); outline-offset: 2px; }
+.chart-gantt__bar { touch-action: none; cursor: grab; }
+.chart-gantt__bar:active { cursor: grabbing; }
+/* ── Mekko: the "Other" threshold handle ── */
+.chart-mekko-other:focus { outline: none; }
+.chart-mekko-other:focus-visible path { stroke: var(--gold); stroke-width: 2; }
+
+.chart-seg__opt.chart-pop__more { border: 1px dashed var(--gray-300); border-radius: 5px; }
+
+/* A chart never fixes the width of its container: it follows the card when it shrinks. */
+.chart-engine, .chart-engine-box { min-width: 0; }
+/* Under a card header, the settings button moves up to the title row: it never overlaps
+   a column header (table, Gantt). */
+:is(.chart-head, .card-head) + .chart-engine-box > .chart-engine-float-menu,
+:is(.chart-head, .card-head) + .chart-engine > .chart-engine-box > .chart-engine-float-menu { top: -30px; }
+
+/* The Mekko "Other" handle only shows on chart hover, on focus or while dragging. */
+.chart-mekko-other { opacity: 0; transition: opacity var(--transition, .15s); }
+.chart-engine-box:hover .chart-mekko-other, .chart-mekko-other:focus-visible, .chart-mekko-other.is-on { opacity: 1; }
+
+/* A single row, always (never two lines that would cover the object): at reduced width,
+   values are truncated with "…"; the object picker, "+" and × keep their size. */
+.chart-bar > .chart-bar__slot { min-width: 0; flex-shrink: 1; }
+.chart-bar > .chart-bar__slot.is-object, .chart-bar > .chart-bar__slot:has(> .chart-bar__ctl.is-icon) { flex-shrink: 0; }
+.chart-bar > .chart-bar__slot > .chart-bar__ctl { max-width: 100%; overflow: hidden; }
+.chart-bar > :not(.chart-bar__slot) { flex-shrink: 0; }
+
+/* Right-to-left Gantt: the chart mirrored, each text flipped back in place. */
+.chart-gantt--rtl { transform: scaleX(-1); }
+.chart-gantt--rtl text { transform-box: fill-box; transform-origin: center; transform: scaleX(-1); }
+
+/* Controls folded behind "⋯": one group per control, its name first. */
+.chart-pop__groups { display: grid; gap: 10px; max-height: 60vh; overflow-y: auto; }
+.chart-pop__group-head { font-size: 11px; font-weight: 600; color: var(--gray-600); margin-bottom: 4px; }
+
+.chart-opts-input--area { resize: vertical; min-height: 44px; font-family: inherit; line-height: 1.3; }
+
+/* Edited figures: a discreet note under the header (no box). */
+.chart-engine-edited-note { display: flex; align-items: center; gap: 6px; font-size: 11px; color: var(--gray-500); margin: -2px 0 4px; }
+.chart-engine-edited-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--amber, var(--gold)); }
+.chart-engine-edited-note .chart-pop__link { font-size: 11px; padding: 0; }
+
+.chart-datasheet__head .chart-editor-pill { white-space: nowrap; flex-shrink: 0; }
+.chart-datasheet__head { flex-wrap: wrap; row-gap: 6px; }
+.chart-datasheet__note { white-space: nowrap; font-size: 11px; color: var(--gray-500); margin-right: auto; }
+.chart-datasheet__head--more { justify-content: flex-end; }
+
+/* The sheet scrolls inside its card, it never widens the page. */
+.chart-datasheet { min-width: 0; max-width: 100%; }
+.chart-datasheet__grid { min-width: 0; max-width: 100%; overflow-x: auto; }
+
+.chart-datasheet__fill { position: relative; }
+.chart-datasheet__swatches { position: absolute; top: 100%; right: 0; z-index: 5; display: flex; gap: 4px; padding: 6px; background: var(--white); border: 1px solid var(--gray-200); border-radius: 6px; box-shadow: 0 4px 12px rgba(0,0,0,.08); }
+.chart-datasheet__swatch { width: 18px; height: 18px; border-radius: 4px; border: 1px solid var(--gray-200); background: var(--white); cursor: pointer; font-size: 11px; line-height: 1; color: var(--gray-500); }
+.chart-datasheet td.is-error { color: var(--red); background: var(--red-bg, #fdecec); }
+
+.chart-engine-edited-err { color: var(--red); }
+
+.chart-datasheet td.is-hidden { color: var(--gray-400); background: repeating-linear-gradient(135deg, transparent 0 4px, var(--gray-100) 4px 6px); }
+
+/* Data sheet: compact bar, "⋯" menu, formula bar. */
+.chart-editor-pill.is-icon { padding: 2px 6px; display: inline-flex; align-items: center; }
+.chart-datasheet__menu { position: relative; }
+.chart-datasheet__menu-pop { position: absolute; top: 100%; right: 0; z-index: 6; min-width: 240px; }
+.chart-datasheet__dot { display: inline-block; width: 9px; height: 9px; border-radius: 50%; margin-right: 5px; vertical-align: -1px; }
+.chart-datasheet__swatch.is-on { outline: 2px solid var(--black); outline-offset: 1px; color: var(--white); font-size: 11px; }
+.chart-datasheet__fx { display: flex; align-items: center; gap: 6px; margin: 0 0 6px; }
+.chart-datasheet__fx-ref { min-width: 34px; font-family: var(--font-mono); font-size: 11px; color: var(--gray-600); }
+.chart-datasheet__fx-label { font-style: italic; font-size: 12px; color: var(--gray-500); }
+.chart-datasheet__fx-input { flex: 1; min-width: 0; font-family: var(--font-mono); }
+.chart-datasheet__head .chart-editor-bar__close { margin-left: auto; }
+.chart-engine-box svg[role="img"] { user-select: none; -webkit-user-select: none; }
+
+/* Double-click on a chart: no text of the drawing gets selected. */
+.chart-engine-box svg, .chart-engine-box svg * { user-select: none; -webkit-user-select: none; }
+/* Formula bar: the reference, "fx", then the content, well separated. */
+.chart-datasheet__fx { gap: 10px; }
+.chart-datasheet__fx-ref { padding-right: 8px; border-right: 1px solid var(--gray-200); }
+/* Sheet bar: a single line, the title is shortened before the buttons wrap below. */
+.chart-datasheet__head:not(.chart-datasheet__head--more) { flex-wrap: nowrap; }
+.chart-datasheet__title { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.chart-engine-edited-note { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.chart-engine-edited-note .chart-pop__link { white-space: nowrap; }
+/* ── Gantt: the sheet follows the chart structure (group band, "↳" task) ── */
+.chart-datasheet__grid .jss_worksheet > tbody > tr > td.chart-gantt-grid__group { background-color: var(--gray-100); font-weight: 600; color: var(--black); }
+.chart-datasheet__grid .jss_worksheet > tbody > tr > td.chart-gantt-grid__muted { font-weight: 400; color: var(--gray-500); }
+
+/* Read-only cells (computed by the chart): grayed out, not-allowed cursor. */
+.chart-datasheet__grid .jss_worksheet > tbody > tr > td.readonly { background-color: var(--gray-50, #f6f7f8); color: var(--gray-500); cursor: not-allowed; }
+.chart-datasheet__grid .jss_worksheet > tbody > tr > td.chart-gantt-grid__computed { color: var(--gray-500); font-style: italic; }
+
+/* Label rewritten on the chart: a blue corner in its cell. Sheet resizable in height. */
+.chart-datasheet__grid .jss_worksheet > tbody > tr > td.is-overwritten { background-image: linear-gradient(135deg, var(--cat-2) 0 6px, transparent 6px); }
+.chart-datasheet__grid .jss_content { resize: vertical; }
+/* Sheet width: handle on the right edge (DataSheet.jsx, clampSheetWidth). */
+.chart-datasheet { position: relative; }
+.chart-datasheet__resize { position: absolute; top: 0; bottom: 0; right: -4px; width: 8px; cursor: ew-resize; border-radius: 2px; }
+.chart-datasheet__resize:hover, .chart-datasheet__resize:focus-visible { background: var(--gold); opacity: 0.45; outline: none; }
+
+.chart-datasheet__grid .jss_worksheet > tbody > tr > td.is-warning { background-color: color-mix(in srgb, var(--amber, var(--gold)) 18%, transparent); }
+
+.chart-engine-edited-warn { color: var(--amber-text, #8A5A0B); }
+
+.chart-datasheet__grid .jss_content { max-width: 100%; overflow: auto; }
+
+/* ── Free style: custom color, font, size in points, named schemes ── */
+.chart-pop__custom { display: flex; flex-wrap: wrap; align-items: center; gap: 5px; flex-basis: 100%; margin-top: 2px; }
+.chart-pop__color { width: 24px; height: 20px; padding: 0; border: 1px solid var(--gray-300); border-radius: 4px; background: none; cursor: pointer; }
+.chart-pop__color::-webkit-color-swatch-wrapper { padding: 1px; }
+.chart-pop__color::-webkit-color-swatch { border: none; border-radius: 3px; }
+.chart-pop__custom .chart-opts-input { width: 92px; }
+.chart-pop__custom .chart-pop__hex { width: 112px; font-family: var(--font-mono); }
+.chart-pop__font { width: auto; max-width: 160px; }
+.chart-pop__pt { display: inline-flex; align-items: center; gap: 3px; font-size: 10.5px; color: var(--gray-500); }
+.chart-pop__pt .chart-opts-input { width: 40px; }
+.chart-pop__scheme-row { display: flex; align-items: center; gap: 2px; }
+.chart-pop__scheme-row .chart-wheel__scheme { flex: 1; }
+.chart-pop__more:disabled { opacity: 0.45; cursor: default; }
+.chart-opts-input.is-invalid { border-color: var(--red); }
+.chart-pop__error { flex-basis: 100%; font-size: 10.5px; color: var(--red-text); }
+.chart-pop__pt .chart-pop__error, .chart-pop__pt .chart-pop__note { flex-basis: auto; white-space: nowrap; }
+
+/* Scheme editor: "Add" / "Remove" as real buttons (26 px target). */
+.chart-pop__scheme-edit .chart-bar__ctl { border-color: var(--gray-200); }
+.chart-pop__scheme-edit .chart-bar__ctl:disabled { opacity: 0.45; cursor: default; }

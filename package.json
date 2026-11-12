@@ -1,0 +1,94 @@
+{
+  "name": "epure-charts",
+  "version": "0.1.0",
+  "description": "Business charts for React, built for bankers, consultants and investors: waterfalls (bridges), Mekko, Gantt, CAGR and difference arrows, Harvey balls. Click to format, right-click to annotate, edit the numbers in a built-in data sheet.",
+  "keywords": [
+    "react",
+    "charts",
+    "business-charts",
+    "financial-charts",
+    "data-visualization",
+    "svg",
+    "waterfall-chart",
+    "bridge-chart",
+    "mekko",
+    "marimekko",
+    "gantt",
+    "harvey-balls",
+    "cagr",
+    "investment-banking",
+    "private-equity",
+    "consulting",
+    "strategy-consulting",
+    "finance",
+    "fpa",
+    "pitch-book",
+    "board-deck",
+    "spreadsheet",
+    "data-sheet",
+    "editable"
+  ],
+  "license": "MIT",
+  "author": "Trimegix",
+  "homepage": "https://trimegix.github.io/epure-charts/",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/trimegix/epure-charts.git"
+  },
+  "bugs": {
+    "url": "https://github.com/trimegix/epure-charts/issues"
+  },
+  "type": "module",
+  "sideEffects": [
+    "**/*.css"
+  ],
+  "main": "./dist/epure-charts.js",
+  "module": "./dist/epure-charts.js",
+  "exports": {
+    ".": "./dist/epure-charts.js",
+    "./styles.css": "./styles/charts.css",
+    "./theme.css": "./styles/tokens.css"
+  },
+  "files": [
+    "dist",
+    "styles",
+    "README.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build --mode lib",
+    "build:demo": "vite build --mode demo",
+    "prepare": "vite build --mode lib",
+    "test": "node --test 'src/*.test.mjs'",
+    "lint": "eslint .",
+    "check:words": "node scripts/forbidden-words.mjs",
+    "check": "npm run check:words && npm run lint && npm test && npm run build",
+    "prepublishOnly": "npm run check"
+  },
+  "peerDependencies": {
+    "react": ">=18",
+    "react-dom": ">=18"
+  },
+  "dependencies": {
+    "@tabler/icons-react": "^3.44.0",
+    "d3-scale": "^4.0.2",
+    "d3-shape": "^3.2.0",
+    "jspreadsheet-ce": "^5.0.4",
+    "jsuites": "^5.13.5"
+  },
+  "devDependencies": {
+    "@eslint/js": "^10.0.1",
+    "@vitejs/plugin-react": "^4.7.0",
+    "eslint": "^10.3.0",
+    "eslint-plugin-react-hooks": "^7.1.1",
+    "eslint-plugin-react-refresh": "^0.5.2",
+    "globals": "^16.0.0",
+    "react": "^19.2.6",
+    "react-dom": "^19.2.6",
+    "vite": "^6.4.5"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

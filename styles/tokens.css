@@ -1,0 +1,127 @@
+/* ─── epure-charts · default values for the engine's CSS variables ───────────
+   Import only if the host application has no theme of its own: every value is
+   set under :where(:root), so any host definition overrides it.
+   Light by default; dark with prefers-color-scheme or data-theme="dark". */
+
+:where(:root) {
+  --amber: #E0912F;
+  --amber-bg: #FBECC8;
+  --amber-text: #8A5A0B;
+  --black: #14212A;
+  --blue-bg: #E3EFFA;
+  --blue-chart: #2E7DD6;
+  --cap: #0E9E82;
+  --cat-1: #0E9E82;
+  --cat-2: #2E7DD6;
+  --cat-3: #E0912F;
+  --cat-4: #7C5CD0;
+  --cat-5: #C64F72;
+  --cat-6: #2FA0A8;
+  --cat-7: #6C8AB0;
+  --cat-8: #B0803A;
+  --font: system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+  --font-mono: ui-monospace, 'SF Mono', Menlo, Consolas, 'Liberation Mono', monospace;
+  --gold: #0E9E82;
+  --gold-dark: #0B7D67;
+  --gold-light: #DAF1EB;
+  --gray-100: #F1F4F6;
+  --gray-200: #E4E9ED;
+  --gray-300: #CBD3D9;
+  --gray-400: #93A0A8;
+  --gray-50: #F9FAFB;
+  --gray-500: #566670;
+  --gray-600: #46535A;
+  --gray-700: #33424A;
+  --gray-800: #1F2C33;
+  --gray-900: #0C1519;
+  --green: #0F9D63;
+  --radius: 12px;
+  --radius-sm: 8px;
+  --red: #D14343;
+  --red-bg: #FBE3E3;
+  --red-text: #C0362F;
+  --shadow-hover: 0 8px 24px rgba(16,24,40,.10);
+  --surface: #FFFFFF;
+  --transition: 150ms ease;
+  --white: #FFFFFF;
+  --yellow-chart: #D9A02B;
+}
+
+@media (prefers-color-scheme: dark) {
+  :where(:root:not([data-theme="light"])) {
+    --amber: #F2A34E;
+    --amber-bg: #2E2410;
+    --amber-text: #F2A34E;
+    --black: #F1F5F2;
+    --blue-bg: #0E2433;
+    --blue-chart: #57B6E8;
+    --cap: #2DE0B4;
+    --cat-1: #2DE0B4;
+    --cat-2: #57B6E8;
+    --cat-3: #F2A34E;
+    --cat-4: #A78BFA;
+    --cat-5: #F0708F;
+    --cat-6: #4BD1D9;
+    --cat-7: #9DB4D8;
+    --cat-8: #E0B872;
+    --gold: #2DE0B4;
+    --gold-dark: #6FE9CE;
+    --gold-light: #0E2E2A;
+    --gray-100: #0A1824;
+    --gray-200: #17303F;
+    --gray-300: #3C5563;
+    --gray-400: #6E8592;
+    --gray-50: #0A1622;
+    --gray-500: #9DB4BF;
+    --gray-600: #A9BFC9;
+    --gray-700: #C4D2DA;
+    --gray-800: #E4EDF0;
+    --gray-900: #F4F8F5;
+    --green: #4BD98A;
+    --red: #FF6470;
+    --red-bg: #2E1416;
+    --red-text: #FF6470;
+    --shadow-hover: 0 12px 34px rgba(0,0,0,.5);
+    --surface: #0C1E2B;
+    --white: #0C1E2B;
+    --yellow-chart: #F2C14E;
+  }
+}
+:where(:root[data-theme="dark"]) {
+  --amber: #F2A34E;
+  --amber-bg: #2E2410;
+  --amber-text: #F2A34E;
+  --black: #F1F5F2;
+  --blue-bg: #0E2433;
+  --blue-chart: #57B6E8;
+  --cap: #2DE0B4;
+  --cat-1: #2DE0B4;
+  --cat-2: #57B6E8;
+  --cat-3: #F2A34E;
+  --cat-4: #A78BFA;
+  --cat-5: #F0708F;
+  --cat-6: #4BD1D9;
+  --cat-7: #9DB4D8;
+  --cat-8: #E0B872;
+  --gold: #2DE0B4;
+  --gold-dark: #6FE9CE;
+  --gold-light: #0E2E2A;
+  --gray-100: #0A1824;
+  --gray-200: #17303F;
+  --gray-300: #3C5563;
+  --gray-400: #6E8592;
+  --gray-50: #0A1622;
+  --gray-500: #9DB4BF;
+  --gray-600: #A9BFC9;
+  --gray-700: #C4D2DA;
+  --gray-800: #E4EDF0;
+  --gray-900: #F4F8F5;
+  --green: #4BD98A;
+  --red: #FF6470;
+  --red-bg: #2E1416;
+  --red-text: #FF6470;
+  --shadow-hover: 0 12px 34px rgba(0,0,0,.5);
+  --surface: #0C1E2B;
+  --white: #0C1E2B;
+  --yellow-chart: #F2C14E;
+}
