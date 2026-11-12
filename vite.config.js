@@ -1,7 +1,7 @@
 import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 
-// `vite build --mode lib`: the library (one ESM file), dependencies left external.
+// `vite build --mode lib`: the library (ESM: the full entry and the pure core), dependencies left external.
 // `vite build --mode demo`: the gallery as a static site (GitHub Pages).
 export default defineConfig(({ mode }) => {
   if (mode === 'lib') {
@@ -10,7 +10,7 @@ export default defineConfig(({ mode }) => {
       publicDir: false, // the gallery's favicon has no place in the package
       build: {
         outDir: 'dist',
-        lib: { entry: 'src/index.js', formats: ['es'], fileName: () => 'epure-charts.js' },
+        lib: { entry: { 'epure-charts': 'src/index.js', core: 'src/core.js' }, formats: ['es'], fileName: (_, name) => `${name}.js` },
         rollupOptions: {
           external: [/^react($|\/)/, /^react-dom($|\/)/, /^@tabler\/icons-react/, /^d3-/, /^jspreadsheet-ce/, /^jsuites/],
         },

@@ -48,7 +48,13 @@ Bankers, consultants and investors spend their nights on charts: an EBITDA bridg
 npm install github:trimegix/epure-charts
 ```
 
-The package builds itself on install (`prepare`). Pin a release with `github:trimegix/epure-charts#v0.1.0`.
+The package builds itself on install (`prepare`). Pin a release with `github:trimegix/epure-charts#v0.1.1`.
+
+The pure engine (specs, scenes, number formats, data sheet model) is also available alone, with no React or CSS import, for Node scripts and tests:
+
+```js
+import { validateSpec, buildWaterfallScene } from 'epure-charts/core'
+```
 
 ```jsx
 import { ChartView } from 'epure-charts'

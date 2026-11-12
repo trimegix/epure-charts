@@ -5,8 +5,9 @@
 // The list itself is private and never committed: one regular expression per line
 // (case-insensitive, `#` starts a comment), read from $FORBIDDEN_WORDS_FILE or, by
 // default, from .git/info/forbidden-words. Without a list, the check is skipped.
+import { execFileSync } from 'node:child_process'
 import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs'
-import { join, relative } from 'node:path'
+import { basename, join, relative } from 'node:path'
 
 const listFile = process.env.FORBIDDEN_WORDS_FILE || join(process.cwd(), '.git', 'info', 'forbidden-words')
 if (!existsSync(listFile)) {
@@ -22,7 +23,17 @@ const WORDS = readFileSync(listFile, 'utf8')
 const SKIP = new Set(['node_modules', '.git', 'dist', 'demo-dist', 'coverage'])
 const TEXT = /\.(m?js|jsx|ts|tsx|css|json|md|ya?ml|html|txt|svg)$|^(LICENSE|\.gitignore|\.npmignore)$/i
 
+// The files that can be committed: tracked or untracked, minus what git ignores
+// (.gitignore and .git/info/exclude). Outside a git checkout, every file.
 function* files(dir) {
+  let listed = null
+  try {
+    listed = execFileSync('git', ['ls-files', '--cached', '--others', '--exclude-standard', '-z'], { cwd: dir, encoding: 'utf8' })
+  } catch { /* not a git checkout */ }
+  if (listed !== null) {
+    for (const p of listed.split('\0')) if (p && TEXT.test(basename(p)) && existsSync(join(dir, p))) yield join(dir, p)
+    return
+  }
   for (const name of readdirSync(dir)) {
     if (SKIP.has(name)) continue
     const p = join(dir, name)

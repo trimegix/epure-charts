@@ -1,2 +1,4 @@
 #!/bin/sh
 node scripts/forbidden-words.mjs || exit 1
+# No secret in a commit (gitleaks, when installed).
+if command -v gitleaks >/dev/null 2>&1; then gitleaks git --staged --no-banner --redact --exit-code 1 || exit 1; fi

@@ -1,6 +1,6 @@
 {
   "name": "epure-charts",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Business charts for React, built for bankers, consultants and investors: waterfalls (bridges), Mekko, Gantt, CAGR and difference arrows, Harvey balls. Click to format, right-click to annotate, edit the numbers in a built-in data sheet.",
   "keywords": [
     "react",
@@ -46,6 +46,7 @@
   "module": "./dist/epure-charts.js",
   "exports": {
     ".": "./dist/epure-charts.js",
+    "./core": "./dist/core.js",
     "./styles.css": "./styles/charts.css",
     "./theme.css": "./styles/tokens.css"
   },
