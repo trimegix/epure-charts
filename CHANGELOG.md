@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.2.0
 
 - **Static rendering.** Every view draws through a hook-free figure (`ChartFigure`,
   `WaterfallFigure`, `BarhFigure`, `PieFigure`, `ScatterFigure`, `MekkoFigure`, `GanttFigure`,
