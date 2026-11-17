@@ -27,6 +27,12 @@ export const COLOR_TOKENS = ['cat-1', 'cat-2', 'cat-3', 'cat-4', 'cat-5', 'cat-6
 // Neutral and semantic tokens. Accepted in any spec; the editor palette may still
 // choose to offer only the categorical tokens.
 export const NEUTRAL_TOKENS = ['black', 'gray-800', 'gray-700', 'gray-600', 'gray-500', 'gray-400', 'gray-300', 'gold', 'blue-chart', 'green', 'red', 'amber', 'yellow-chart']
+// Semantic tokens (customStyle.js SEMANTIC_TOKENS): themable by the host as --chart-*.
+export const SEMANTIC_COLOR_TOKENS = ['chart-pos', 'chart-neg', 'chart-accent', 'chart-hypothesis', 'chart-hypothesis-text', 'chart-anchor', 'chart-upside', 'chart-gap', 'chart-actual', 'chart-plan', 'chart-ic', 'chart-budget', 'chart-forecast', 'chart-neutral', 'chart-neutral-ink']
+// Languages of the engine's own words and number punctuation (locale.js).
+export const LOCALES = ['en', 'fr']
+// 'single': everything neutral but what `emphasis` names (the consulting default).
+export const ACCENT_MODES = ['palette', 'single']
 export const ANNOTATION_TYPES = ['diff', 'cagr', 'valueLine', 'totals', 'xMarker', 'extremes', 'band', 'callout', 'average']
 
 // 'level': the axis reads amounts; 'gap': zero is the starting point, the axis reads signed gaps.
@@ -76,7 +82,19 @@ export function roleOfRef(ref, sourceRoles = DEFAULT_SOURCE_ROLES) {
 const isObj = v => v != null && typeof v === 'object' && !Array.isArray(v)
 const isStr = v => typeof v === 'string' && v.length > 0
 const oneOf = (list, v) => list.includes(v)
-const tokenOk = t => oneOf(COLOR_TOKENS, t) || oneOf(NEUTRAL_TOKENS, t) || oneOf(ROLES, t) || isHex(t)
+const tokenOk = t => oneOf(COLOR_TOKENS, t) || oneOf(NEUTRAL_TOKENS, t) || oneOf(SEMANTIC_COLOR_TOKENS, t) || oneOf(ROLES, t) || isHex(t)
+
+// The base of a figure: sample (n = 42 deals), period, scope (perimeter).
+export const BASE_KEYS = ['sample', 'period', 'scope']
+
+/** The provenance of a spec, as the page or a deck will print it: { source, note, base } (null fields left out). */
+export function provenanceOf(spec) {
+  const out = {}
+  if (isStr(spec?.source)) out.source = spec.source
+  if (isStr(spec?.note)) out.note = spec.note
+  if (isObj(spec?.base)) { const b = Object.fromEntries(Object.entries(spec.base).filter(([k, v]) => oneOf(BASE_KEYS, k) && v != null && v !== '')); if (Object.keys(b).length) out.base = b }
+  return out
+}
 
 // A range bound: 'YYYY', 'YYYY-Qn' or 'YYYY-MM' (time grain).
 const BOUND_RE = /^\d{4}(-Q[1-4]|-\d{2})?$/
@@ -107,6 +125,24 @@ export function validateSpec(spec, opts = {}) {
   if (spec.scope != null && typeof spec.scope !== 'string') err('scope', 'must be a string')
   if (spec.owner != null && typeof spec.owner !== 'string') err('owner', 'must be a string')
   if (spec.subject != null && !isObj(spec.subject)) err('subject', 'must be an object')
+
+  // Provenance: travels with the data, never drawn by the figure (the page writes the
+  // title and the footer from it, a deck exporter too).
+  if (spec.source != null && typeof spec.source !== 'string') err('source', 'must be a string')
+  if (spec.note != null && typeof spec.note !== 'string') err('note', 'must be a string')
+  if (spec.base != null) {
+    if (!isObj(spec.base)) err('base', 'an object { sample?, period?, scope? }')
+    else for (const k of Object.keys(spec.base)) {
+      if (!oneOf(BASE_KEYS, k)) err(`base.${k}`, `unknown (one of ${BASE_KEYS.join(', ')})`)
+      else if (spec.base[k] != null && typeof spec.base[k] !== 'string' && !Number.isFinite(spec.base[k])) err(`base.${k}`, 'a string or a number')
+    }
+  }
+  if (spec.description != null && typeof spec.description !== 'string') err('description', 'must be a string')
+
+  // Reading: language, single accent.
+  if (spec.locale != null && !oneOf(LOCALES, spec.locale)) err('locale', `one of ${LOCALES.join(', ')}`)
+  if (spec.accent != null && !oneOf(ACCENT_MODES, spec.accent)) err('accent', `one of ${ACCENT_MODES.join(', ')}`)
+  if (spec.emphasis != null && !Array.isArray(spec.emphasis)) err('emphasis', 'an array of keys (series, steps, rows…)')
 
   if (!oneOf(KINDS, spec.kind)) err('kind', `one of ${KINDS.join(', ')}`)
 

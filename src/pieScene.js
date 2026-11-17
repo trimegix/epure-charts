@@ -26,6 +26,9 @@ import { pie as d3pie, arc as d3arc } from 'd3-shape'
 import { estimateWidth, defaultFormat } from './scene.js'
 import { roundToSum } from './numberStyle.js'
 import { inkOn, labelMetrics } from './customStyle.js'
+import { localeOf, localizedFormat, localizeNumber, t } from './locale.js'
+import { accentColor, accentInk } from './accent.js'
+import { stamp } from './figureMeta.js'
 
 const CAT = ['cat-1', 'cat-2', 'cat-3', 'cat-4', 'cat-5', 'cat-6', 'cat-7', 'cat-8']
 const LABEL = 11
@@ -33,7 +36,7 @@ const LEGEND_ROW = 18
 
 /** The effective slices: positive, sorted, small slices grouped. */
 export function pieSlices(spec = {}, slicesIn = []) {
-  let s = slicesIn.filter(x => x && Number.isFinite(x.value) && x.value > 0).map((x, i) => ({ ...x, color: x.color ?? CAT[i % CAT.length] }))
+  let s = slicesIn.filter(x => x && Number.isFinite(x.value) && x.value > 0).map((x, i) => ({ ...x, color: accentColor(spec, x.key, x.color ?? CAT[i % CAT.length]) }))
   if (spec.sort === 'desc') s = [...s].sort((a, b) => b.value - a.value)
   if (spec.sort === 'asc') s = [...s].sort((a, b) => a.value - b.value)
   const total = s.reduce((t, x) => t + x.value, 0)
@@ -41,7 +44,7 @@ export function pieSlices(spec = {}, slicesIn = []) {
     const small = s.filter(x => x.value / total < spec.other)
     if (small.length > 1) {
       s = s.filter(x => !small.includes(x))
-      s.push({ key: '__other__', label: `Other (${small.length})`, value: small.reduce((t, x) => t + x.value, 0), color: 'gray-400', members: small.map(x => x.key) })
+      s.push({ key: '__other__', label: `${t('Other', localeOf(spec))} (${small.length})`, value: small.reduce((t, x) => t + x.value, 0), color: accentColor(spec, '__other__', 'gray-400'), members: small.map(x => x.key) })
     }
   }
   return { slices: s, total }
@@ -50,20 +53,21 @@ export function pieSlices(spec = {}, slicesIn = []) {
 export function buildPieScene(spec = {}, slicesIn = [], opts = {}) {
   const width = Math.max(200, Math.round(opts.width ?? 480))
   const height = Math.max(160, Math.round(opts.height ?? 280))
-  const format = opts.format ?? defaultFormat
+  const L = localeOf(spec)
+  const format = localizedFormat(opts.format ?? defaultFormat, L)
   const LM = labelMetrics(opts.labelStyle ?? spec, LABEL)
   const LS = LM.size
   // Baseline of a label centered on y (4 px at the default size).
   const BL = LM.base ? 4 : Math.round(LS * 0.35)
   const { slices, total } = pieSlices(spec, slicesIn)
   const base = { width, height, arcs: [], labels: [], leaders: [], center: null, legend: [], handles: null, noRoom: 0, empty: !slices.length || !(total > 0) }
-  if (base.empty) return base
+  if (base.empty) return stamp(base, 'pie', spec)
 
   const content = spec.content ?? 'share'
   // Consistent rounding: the displayed shares sum exactly to 100 %.
   const rounded = roundToSum(slices.map(s => (s.value / total) * 100), spec.decimals ?? 0)
   const byKey = Object.fromEntries(slices.map((s, i) => [s.key, rounded[i]]))
-  const pct = (v, key) => `${(key != null ? byKey[key] : (v / total) * 100).toFixed(spec.decimals ?? 0)}%`
+  const pct = (v, key) => localizeNumber(`${(key != null ? byKey[key] : (v / total) * 100).toFixed(spec.decimals ?? 0)}%`, L)
   const textOf = s => ({
     share: pct(s.value, s.key), value: format(s.value), both: `${format(s.value)} (${pct(s.value, s.key)})`,
     name: s.label, nameShare: `${s.label} ${pct(s.value, s.key)}`,
@@ -138,7 +142,7 @@ export function buildPieScene(spec = {}, slicesIn = [], opts = {}) {
         // A large size with no free spot: the label is left out rather than overlapping.
         if (!pos) { base.noRoom++; continue }
         placed.push(pos.box)
-        base.labels.push({ key: a.key, x: pos.x, y: pos.y + BL, text, anchor: 'middle', color: inkOn(a.color), inner: true,
+        base.labels.push({ key: a.key, x: pos.x, y: pos.y + BL, text, anchor: 'middle', color: accentInk(spec, a.color) ?? inkOn(a.color), inner: true,
           ...(boxed ? { box: { x: pos.box.x0, y: pos.box.y0, w: w, h: h, fill: a.color } } : {}) })
         continue
       }
@@ -206,7 +210,7 @@ export function buildPieScene(spec = {}, slicesIn = [], opts = {}) {
 
   // The center text is only written if it fits in the hole (never over the slices).
   const fitsHole = t => t == null || estimateWidth(String(t), 13) <= r0 * 1.7
-  if (r0 > 0 && spec.total && fitsHole(format(total))) base.center = { x: cx, y: cy, text: format(total), sub: fitsHole(spec.centerTitle || spec.totalLabel || 'Total') ? spec.centerTitle || spec.totalLabel || 'Total' : null }
+  if (r0 > 0 && spec.total && fitsHole(format(total))) base.center = { x: cx, y: cy, text: format(total), sub: fitsHole(spec.centerTitle || spec.totalLabel || t('Total', L)) ? spec.centerTitle || spec.totalLabel || t('Total', L) : null }
   else if (r0 > 0 && spec.centerTitle && fitsHole(spec.centerTitle)) base.center = { x: cx, y: cy + 5, text: null, sub: null, title: spec.centerTitle }
   // Handles: rotation on the edge, at the start angle; doughnut hole on the same radius.
   base.handles = {
@@ -220,7 +224,7 @@ export function buildPieScene(spec = {}, slicesIn = [], opts = {}) {
     const per = Math.max(1, Math.floor(width / 140))
     base.legend = base.arcs.map((a, i) => ({ key: a.key, label: a.label, color: a.color, x: (i % per) * 140, y: areaH + Math.floor(i / per) * LEGEND_ROW + 9 }))
   }
-  return base
+  return stamp(base, 'pie', spec)
 }
 
 /** The start angle (degrees, 0 = noon) pointed at (x, y); snapped to 0 / 90 / 180 / 270 within ±6°. */

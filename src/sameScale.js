@@ -49,7 +49,8 @@ export function breakFor(unit) {
   return null
 }
 export function useSameScaleVersion() {
-  return useSyncExternalStore(fn => { listeners.add(fn); return () => listeners.delete(fn) }, () => version)
+  // Third argument: the server snapshot (no shared scale while rendering on the server).
+  return useSyncExternalStore(fn => { listeners.add(fn); return () => listeners.delete(fn) }, () => version, () => 0)
 }
 
 /** How many charts share this scale (same group, same unit). */

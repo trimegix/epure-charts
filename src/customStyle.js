@@ -48,8 +48,49 @@ export function resolveColor(c, read) {
 }
 export const resolveColors = (colors, read) => (Array.isArray(colors) ? colors.map(c => resolveColor(c, read)) : [])
 
-/** A color (token or hex) → its CSS value. */
-export const tok = c => (isHex(c) ? c : `var(--${c})`)
+// Semantic chart tokens: what a color MEANS (a gain, a drag, the plan…), themable by the
+// host as --chart-*; each falls back on the engine palette when the host leaves it unset.
+export const SEMANTIC_TOKENS = Object.freeze({
+  'chart-pos': 'green', // value created, a positive step
+  'chart-neg': 'red', // a drag, a negative step
+  'chart-accent': 'gold', // the one highlighted element
+  'chart-hypothesis': 'gold', // a hypothesis (plan, target, assumption)
+  'chart-hypothesis-text': 'gold-dark',
+  'chart-anchor': 'black', // totals and anchors of a bridge
+  'chart-upside': 'blue-chart',
+  'chart-gap': 'amber', // unreconciled
+  'chart-actual': 'gray-700',
+  'chart-plan': 'gold',
+  'chart-ic': 'blue-chart',
+  'chart-budget': 'gray-600',
+  'chart-forecast': 'gray-300',
+  'chart-neutral': 'gray-300', // everything but the accent, in single-accent mode
+  'chart-neutral-ink': 'gray-500',
+})
+export const isSemantic = c => Object.prototype.hasOwnProperty.call(SEMANTIC_TOKENS, c)
+/** A semantic token → the palette token it stands for by default (other colors unchanged). */
+export const baseToken = c => (isSemantic(c) ? SEMANTIC_TOKENS[c] : c)
+
+/** A color (token or hex) → its CSS value. A semantic token keeps its palette fallback. */
+export const tok = c => (isHex(c) ? c : isSemantic(c) ? `var(--${c}, var(--${SEMANTIC_TOKENS[c]}))` : `var(--${c})`)
+
+// ── Font sizes as tokens ──────────────────────────────────────────────────────
+// Layout is computed at the engine's default sizes (11 px body, 10 px notes); the drawn
+// size follows --chart-fs / --chart-fs-note, so a host can align the figures with its
+// own type scale. Unset, the result is exactly the px size the layout assumed.
+const FS_BASE = 11
+const FS_NOTE = 10
+const k3 = x => Math.round(x * 1000) / 1000
+/** A body text size in px → its CSS value, scaled by --chart-fs. */
+export function fs(px = FS_BASE) {
+  if (!Number.isFinite(px)) return px
+  return px === FS_BASE ? `var(--chart-fs, ${FS_BASE}px)` : `calc(var(--chart-fs, ${FS_BASE}px) * ${k3(px / FS_BASE)})`
+}
+/** A note size (source, footnote, axis notes) in px → its CSS value, scaled by --chart-fs-note. */
+export function fsNote(px = FS_NOTE) {
+  if (!Number.isFinite(px)) return px
+  return px === FS_NOTE ? `var(--chart-fs-note, ${FS_NOTE}px)` : `calc(var(--chart-fs-note, ${FS_NOTE}px) * ${k3(px / FS_NOTE)})`
+}
 
 /** A color safe inside an SVG id (patterns): a hex's '#' is left out. */
 export const colorId = c => String(c).replace(/^#/, 'x')

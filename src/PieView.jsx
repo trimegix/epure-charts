@@ -8,6 +8,7 @@
 // outside labels can be dragged (Reset in the labels menu).
 import { useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { IconPalette, IconChartPie, IconChartDonut, IconTag, IconLayoutList } from '@tabler/icons-react'
+import PieFigure from './PieFigure.jsx'
 import { buildPieScene, pieStartFromPoint, pieStartFromHandle, pieHoleFromPoint } from './pieScene.js'
 import { Seg, Check, Line, Swatches, Field } from './ChartWheel'
 import FormatBar from './FormatBar'
@@ -25,17 +26,19 @@ import { SchemeTools, TextStyle } from './CustomStyle.jsx'
 const PALETTE = [...COLOR_TOKENS, ...NEUTRAL_TOKENS]
 const DEFAULTS = { donut: null, sort: null, start: null, direction: null, centerTitle: null, labelOffsets: null, other: null, total: null, labels: null, content: null, decimals: null, legend: null, explode: [], colors: {} }
 
-function useWidth(ref) {
-  const [w, setW] = useState(0)
+// The drawing width: the `width` prop when given (no measuring: server rendering,
+// static pages), else the box's width, followed with a ResizeObserver.
+function useWidth(ref, fixed) {
+  const [w, setW] = useState(fixed ?? 0)
   useLayoutEffect(() => {
     const el = ref.current
-    if (!el) return undefined
+    if (!el || fixed != null) return undefined
     setW(Math.round(el.getBoundingClientRect().width))
     const ro = new ResizeObserver(([e]) => setW(Math.round(e.contentRect.width)))
     ro.observe(el)
     return () => ro.disconnect()
-  }, [ref])
-  return w
+  }, [ref, fixed])
+  return fixed ?? w
 }
 
 /** Follows the pointer until release; onMove(x, y, ev) in SVG coordinates. */
@@ -47,11 +50,16 @@ function track(e, onMove, onEnd) {
   window.addEventListener('pointermove', move); window.addEventListener('pointerup', up)
 }
 
-export default function PieView({ id = 'pie', spec: baseSpec = {}, slices: slicesIn = [], format, height = 280, label = 'Pie chart' }) {
+// width: fixed drawing width (no measuring; also the first width on hydration).
+// readOnly: the figure only: no format bar, menus, data sheet or per-browser preferences.
+// responsive: the SVG scales to its container (width="100%", ratio kept).
+export default function PieView({ id = 'pie', spec: baseSpec = {}, slices: slicesIn = [], format, height = 280, label = 'Pie chart', width: widthProp, readOnly = false, responsive = false, dataTable = false }) {
   const boxRef = useRef(null)
   const movedRef = useRef(false)
-  const width = useWidth(boxRef)
-  const { prefs: P, set, update, reset, undo, canUndo } = useViewPrefs(`epure-chart-pie-${id}`, DEFAULTS)
+  const width = useWidth(boxRef, widthProp)
+  const prefsApi = useViewPrefs(`epure-chart-pie-${id}`, DEFAULTS)
+  const { set, update, reset, undo, canUndo } = prefsApi
+  const P = readOnly ? DEFAULTS : prefsApi.prefs
   const spec = {
     ...baseSpec,
     ...Object.fromEntries(Object.entries(P).filter(([k, v]) => v != null && !['explode', 'colors'].includes(k))),
@@ -60,7 +68,7 @@ export default function PieView({ id = 'pie', spec: baseSpec = {}, slices: slice
   // The sheet drives the chart: the drawn slices are the ones it returns (source + edits).
   const sheetBase = useMemo(() => pieSheet.toBase(slicesIn), [slicesIn])
   const sheetApi = useSheet(`pie-${id}`, sheetBase, pieSheet.validate)
-  const slices = pieSheet.fromSheet(sheetApi.sheet, slicesIn)
+  const slices = readOnly ? slicesIn : pieSheet.fromSheet(sheetApi.sheet, slicesIn)
   const data = slices.map(s => (P.colors?.[s.key] ? { ...s, color: P.colors[s.key] } : s))
   const specKey = JSON.stringify(spec)
   const scene = useMemo(() => (width > 0 ? buildPieScene(spec, data, { width, height, format }) : null), [specKey, data, width, height, format]) // eslint-disable-line react-hooks/exhaustive-deps
@@ -191,6 +199,37 @@ export default function PieView({ id = 'pie', spec: baseSpec = {}, slices: slice
   const pickLabels = e => { if (e.type === 'click' && movedRef.current) { movedRef.current = false; return } setObj(null); open(e, { obj: 'labels' }) }
   const handlesOn = pick?.obj === 'chart' || cur === 'chart'
 
+  const sel = (kind, key) => pick?.obj === kind && (key == null || pick.key === key)
+  const pickSlice = (e, a) => { setObj(null); open(e, { obj: 'slice', key: a.key }) }
+  const part = readOnly ? undefined : (kind, it) => {
+    if (kind === 'slice') return {
+      stroke: sel('slice', it.key) ? tok('gold') : tok('surface'), strokeWidth: sel('slice', it.key) ? 2 : 1,
+      className: `chart-engine-clickable${sel('slice', it.key) ? ' is-selected' : ''}`, tabIndex: 0, role: 'button',
+      'aria-label': `${it.label}: ${(it.share * 100).toFixed(1)}%`,
+      onClick: e => pickSlice(e, it), onContextMenu: e => pickSlice(e, it),
+      onKeyDown: e => { if (e.key === 'Enter') pickSlice({ ...e, type: 'click', clientX: 0, clientY: 0, preventDefault: () => e.preventDefault(), stopPropagation: () => {} }, it) },
+    }
+    if (kind === 'label') return {
+      pointerEvents: it.color === 'white' ? 'none' : undefined,
+      className: `chart-engine-clickable${it.ax != null ? ' chart-engine-draglabel' : ''}${sel('labels') ? ' is-selected' : ''}`,
+      onPointerDown: e => dragLabel(e, it), onClick: pickLabels, onContextMenu: pickLabels,
+    }
+    if (kind === 'legend') return {
+      className: `chart-engine-legend chart-engine-clickable${sel('legend') ? ' is-selected' : ''}`,
+      onClick: e => { setObj(null); open(e, { obj: 'legend' }) }, onContextMenu: e => { setObj(null); open(e, { obj: 'legend' }) },
+    }
+    return null
+  }
+
+  if (readOnly) {
+    return (
+      <div ref={boxRef} className="chart-engine chart-engine-box">
+        {scene?.empty && <div className="chart-engine-empty">No data for this chart yet.</div>}
+        <PieFigure scene={scene} label={label} responsive={responsive} dataTable={dataTable} />
+      </div>
+    )
+  }
+
   return (
     <div ref={boxRef} className="chart-engine chart-engine-box" onContextMenu={e => { if (!e.defaultPrevented) open(e, { obj: 'chart' }) }} onDoubleClick={e => { if (!e.target.closest?.('.chart-datasheet, .chart-wheel, .chart-pop')) { close(); setObj(null); sheetApi.setSheetOpen(true) } }}>
       <EditedNote api={sheetApi} />
@@ -200,34 +239,7 @@ export default function PieView({ id = 'pie', spec: baseSpec = {}, slices: slice
       </div>
       {scene?.empty && <div className="chart-engine-empty">No data for this chart yet.</div>}
       {scene && !scene.empty && (
-        <svg width={scene.width} height={scene.height} role="img" aria-label={label} className="chart-pie">
-          {scene.arcs.map(a => (
-            <path key={a.key} d={a.d} transform={`translate(${a.tx},${a.ty})`} fill={tok(a.color)}
-              stroke={pick?.obj === 'slice' && pick.key === a.key ? tok('gold') : tok('surface')} strokeWidth={pick?.obj === 'slice' && pick.key === a.key ? 2 : 1}
-              className={`chart-engine-clickable${pick?.obj === 'slice' && pick.key === a.key ? ' is-selected' : ''}`} tabIndex={0} role="button"
-              aria-label={`${a.label}: ${(a.share * 100).toFixed(1)}%`}
-              onClick={e => { setObj(null); open(e, { obj: 'slice', key: a.key }) }} onContextMenu={e => { setObj(null); open(e, { obj: 'slice', key: a.key }) }}
-              onKeyDown={e => { if (e.key === 'Enter') { setObj(null); open({ ...e, type: 'click', clientX: 0, clientY: 0, preventDefault: () => e.preventDefault(), stopPropagation: () => {} }, { obj: 'slice', key: a.key }) } }}>
-              <title>{`${a.label}: ${(a.share * 100).toFixed(1)}%`}</title>
-            </path>
-          ))}
-          {scene.leaders.map(l => <path key={`l-${l.key}`} d={l.d} fill="none" stroke={tok('gray-400')} strokeWidth={1} pointerEvents="none" />)}
-          {/* Inside label larger than its slice: a background in the slice color underneath. */}
-          {scene.labels.filter(l => l.box).map(l => <rect key={`b-${l.key}`} x={l.box.x} y={l.box.y} width={l.box.w} height={l.box.h} rx={2} fill={tok(l.box.fill)} stroke={tok('surface')} strokeWidth={1} pointerEvents="none" />)}
-          {scene.labels.map(l => (
-            <text key={`t-${l.key}`} x={l.x} y={l.y} textAnchor={l.anchor} fill={tok(l.color)} fontWeight={600}
-              pointerEvents={l.color === 'white' ? 'none' : undefined}
-              className={`chart-engine-clickable${l.ax != null ? ' chart-engine-draglabel' : ''}${pick?.obj === 'labels' ? ' is-selected' : ''}`}
-              onPointerDown={e => dragLabel(e, l)} onClick={pickLabels} onContextMenu={pickLabels}
-              style={{ fontSize: 11, fontFamily: 'var(--font-mono)', ...labelTextStyle(P), ...(l.size ? { fontSize: l.size } : {}) }}>{l.text}</text>
-          ))}
-          {scene.center && (
-            <g pointerEvents="none">
-              {scene.center.text && <text x={scene.center.x} y={scene.center.y} textAnchor="middle" fill={tok('black')} fontWeight={600} style={{ fontSize: 16, fontFamily: 'var(--font-mono)' }}>{scene.center.text}</text>}
-              {scene.center.sub && <text x={scene.center.x} y={scene.center.y + 16} textAnchor="middle" fill={tok('gray-500')} style={{ fontSize: 11 }}>{scene.center.sub}</text>}
-              {scene.center.title && <text x={scene.center.x} y={scene.center.y} textAnchor="middle" fill={tok('gray-700')} fontWeight={600} style={{ fontSize: 13 }}>{scene.center.title}</text>}
-            </g>
-          )}
+        <PieFigure scene={scene} label={label} responsive={responsive} dataTable={dataTable} labelStyle={labelTextStyle(P)} part={part}>
           {dragTip && <text x={dragTip.x + 12} y={dragTip.y - 10} fill={tok('black')} fontWeight={600} stroke={tok('surface')} strokeWidth={3} paintOrder="stroke" pointerEvents="none" style={{ fontSize: 11, fontFamily: 'var(--font-mono)' }}>{dragTip.text}</text>}
           {pick?.obj === 'slice' && scene.arcs.find(a => a.key === pick.key)?.handles.map((h, i) => (
             <rect key={`sh-${i}`} x={h.x - 3.5} y={h.y - 3.5} width={7} height={7} className="chart-engine-knob is-on chart-engine-handle--rotate" onPointerDown={e => dragSliceEdge(e, h)}>
@@ -242,16 +254,7 @@ export default function PieView({ id = 'pie', spec: baseSpec = {}, slices: slice
               <title>{`Drag to size the hole (${Math.round((spec.donut ?? 0) * 100)}%)`}</title>
             </rect>
           </g>
-          <g className={`chart-engine-legend chart-engine-clickable${pick?.obj === 'legend' ? ' is-selected' : ''}`}
-            onClick={e => { setObj(null); open(e, { obj: 'legend' }) }} onContextMenu={e => { setObj(null); open(e, { obj: 'legend' }) }}>
-            {scene.legend.map(it => (
-              <g key={it.key} transform={`translate(${it.x},0)`}>
-                <rect x={0} y={it.y - 5} width={10} height={10} rx={2} fill={tok(it.color)} />
-                <text x={16} y={it.y} dominantBaseline="central" style={{ fontSize: 11 }}>{it.label}</text>
-              </g>
-            ))}
-          </g>
-        </svg>
+        </PieFigure>
       )}
       {pick && (
         <FormatBar onOpenSheet={() => sheetApi.setSheetOpen(true)} key={`${pick.mode}|${pick.obj}|${pick.key}`} mode={pick.mode} anchor={pick.anchor} objects={objects} object={cur}

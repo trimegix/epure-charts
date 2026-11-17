@@ -30,6 +30,7 @@ function keysOf(spec, resolved) {
 
 // The sheet layout the user saved as default ("Use this layout as my default").
 function userLayout() {
+  if (typeof window === 'undefined') return {} // server rendering: no per-browser layout
   try { return Object.fromEntries(Object.entries(JSON.parse(localStorage.getItem('epure-chart-sheet-layout') ?? '{}')).filter(([, v]) => v != null)) } catch { return {} }
 }
 

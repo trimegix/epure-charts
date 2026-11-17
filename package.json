@@ -61,7 +61,7 @@
     "build": "vite build --mode lib",
     "build:demo": "vite build --mode demo",
     "prepare": "vite build --mode lib",
-    "test": "node --test 'src/*.test.mjs'",
+    "test": "node --import ./scripts/jsx-register.mjs --test 'src/*.test.mjs'",
     "lint": "eslint .",
     "check:words": "node scripts/forbidden-words.mjs",
     "check": "npm run check:words && npm run lint && npm test && npm run build",

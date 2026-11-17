@@ -11,7 +11,8 @@ function subscribe(fn) { listeners.add(fn); return () => listeners.delete(fn) }
 function read(key, defaults) {
   if (!cache.has(key)) {
     let stored = {}
-    try { stored = JSON.parse(localStorage.getItem(key) ?? '{}') ?? {} } catch { /* private mode */ }
+    // Server rendering (no window): the defaults, the browser reads its own on hydration.
+    if (typeof window !== 'undefined') try { stored = JSON.parse(window.localStorage.getItem(key) ?? '{}') ?? {} } catch { /* private mode */ }
     cache.set(key, { ...defaults, ...stored })
   }
   return cache.get(key)
@@ -34,7 +35,7 @@ export function endStep() { gesture = null; lastPush = { key: null, at: 0 } }
 
 function persist(key, next) {
   cache.set(key, next)
-  try { localStorage.setItem(key, JSON.stringify(next)) } catch { /* quota / private mode */ }
+  if (typeof window !== 'undefined') try { window.localStorage.setItem(key, JSON.stringify(next)) } catch { /* quota / private mode */ }
   for (const fn of listeners) fn()
 }
 

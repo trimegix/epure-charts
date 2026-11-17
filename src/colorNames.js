@@ -12,6 +12,9 @@ export function colorName(token) {
   if (token == null || token === '') return 'auto'
   const t = String(token)
   if (NAMES[t]) return NAMES[t]
+  if (t === 'chart-accent') return 'accent'
+  if (t === 'chart-neutral' || t === 'chart-neutral-ink') return 'neutral'
+  if (/^chart-/.test(t)) return t.slice(6).replace(/-/g, ' ')
   if (/^gray-/.test(t)) return Number(t.slice(5)) >= 600 ? 'dark gray' : 'gray'
   if (/-bg$/.test(t)) return `light ${t.replace(/-bg$/, '')}`
   return t.replace(/-/g, ' ')
