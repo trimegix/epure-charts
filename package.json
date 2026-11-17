@@ -47,12 +47,14 @@
   "exports": {
     ".": "./dist/epure-charts.js",
     "./core": "./dist/core.js",
+    "./static": "./dist/static.js",
     "./styles.css": "./styles/charts.css",
     "./theme.css": "./styles/tokens.css"
   },
   "files": [
     "dist",
     "styles",
+    "docs",
     "README.md",
     "LICENSE"
   ],
@@ -64,8 +66,9 @@
     "test": "node --import ./scripts/jsx-register.mjs --test 'src/*.test.mjs'",
     "lint": "eslint .",
     "check:words": "node scripts/forbidden-words.mjs",
-    "check": "npm run check:words && npm run lint && npm test && npm run build",
-    "prepublishOnly": "npm run check"
+    "check": "npm run check:words && npm run lint && npm test && npm run build && npm run check:static",
+    "prepublishOnly": "npm run check",
+    "check:static": "node scripts/check-static.mjs"
   },
   "peerDependencies": {
     "react": ">=18",

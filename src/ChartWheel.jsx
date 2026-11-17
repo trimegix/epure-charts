@@ -28,7 +28,7 @@ import { cardGeometry } from './cardGeometry'
 import { useWheelPlacement } from './useWheelPlacement'
 import { SEPARATORS, parseExample } from './numberStyle'
 import { colorName } from './colorNames'
-import { tok } from './customStyle.js'
+import { tok, baseToken } from './customStyle.js'
 import { CustomColor, FontPick, PtField, SchemeTools } from './CustomStyle.jsx'
 import { undoLast, canUndo } from './chartPrefs'
 import { useCompactLevel, compactList, compactValue } from './compactBar.jsx'
@@ -350,7 +350,7 @@ function ChartWheelInner({ api, pick = {}, anchor, onClose, onMode, extra = [], 
   const n = shown.length
   const mark = api.markOf(sid)
   const st = api.styleOf(sid)
-  const tokenOf = c => ROLE_TOKEN[c] ?? c
+  const tokenOf = c => baseToken(ROLE_TOKEN[c] ?? c)
   const multi = api.series.length > 1
   const at = k => shown.indexOf(k)
   const seriesName = id => api.series.find(s => s.value === id)?.label ?? id

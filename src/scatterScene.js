@@ -25,6 +25,8 @@
 //   markers?: 'group'      one shape per group (marker scheme)
 //   front?: [keys], back?: [keys]   drawing order (foreground / background)
 //   dataFill?: false       ignore the sheet's colors (point.color)
+//   locale?: 'en'|'fr'     ticks, labels, trend equation and R² in the chart's language
+//   accent?: 'single', emphasis?: [point keys or group names]   one accent color, the rest neutral
 // }
 // points: [{ key, label, x, y, size?, group?, color? }]; groups → categorical colors.
 // spec.labelPt / spec.labelFont (or opts.labelStyle; "Style" control): labels are measured
@@ -34,6 +36,9 @@ import { scaleLinear, scaleLog, scaleSqrt } from 'd3-scale'
 import { estimateWidth, defaultFormat } from './scene.js'
 import { labelMetrics } from './customStyle.js'
 import { segmentHitsBox } from './labelLayout.js'
+import { localeOf, localizedFormat, localizeNumber, t } from './locale.js'
+import { accentColor, emphasisOf } from './accent.js'
+import { stamp } from './figureMeta.js'
 
 const CAT = ['cat-1', 'cat-2', 'cat-3', 'cat-4', 'cat-5', 'cat-6', 'cat-7', 'cat-8']
 const SHAPES = ['circle', 'square', 'diamond', 'triangle']
@@ -235,19 +240,22 @@ export function bubbleScaleFromDrag(scale0 = 1, r, dist) {
 export function buildScatterScene(spec = {}, pointsIn = [], opts = {}) {
   const width = Math.max(220, Math.round(opts.width ?? 560))
   const height = Math.max(180, Math.round(opts.height ?? 320))
-  const fy = opts.format ?? defaultFormat
-  const fx = opts.formatX ?? fy
-  const fs = opts.formatSize ?? defaultFormat
+  const L = localeOf(spec)
+  const fy = localizedFormat(opts.format ?? defaultFormat, L)
+  const fx = localizedFormat(opts.formatX ?? opts.format ?? defaultFormat, L)
+  const fs = localizedFormat(opts.formatSize ?? defaultFormat, L)
   const LM = labelMetrics(opts.labelStyle ?? spec, FONT)
   const lineH = LM.base ? LINE_H : LM.size + 1
   const pts = pointsIn.filter(p => p && Number.isFinite(p.x) && Number.isFinite(p.y))
   const base = { width, height, plot: null, axes: null, gridlines: [], points: [], labels: [], trend: null, partitions: [], zones: [], legend: [], sizeLegend: [], empty: !pts.length }
-  if (base.empty) return base
+  if (base.empty) return stamp(base, 'scatter', spec)
 
   const groups = [...new Set(pts.map(p => p.group ?? ''))]
   const gi = p => Math.max(0, groups.indexOf(p.group ?? ''))
   const dataFill = spec.dataFill !== false
-  const colorOf = p => (dataFill && p.color) || CAT[gi(p) % CAT.length]
+  // Single accent: a point is emphasized by its own key or by its group's name.
+  const em = emphasisOf(spec)
+  const colorOf = p => accentColor(spec, em.has(String(p.key)) ? p.key : (p.group ?? p.key), (dataFill && p.color) || CAT[gi(p) % CAT.length])
   const byGroup = spec.markers === 'group'
   const shapeOf = p => (byGroup ? SHAPES[gi(p) % SHAPES.length] : (spec.marker ?? 'circle'))
   const legendOn = (spec.legend ?? 'top') !== 'none' && groups.length > 1
@@ -256,7 +264,7 @@ export function buildScatterScene(spec = {}, pointsIn = [], opts = {}) {
     base.legend = groups.map((g, i) => {
       const w = 16 + estimateWidth(g, FONT)
       if (lx > 0 && lx + w > width) { lx = 0; lrow++ }
-      const it = { key: g || `g${i}`, label: g, color: CAT[i % CAT.length], shape: byGroup ? SHAPES[i % SHAPES.length] : 'circle', x: lx, y: lrow * LEGEND_ROW + 9 }
+      const it = { key: g || `g${i}`, label: g, color: accentColor(spec, g, CAT[i % CAT.length]), shape: byGroup ? SHAPES[i % SHAPES.length] : 'circle', x: lx, y: lrow * LEGEND_ROW + 9 }
       lx += w + 16
       return it
     })
@@ -279,6 +287,8 @@ export function buildScatterScene(spec = {}, pointsIn = [], opts = {}) {
     x: { y: plot.bottom, ticks: X.ticks.map(v => ({ value: v, x: X.s(v), label: fx(v) })), title: spec.x?.title ?? null },
     y: { x: plot.left, ticks: Y.ticks.map(v => ({ value: v, y: Y.s(v), label: fy(v) })), title: spec.y?.title ?? null },
   }
+  // Shared scale: a discreet note at the end of each linked axis.
+  base.shared = { x: spec.x?.same ? t('shared scale', L) : null, y: spec.y?.same ? t('shared scale', L) : null }
   base.gridlines = [
     ...Y.ticks.map(v => ({ x1: plot.left, x2: plot.right, y1: Y.s(v), y2: Y.s(v) })),
     ...X.ticks.map(v => ({ x1: X.s(v), x2: X.s(v), y1: plot.top, y2: plot.bottom })),
@@ -326,7 +336,8 @@ export function buildScatterScene(spec = {}, pointsIn = [], opts = {}) {
     const curve = xsS.map(x => ({ vx: x, vy: fit.f(x) })).filter(q => Number.isFinite(q.vy) && (!Y.log || q.vy > 0)).map(q => ({ x: X.s(q.vx), y: lim(Y.s(q.vy)) }))
     if (curve.length >= 2) {
       const d = `M${curve.map(q => `${q.x.toFixed(1)},${q.y.toFixed(1)}`).join(' L')}`
-      const tr = { type: ttype, d, coef: fit.coef, r2: fit.r2, equation: fit.equation, fill: null, label: null, group: tGroup, weighted: !!spec.trendWeighted && bubble, color: tGroup != null ? CAT[groups.indexOf(tGroup) % CAT.length] : null }
+      const equation = localizeNumber(fit.equation, L)
+      const tr = { type: ttype, d, coef: fit.coef, r2: fit.r2, equation, fill: null, label: null, group: tGroup, weighted: !!spec.trendWeighted && bubble, color: tGroup != null ? accentColor(spec, tGroup, CAT[groups.indexOf(tGroup) % CAT.length]) : null }
       if (ttype === 'linear') Object.assign(tr, { x1: curve[0].x, y1: curve[0].y, x2: curve.at(-1).x, y2: curve.at(-1).y, slope: fit.coef[1], intercept: fit.coef[0] })
       if (spec.trendFill === 'above' || spec.trendFill === 'below') {
         const edge = spec.trendFill === 'above' ? plot.top - plot.height * 2 : plot.bottom + plot.height * 2
@@ -334,10 +345,10 @@ export function buildScatterScene(spec = {}, pointsIn = [], opts = {}) {
       }
       const show = spec.trendLabel ?? 'none'
       if (show !== 'none') {
-        const r2t = `R² = ${fit.r2.toFixed(3)}`
-        const text = show === 'equation' ? fit.equation : show === 'r2' ? r2t : `${fit.equation}   ${r2t}`
+        const r2t = `R² = ${localizeNumber(fit.r2.toFixed(3), L)}`
+        const text = show === 'equation' ? equation : show === 'r2' ? r2t : `${equation}   ${r2t}`
         // Equation and R²: on two lines (narrower, fits in a quadrant).
-        const lines = show === 'both' ? [fit.equation, r2t] : [text]
+        const lines = show === 'both' ? [equation, r2t] : [text]
         const inPlot = curve.filter(q => q.y >= plot.top + 14 && q.y <= plot.bottom - 4)
         const at = inPlot.at(-1) ?? curve.at(-1)
         const tw = Math.max(...lines.map(eqWidth))
@@ -424,11 +435,11 @@ export function buildScatterScene(spec = {}, pointsIn = [], opts = {}) {
   // a point or a zone label. Candidates: the corners of the plot and of each quadrant, above
   // and below the end of the trend, then along the curve.
   if (base.trend?.label) {
-    const L = base.trend.label
+    const TL = base.trend.label
     const ptBoxes = base.points.map(q => ({ x0: q.x - q.r - 2, x1: q.x + q.r + 2, y0: q.y - q.r - 2, y1: q.y + q.r + 2 }))
     // The cost of a spot: 0 = free; a crossed line weighs more than a covered point or label.
     const cost = (lines, x, y) => {
-      const b = trendLabelBox({ ...L, lines, x, y })
+      const b = trendLabelBox({ ...TL, lines, x, y })
       if (b.x0 < plot.left - 0.5 || b.x1 > plot.right + 0.5 || b.y0 < plot.top || b.y1 > plot.bottom) return Infinity
       return 10 * lineSegs.filter(sg => segmentHitsBox(sg, b)).length + ptBoxes.filter(o => over(b, o)).length + zoneBoxes.filter(o => over(b, o)).length
     }
@@ -440,8 +451,8 @@ export function buildScatterScene(spec = {}, pointsIn = [], opts = {}) {
       const mid = ops.reduce((a, i) => (Math.abs(i - eq.length / 2) < Math.abs(a - eq.length / 2) ? i : a))
       return [eq.slice(0, mid), eq.slice(mid + 1)]
     }
-    const eqLines = L.lines.length > 1 ? L.lines.slice(0, -1).join(' ') : L.text
-    const variants = L.lines.length > 1 ? [L.lines, [L.text], [...eqSplit(eqLines), L.lines.at(-1)]] : [L.lines, eqSplit(L.text)]
+    const eqLines = TL.lines.length > 1 ? TL.lines.slice(0, -1).join(' ') : TL.text
+    const variants = TL.lines.length > 1 ? [TL.lines, [TL.text], [...eqSplit(eqLines), TL.lines.at(-1)]] : [TL.lines, eqSplit(TL.text)]
     const candsFor = lines => {
     const tw = Math.max(...lines.map(eqWidth)), hh = (lines.length - 1) * EQ_LH
     const cands = []
@@ -469,8 +480,8 @@ export function buildScatterScene(spec = {}, pointsIn = [], opts = {}) {
       }
       if (best?.k === 0) break
     }
-    if (best && Number.isFinite(best.k)) Object.assign(L, { lines: best.v, x: best.x, y: best.y })
-    if (!best || best.k > 0) L.crowded = true
+    if (best && Number.isFinite(best.k)) Object.assign(TL, { lines: best.v, x: best.x, y: best.y })
+    if (!best || best.k > 0) TL.crowded = true
   }
   // Beyond 300 points, labels are off by default; 'all' brings them back.
   base.labelsAuto = spec.labels == null && pts.length > 300 ? 'none' : 'all'
@@ -571,7 +582,7 @@ export function buildScatterScene(spec = {}, pointsIn = [], opts = {}) {
 
   base.invert = { x: px => X.s.invert(px), y: py => Y.s.invert(py) }
   base.domains = { x: X.s.domain(), y: Y.s.domain() }
-  return base
+  return stamp(base, 'scatter', spec)
 }
 
 /** Do two segments [x1, y1, x2, y2] intersect (touching included)? */

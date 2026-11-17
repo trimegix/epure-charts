@@ -15,9 +15,12 @@
 // (Shift+Ctrl: anchored copy), Shift+click multi-selects, arrows move the item, drag a row
 // by its label, F2 / double-click edit a label (Alt+arrows between labels), shades and
 // brackets from the row menu, labels spanning several rows.
+// The drawing itself is GanttFigure (no hooks: server rendering); this view adds the editing
+// layer through its `part` and `children`.
 import { useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { IconPalette, IconTimeline, IconChartBar, IconFlag, IconCalendarEvent, IconTag, IconBracketsContain, IconColumns, IconListTree } from '@tabler/icons-react'
-import { buildGanttScene, GANTT_UNITS, insertRow, duplicateRow, deleteRow, moveRow, moveRowTo, moveItem, indentRow, patchRow, patchItem, addItem, removeItem, addUnits, snapDate, unitsBetween, ganttNewKey, ganttSnapUnit, ganttNames, calendarWeeks, calendarMove, calendarRange, formatDate, parseDate } from './ganttScene.js'
+import GanttFigure from './GanttFigure.jsx'
+import { buildGanttScene, ganttLang, GANTT_UNITS, insertRow, duplicateRow, deleteRow, moveRow, moveRowTo, moveItem, indentRow, patchRow, patchItem, addItem, removeItem, addUnits, snapDate, unitsBetween, ganttNewKey, ganttSnapUnit, ganttNames, calendarWeeks, calendarMove, calendarRange, formatDate, parseDate } from './ganttScene.js'
 import { Seg, Check, Line, Swatches, Field } from './ChartWheel'
 import FormatBar from './FormatBar'
 import { useViewPrefs } from './useViewPrefs.js'
@@ -28,7 +31,7 @@ import { useSheet } from './useSheet.js'
 import { ganttSheet } from './sheetAdapters.js'
 
 // A color: a design token, or a user-picked hex (custom style).
-import { tok, inkOn, labelTextStyle, styleSummary } from './customStyle.js'
+import { tok, labelTextStyle, styleSummary } from './customStyle.js'
 import { SchemeTools, TextStyle } from './CustomStyle.jsx'
 const PALETTE = [...COLOR_TOKENS, ...NEUTRAL_TOKENS]
 const MAPS = ['colors', 'shapes', 'markers', 'lines', 'plan', 'rowStyles', 'outlines', 'prevDays', 'recentFormats']
@@ -63,12 +66,13 @@ const dragMoved = { v: false }
 const setMoved = v => { dragMoved.v = v }
 
 // The chart width, and the band to reserve above the plot when the card header has no room
-// for the mini toolbar (it never covers the clicked scale).
-function useBox(ref) {
-  const [box, setBox] = useState({ width: 0, reserve: 0 })
+// for the mini toolbar (it never covers the clicked scale). `fixed`: the `width` prop (no
+// measuring: server rendering, static pages).
+function useBox(ref, fixed) {
+  const [box, setBox] = useState({ width: fixed ?? 0, reserve: 0 })
   useLayoutEffect(() => {
     const el = ref.current
-    if (!el) return undefined
+    if (!el || fixed != null) return undefined
     const measure = () => {
       const r = el.getBoundingClientRect()
       // The toolbar sits on the title line: no band reserved above the plot.
@@ -79,27 +83,8 @@ function useBox(ref) {
     const ro = new ResizeObserver(measure)
     ro.observe(el)
     return () => ro.disconnect()
-  }, [ref])
-  return box
-}
-
-// A Harvey ball: circle plus filled sector (0..1).
-function Harvey({ cx, cy, r, f }) {
-  const a = f * 2 * Math.PI
-  const wedge = f >= 0.999 ? <circle cx={cx} cy={cy} r={r} fill={tok('gray-700')} />
-    : f > 0 ? <path d={`M${cx},${cy} L${cx},${cy - r} A${r},${r} 0 ${f > 0.5 ? 1 : 0},1 ${cx + r * Math.sin(a)},${cy - r * Math.cos(a)} Z`} fill={tok('gray-700')} /> : null
-  return <g><circle cx={cx} cy={cy} r={r} fill={tok('surface')} stroke={tok('gray-700')} strokeWidth={1} />{wedge}<title>{`${Math.round(f * 100)}%`}</title></g>
-}
-// A checkbox: check, cross or empty.
-function CheckBox({ cx, cy, size, check }) {
-  const h = size / 2
-  return (
-    <g>
-      <rect x={cx - h} y={cy - h} width={size} height={size} rx={2} fill={tok('surface')} stroke={tok('gray-700')} strokeWidth={1} />
-      {check === 'yes' && <path d={`M${cx - h * 0.6},${cy} L${cx - h * 0.1},${cy + h * 0.5} L${cx + h * 0.65},${cy - h * 0.55}`} fill="none" stroke={tok('green')} strokeWidth={1.75} />}
-      {check === 'no' && <path d={`M${cx - h * 0.5},${cy - h * 0.5} L${cx + h * 0.5},${cy + h * 0.5} M${cx + h * 0.5},${cy - h * 0.5} L${cx - h * 0.5},${cy + h * 0.5}`} fill="none" stroke={tok('red')} strokeWidth={1.75} />}
-    </g>
-  )
+  }, [ref, fixed])
+  return fixed != null ? { width: fixed, reserve: 0 } : box
 }
 
 // Calendar dialog, self-contained and offline: month and year selectable; click sets the
@@ -174,11 +159,17 @@ const ROW_STYLE = ['color', 'shape', 'bold']
 const ACT_FIELDS = ['responsible', 'status', 'remark', 'level']
 const EMPTY = []
 
-export default function GanttView({ id = 'gantt', spec: baseSpec = {}, rows = [], label = 'Gantt chart' }) {
+// width: fixed drawing width (no measuring; also the first width on hydration).
+// readOnly: the figure only: no format bar, menus, data sheet or per-browser preferences.
+// responsive: the SVG scales to its container (width="100%", ratio kept).
+// dataTable: the dates as a visually hidden table next to the SVG.
+export default function GanttView({ id = 'gantt', spec: baseSpec = {}, rows = [], label = 'Gantt chart', width: widthProp, readOnly = false, responsive = false, dataTable = false }) {
   const boxRef = useRef(null)
   const arrowId = `gantt-arrow-${useId().replace(/:/g, '')}`
-  const { width, reserve } = useBox(boxRef)
-  const { prefs: P, set, update, reset, undo, canUndo } = useViewPrefs(`epure-chart-gantt-${id}`, DEFAULTS)
+  const { width, reserve } = useBox(boxRef, widthProp)
+  const prefsApi = useViewPrefs(`epure-chart-gantt-${id}`, DEFAULTS)
+  const { set, update, reset, undo, canUndo } = prefsApi
+  const P = readOnly ? DEFAULTS : prefsApi.prefs
   // The datasheet: the source (rows + key dates) as base, with the typed or dragged overlay
   // on top; the chart draws only what it returns.
   // The sheet follows the chart order (group bands when shown) and its status scale
@@ -207,7 +198,8 @@ export default function GanttView({ id = 'gantt', spec: baseSpec = {}, rows = []
     return out
   }, [])
   const sheetApi = useSheet(`gantt-${id}`, sheetBase, ganttValidate)
-  const fromSheet = ganttSheet.fromSheet(sheetApi.sheet, rows, srcEvents, sheetOpts)
+  // Read-only: the source as given (no sheet edits).
+  const fromSheet = readOnly ? { rows, events: srcEvents } : ganttSheet.fromSheet(sheetApi.sheet, rows, srcEvents, sheetOpts)
   // Drawn: without tasks whose typed date is in error, and without hidden rows.
   const drawn = ganttSheet.drawable(fromSheet)
   // The sheet row of a bar ("linked to sheet row n"), numbered like the grid.
@@ -217,7 +209,7 @@ export default function GanttView({ id = 'gantt', spec: baseSpec = {}, rows = []
   }
   // Sheet date format: the last format typed in Start / End becomes the date-label format,
   // as long as no format is chosen on the chart.
-  const typedPattern = sheetApi.sheet.rows.flatMap(r => r.cells.filter(c => c.edited && c.datePattern && c.datePattern !== 'iso').map(c => c.datePattern)).at(-1)
+  const typedPattern = readOnly ? null : sheetApi.sheet.rows.flatMap(r => r.cells.filter(c => c.edited && c.datePattern && c.datePattern !== 'iso').map(c => c.datePattern)).at(-1)
   const DATE_FMT = { dmy: 'dd/mm/yyyy', mdy: 'mm/dd/yyyy', 'd mmm yyyy': 'd mmm yyyy', 'mmm d yyyy': 'mmm d yyyy' }
   const spec = { ...viewSpec, events: drawn.events, ...(typedPattern && P.dateFormat == null && baseSpec.dateFormat == null ? { dateFormat: DATE_FMT[typedPattern] } : {}) }
   // The displayed plan: the sheet, plus each row's own style (view preference).
@@ -365,7 +357,9 @@ export default function GanttView({ id = 'gantt', spec: baseSpec = {}, rows = []
   const toggleTier = u => setTiers(tiers.includes(u) ? tiers.filter(x => x !== u) : [...tiers, u])
   // Drag / arrow step by zoom level (day, week, month...).
   const snapU = scene?.pxPerDay ? ganttSnapUnit(scene.pxPerDay) : unit
-  const lang = spec.lang ?? 'en'
+  // Language: spec.lang, else the chart locale (as the scene reads it).
+  const lang = ganttLang(spec)
+  const defaultLang = ganttLang(baseSpec)
   const tipOf = iso => prettyDate(iso, lang)
   // Shades: the view's own, else the source's.
   const shadeList = spec.shades ?? []
@@ -659,7 +653,7 @@ export default function GanttView({ id = 'gantt', spec: baseSpec = {}, rows = []
         </>
       )],
       ['lang', null, `Language: ${LANGS.find(l => l[0] === lang)?.[1] ?? lang}`, 'Month names, weekdays and default headings', (
-        <Line label="Language"><Seg label="Language" value={lang} onPick={v => set('lang', v === 'en' ? null : v)} items={LANGS} /></Line>
+        <Line label="Language"><Seg label="Language" value={lang} onPick={v => set('lang', v === defaultLang ? null : v)} items={LANGS} /></Line>
       )],
       hasLinks && ['links', null, `Links: ${spec.links === false ? 'hidden' : 'shown'}`, 'Dependency arrows between linked items', (
         <>
@@ -957,6 +951,65 @@ export default function GanttView({ id = 'gantt', spec: baseSpec = {}, rows = []
     }
   }
 
+  // ── The editing layer, through the figure's parts ──
+  const clickable = (o, extra, dblCtl) => ({ onClick: go(o, extra), onContextMenu: go(o, extra), ...(dblCtl ? { onDoubleClick: dbl(o, extra ?? {}, dblCtl) } : {}) })
+  const isOn = (o, key) => (pick?.obj === o && pick.key === key) || ((o === 'bar' || o === 'milestone') && sel.includes(key))
+  const part = (kind, it) => {
+    switch (kind) {
+      case 'scale': return { className: 'chart-engine-axis chart-engine-clickable', ...clickable('scale', undefined, 'range') }
+      case 'header': return { onClick: e => { e.stopPropagation(); go('scale', { cell: it.key })(e) }, children: <>{it.text}<title>{`${it.text} (click: free text, double-click: calendar)`}</title></> }
+      case 'rowLabel': return editBox?.key === `${it.key}|activity` ? { children: null } : null
+      case 'rowHit': return {
+        className: 'chart-engine-clickable', onClick: pickRow(it.key), onContextMenu: pickRow(it.key), onPointerDown: e => startRowDrag(e, it.key),
+        onDoubleClick: e => { e.stopPropagation(); close(); setSelRow(it.key); startEdit(it.key, 'activity') },
+        children: <title>{`${it.label} (click to format, F2 or double-click to edit, drag to move, right-click to insert)`}</title>,
+      }
+      case 'rowArea': return { onContextMenu: rowMenuAt(it.key) }
+      case 'shade': return { className: 'chart-engine-clickable', ...clickable('shade', { key: it.key }, 'dates') }
+      case 'shadeFill': return {
+        ...(isOn('shade', it.key) ? { stroke: tok('gold'), strokeWidth: 1.5 } : {}),
+        children: <title>{`${it.label ? `${it.label} · ` : ''}${tipOf(it.from)} → ${tipOf(it.to)} (click to format, double-click for the calendar)`}</title>,
+      }
+      case 'columns': return { className: 'chart-engine-clickable', ...clickable('columns') }
+      case 'cell': return editBox?.key === it.key ? { children: null }
+        : { onDoubleClick: e => { e.stopPropagation(); close(); const rk = it.key.slice(0, -it.col.length - 1); setSelRow(rk); startEdit(rk, it.col) } }
+      case 'bar': return {
+        'data-gantt-key': it.key, className: `chart-engine-clickable chart-gantt__bar${isOn('bar', it.key) ? ' is-selected' : ''}`,
+        onClick: e => click(e, 'bar', { key: it.key }), onContextMenu: go('bar', { key: it.key }), onPointerDown: e => startDrag(e, 'move', it),
+        onDoubleClick: it.shape === 'bar' ? dbl('bar', { key: it.key }, 'dates') : e => { e.stopPropagation(); setMap('shapes', it.key, it.shape === 'chevron' ? 'pentagon' : 'chevron') },
+      }
+      case 'barShape': return {
+        ...(isOn('bar', it.key) ? { stroke: tok('gold'), strokeWidth: 2 } : {}),
+        children: <title>{`${it.label ? `${it.label} · ` : ''}${tipOf(it.start)} → ${tipOf(it.end)}${it.done != null ? ` · ${Math.round(it.done * 100)}% done` : ''} · ${sheetRowOf(it)} (drag to move or to another row, Ctrl+drag to copy, Shift+click to select several, ${it.shape === 'bar' ? 'double-click for the calendar' : 'double-click: pentagon / chevron'})`}</title>,
+      }
+      case 'barHandle': return { className: 'chart-engine-handle', onPointerDown: e => startDrag(e, it.side, it.bar) }
+      case 'bracket': return { className: 'chart-engine-clickable', ...clickable('bracket', { key: it.key }, 'dates') }
+      case 'bracketPath': return isOn('bracket', it.key) ? { stroke: tok('gold'), strokeWidth: 2 } : null
+      case 'milestone': {
+        const on = isOn('milestone', it.key)
+        return {
+          'data-gantt-key': it.key, stroke: on ? tok('black') : tok('surface'), strokeWidth: on ? 2 : 1, className: 'chart-engine-clickable chart-gantt__bar',
+          onClick: e => click(e, 'milestone', { key: it.key }), onContextMenu: go('milestone', { key: it.key }), onPointerDown: e => startDrag(e, 'milestone', it),
+          onDoubleClick: dbl('milestone', { key: it.key }, 'dates'),
+          children: <title>{`${it.label ?? 'Milestone'} · ${it.date} (drag to move, Ctrl+drag to copy, double-click for the calendar)`}</title>,
+        }
+      }
+      case 'label': return { className: 'chart-engine-clickable', ...clickable('labels') }
+      case 'todayHandle': return { className: 'chart-engine-handle', onPointerDown: dragToday, children: <title>{`Today: ${it.date} (drag to move)`}</title> }
+      default: return null
+    }
+  }
+  const selRowBox = scene?.rows.find(r => !r.group && !r.events && r.key === rowKey)
+
+  if (readOnly) {
+    return (
+      <div ref={boxRef} className="chart-engine chart-engine-box chart-gantt">
+        {scene?.empty && <div className="chart-engine-empty">No dated task yet.</div>}
+        <GanttFigure scene={scene} interactive={!readOnly} label={label} responsive={responsive} dataTable={dataTable} uid={arrowId} />
+      </div>
+    )
+  }
+
   return (
     <div ref={boxRef} id={`${arrowId}-box`} className="chart-engine chart-engine-box chart-gantt" tabIndex={0} style={reserve ? { paddingTop: reserve } : undefined} onKeyDown={onKey}
       onContextMenu={e => { if (!e.defaultPrevented) open(e, { obj: 'chart' }) }}>
@@ -967,127 +1020,14 @@ export default function GanttView({ id = 'gantt', spec: baseSpec = {}, rows = []
       <EditedNote api={sheetApi} />
       {scene?.empty && <div className="chart-engine-empty">No dated task yet. Double-click or open the data sheet to add one.</div>}
       {scene && !scene.empty && (
-        <svg width={scene.width} height={scene.height} role="img" aria-label={label} className={spec.rtl ? 'chart-gantt--rtl' : undefined} onDoubleClick={() => { close(); sheetApi.setSheetOpen(true) }}>
-          <defs>
-            <marker id={arrowId} viewBox="0 0 6 6" refX={5.5} refY={3} markerWidth={6} markerHeight={6} orient="auto">
-              <path d="M0,0 L6,3 L0,6 Z" fill={tok('gray-500')} />
-            </marker>
-          </defs>
-          {spec.background && <rect x={0} y={0} width={scene.width} height={scene.height} fill={tok(spec.background)} pointerEvents="none" />}
-          <g className="chart-engine-axis chart-engine-clickable" onClick={go('scale')} onContextMenu={go('scale')} onDoubleClick={dbl('scale', {}, 'range')}>
-            <rect x={scene.plot.left} y={0} width={scene.plot.width} height={scene.plot.top} fill="transparent" />
-            {scene.header.map(h => (
-              <text key={h.key} x={(h.x0 + h.x1) / 2} y={h.y} textAnchor="middle" fontWeight={h.level === 0 ? 600 : 400} fontStyle={h.custom ? 'italic' : undefined}
-                onClick={e => { e.stopPropagation(); go('scale', { cell: h.key })(e) }}
-                style={{ fontSize: h.level === 0 ? 11 : 10 }}>{h.text}<title>{`${h.text} (click: free text, double-click: calendar)`}</title></text>
-            ))}
-            {scene.tierLabels.map(t => <text key={`tl-${t.key}`} x={t.x} y={t.y} textAnchor="end" fill={tok('gray-500')} fontWeight={600} style={{ fontSize: 10 }}>{t.text}</text>)}
-            {['from', 'to'].map(side => (
-              <rect key={side} x={side === 'from' ? scene.plot.left - 3 : scene.plot.right - 3} y={0} width={6} height={scene.plot.top} fill="transparent" className="chart-engine-handle"
-                style={{ cursor: 'ew-resize' }} onPointerDown={dragScale(side)} onClick={e => e.stopPropagation()}><title>{`Drag to change the ${side === 'from' ? 'start' : 'end'} of the scale`}</title></rect>
-            ))}
-          </g>
-          {scene.rows.map(r => {
-            const editable = !r.group && !r.events
-            const on = editable && r.key === rowKey
-            return (
-              <g key={r.key}>
-                {r.group && <rect x={0} y={r.y0} width={scene.width} height={r.y1 - r.y0} fill={tok('gray-100')} />}
-                {r.band && <rect x={0} y={r.y0} width={scene.width} height={r.y1 - r.y0} fill={tok('gray-50')} />}
-                {(r.separator || r.events) && <line x1={0} x2={scene.width} y1={r.y0} y2={r.y0} stroke={tok(r.events ? 'gray-300' : 'gray-200')} strokeWidth={1} shapeRendering="crispEdges" />}
-                {on && <rect x={0.5} y={r.y0 + 0.5} width={scene.plot.left - 1} height={r.y1 - r.y0 - 1} fill="none" stroke={tok('gold')} strokeWidth={1.5} rx={2} pointerEvents="none" />}
-                {editBox?.key !== `${r.key}|activity` && <text x={(r.group ? 4 : 10) + r.indent} y={r.cy + 4} fontWeight={r.group || r.parent || r.bold ? 600 : 400} fontStyle={r.events ? 'italic' : undefined}
-                  fill={tok(r.group || r.parent || r.bold ? 'black' : 'gray-700')} style={{ fontSize: 11 }} pointerEvents="none">{r.label}</text>}
-                {editable && <rect x={0} y={r.y0} width={scene.columns?.activity?.x1 ?? scene.plot.left} height={r.y1 - r.y0} fill="transparent" className="chart-engine-clickable"
-                  onClick={pickRow(r.key)} onContextMenu={pickRow(r.key)} onPointerDown={e => startRowDrag(e, r.key)}
-                  onDoubleClick={e => { e.stopPropagation(); close(); setSelRow(r.key); startEdit(r.key, 'activity') }}><title>{`${r.label} (click to format, F2 or double-click to edit, drag to move, right-click to insert)`}</title></rect>}
-                {editable && <rect x={scene.plot.left} y={r.y0} width={scene.plot.width} height={r.y1 - r.y0} fill="transparent" onContextMenu={rowMenuAt(r.key)} />}
-              </g>
-            )
-          })}
+        <GanttFigure scene={scene} interactive={!readOnly} label={label} responsive={responsive} dataTable={dataTable} uid={arrowId} labelStyle={labelTextStyle(P)} part={part}
+          onDoubleClick={() => { close(); sheetApi.setSheetOpen(true) }}>
+          {selRowBox && <rect x={0.5} y={selRowBox.y0 + 0.5} width={scene.plot.left - 1} height={selRowBox.y1 - selRowBox.y0 - 1} fill="none" stroke={tok('gold')} strokeWidth={1.5} rx={2} pointerEvents="none" />}
           {rowDrop && <line x1={0} x2={scene.width} y1={rowDrop.y} y2={rowDrop.y} stroke={tok('gold')} strokeWidth={2} pointerEvents="none" />}
-          {scene.weekends.map(w => <rect key={w.key} x={w.x0} y={scene.plot.top} width={Math.max(0, w.x1 - w.x0)} height={scene.plot.height} fill={tok('gray-100')} opacity={0.8} pointerEvents="none" />)}
-          {scene.shades.map(s => {
-            const on = pick?.obj === 'shade' && pick.key === s.key
-            return (
-              <g key={s.key} className="chart-engine-clickable" onClick={go('shade', { key: s.key })} onContextMenu={go('shade', { key: s.key })} onDoubleClick={dbl('shade', { key: s.key }, 'dates')}>
-                <rect x={s.x0} y={scene.plot.top} width={Math.max(0, s.x1 - s.x0)} height={scene.plot.height} fill={tok(s.color)} opacity={0.55} stroke={on ? tok('gold') : undefined} strokeWidth={on ? 1.5 : undefined}>
-                  <title>{`${s.label ? `${s.label} · ` : ''}${tipOf(s.from)} → ${tipOf(s.to)} (click to format, double-click for the calendar)`}</title>
-                </rect>
-                {s.bracket && <path d={s.bracket.path} fill="none" stroke={tok('gray-700')} strokeWidth={1.25} />}
-                {s.label && <text x={(s.x0 + s.x1) / 2} y={s.bracket ? s.bracket.labelY : scene.plot.top + 10} textAnchor="middle" fill={tok(s.bracket ? 'gray-700' : 'gray-500')} style={{ fontSize: s.bracket ? 10.5 : 9.5 }} pointerEvents="none">{s.label}</text>}
-              </g>
-            )
-          })}
-          <g className="chart-engine-clickable" onClick={go('columns')} onContextMenu={go('columns')}>
-            {scene.colHeads.map(h => <text key={h.key} x={h.x} y={scene.colHeadY} textAnchor={h.anchor} fontWeight={600} fill={tok('gray-500')} style={{ fontSize: 10 }}>{h.text}</text>)}
-            {scene.columns?.remark && <line x1={scene.columns.remark.x0} x2={scene.columns.remark.x0} y1={scene.plot.top} y2={scene.plot.bottom} stroke={tok('gray-200')} shapeRendering="crispEdges" />}
-            {scene.labelBrackets.map(b => <path key={`lb-${b.key}`} d={b.path} fill="none" stroke={tok('gray-500')} strokeWidth={1} />)}
-            {scene.cells.map(c => c.text != null
-              ? editBox?.key === c.key ? null : <text key={c.key} x={c.x} y={c.y} fill={tok('gray-700')} style={{ fontSize: 11 }}
-                onDoubleClick={e => { e.stopPropagation(); close(); const rk = c.key.slice(0, -c.col.length - 1); setSelRow(rk); startEdit(rk, c.col) }}>{c.text}</text>
-              : c.check ? <CheckBox key={c.key} cx={c.cx} cy={c.cy} size={c.size} check={c.check} /> : <Harvey key={c.key} cx={c.cx} cy={c.cy} r={c.r} f={c.harvey} />)}
-          </g>
-          {scene.gridlines.map((g, i) => <line key={i} x1={g.x} x2={g.x} y1={g.y1} y2={scene.plot.bottom} stroke={tok(g.strong ? 'gray-300' : 'gray-200')} strokeWidth={1} shapeRendering="crispEdges" pointerEvents="none" />)}
-          {scene.summaries.map(s => <path key={s.key} d={s.path} fill={tok('gray-700')} pointerEvents="none"><title>{`${tipOf(s.start)} → ${tipOf(s.end)}`}</title></path>)}
-          {scene.bars.map(b => {
-            const on = (pick?.obj === 'bar' && pick.key === b.key) || sel.includes(b.key)
-            const st = { fill: tok(b.color), stroke: on ? tok('gold') : b.outline ? tok(b.outline) : undefined, strokeWidth: on ? 2 : b.outline ? 1.25 : undefined }
-            return (
-              <g key={b.key} data-gantt-key={b.key} className={`chart-engine-clickable chart-gantt__bar${on ? ' is-selected' : ''}`} onClick={e => click(e, 'bar', { key: b.key })} onContextMenu={go('bar', { key: b.key })}
-                onPointerDown={e => startDrag(e, 'move', b)} onDoubleClick={b.shape === 'bar' ? dbl('bar', { key: b.key }, 'dates') : e => { e.stopPropagation(); setMap('shapes', b.key, b.shape === 'chevron' ? 'pentagon' : 'chevron') }}>
-                {b.path ? <path d={b.path} {...st} /> : <rect x={b.x} y={b.y} width={b.width} height={b.height} rx={3} {...st} />}
-                {spec.progress && b.done != null && <rect x={b.x} y={b.y + b.height - 3} width={b.width * b.done} height={3} fill={tok('black')} opacity={0.45} pointerEvents="none" />}
-                <title>{`${b.label ? `${b.label} · ` : ''}${tipOf(b.start)} → ${tipOf(b.end)}${b.done != null ? ` · ${Math.round(b.done * 100)}% done` : ''} · ${sheetRowOf(b)} (drag to move or to another row, Ctrl+drag to copy, Shift+click to select several, ${b.shape === 'bar' ? 'double-click for the calendar' : 'double-click: pentagon / chevron'})`}</title>
-                {b.width >= 14 && ['start', 'end'].map(side => (
-                  <rect key={side} x={side === 'start' ? b.x - 2 : b.x + b.width - 4} y={b.y} width={6} height={b.height} fill="transparent" className="chart-engine-handle"
-                    onPointerDown={e => startDrag(e, side, b)} />
-                ))}
-              </g>
-            )
-          })}
-          {scene.brackets.map(b => {
-            const on = pick?.obj === 'bracket' && pick.key === b.key
-            return (
-              <g key={b.key} className="chart-engine-clickable" onClick={go('bracket', { key: b.key })} onContextMenu={go('bracket', { key: b.key })} onDoubleClick={dbl('bracket', { key: b.key }, 'dates')}>
-                <path d={b.path} fill="none" stroke={tok(on ? 'gold' : b.color)} strokeWidth={on ? 2 : 1.25} />
-                <path d={b.path} fill="none" stroke="transparent" strokeWidth={10} />
-                <title>{`${b.label ? `${b.label} · ` : ''}${tipOf(b.start)} → ${tipOf(b.end)}`}</title>
-              </g>
-            )
-          })}
-          {scene.links.map(l => <path key={l.key} d={l.path} fill="none" stroke={tok('gray-500')} strokeWidth={1} markerEnd={`url(#${arrowId})`} pointerEvents="none" />)}
-          {scene.events.map(ev => (
-            <g key={ev.key} pointerEvents="none">
-              <line x1={ev.x} x2={ev.x} y1={ev.y1} y2={ev.y2} stroke={tok(ev.color)} strokeWidth={1} strokeDasharray="3 3" />
-              <path d={ev.path} fill={tok(ev.color)}><title>{`${ev.label ?? 'Event'} · ${ev.date}`}</title></path>
-            </g>
+          {['from', 'to'].map(side => (
+            <rect key={side} x={side === 'from' ? scene.plot.left - 3 : scene.plot.right - 3} y={0} width={6} height={scene.plot.top} fill="transparent" className="chart-engine-handle"
+              style={{ cursor: 'ew-resize' }} onPointerDown={dragScale(side)} onClick={e => e.stopPropagation()}><title>{`Drag to change the ${side === 'from' ? 'start' : 'end'} of the scale`}</title></rect>
           ))}
-          {scene.milestones.map(m => {
-            const on = (pick?.obj === 'milestone' && pick.key === m.key) || sel.includes(m.key)
-            return (
-              <g key={m.key}>
-                {m.line && <line x1={m.x} x2={m.x} y1={m.line.y1} y2={m.line.y2} stroke={tok(m.color)} strokeWidth={1} strokeDasharray="4 3" pointerEvents="none" />}
-                <path data-gantt-key={m.key} d={m.path} fill={tok(m.color)} stroke={on ? tok('black') : tok('surface')} strokeWidth={on ? 2 : 1} className="chart-engine-clickable chart-gantt__bar"
-                  onClick={e => click(e, 'milestone', { key: m.key })} onContextMenu={go('milestone', { key: m.key })} onPointerDown={e => startDrag(e, 'milestone', m)}
-                  onDoubleClick={dbl('milestone', { key: m.key }, 'dates')}><title>{`${m.label ?? 'Milestone'} · ${m.date} (drag to move, Ctrl+drag to copy, double-click for the calendar)`}</title></path>
-              </g>
-            )
-          })}
-          {scene.labels.map(l => (
-            // Inside a bar (white): black if the bar is a light hex (automatic contrast, custom style).
-            <text key={`l-${l.key}`} x={l.x} y={l.y} textAnchor={l.anchor} fill={tok(l.color === 'white' ? inkOn(scene.bars.find(b => b.key === String(l.key).split('|')[0])?.color) : l.color)} pointerEvents={l.color === 'white' ? 'none' : undefined}
-              className="chart-engine-clickable" onClick={go('labels')} onContextMenu={go('labels')} style={{ fontSize: l.size ?? 11, ...labelTextStyle(P) }}>
-              {l.lines ? l.lines.map((t, k) => <tspan key={k} x={l.x} dy={k === 0 ? -(l.lh ?? 12) / 2 : l.lh ?? 12}>{t}</tspan>) : l.text}
-            </text>
-          ))}
-          {scene.today && (
-            <g>
-              <line x1={scene.today.x} x2={scene.today.x} y1={scene.today.y1} y2={scene.today.y2} stroke={tok('red')} strokeWidth={1.5} pointerEvents="none" />
-              <line x1={scene.today.x} x2={scene.today.x} y1={scene.today.y1} y2={scene.today.y2} stroke="transparent" strokeWidth={10} className="chart-engine-handle"
-                onPointerDown={dragToday}><title>{`Today: ${scene.today.date} (drag to move)`}</title></line>
-            </g>
-          )}
           {editBox && (
             // The edit field placed on the label cell (inside the SVG, so it follows the plot).
             <foreignObject x={editBox.left} y={editBox.top} width={editBox.width} height={editBox.height}>
@@ -1127,7 +1067,7 @@ export default function GanttView({ id = 'gantt', spec: baseSpec = {}, rows = []
               })()}
             </g>
           )}
-        </svg>
+        </GanttFigure>
       )}
       {sheetApi.sheetOpen && <DataSheet key={gridGen} api={sheetApi} layout={ganttSheet.layout} onClose={() => sheetApi.setSheetOpen(false)} />}
       {pick && (

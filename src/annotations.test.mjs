@@ -23,7 +23,7 @@ test('patterns: a hatched series, a single segment, forecasts hatched in the ser
   const h = buildScene(spec([S('a', 'bar')], { format: { forecastHatch: true } }), r, OPTS)
   const f = h.bars.find(b => b.key === '2025')
   assert.equal(f.pattern, 'hatch')
-  assert.equal(f.color, 'gray-700', 'the series color, not the forecast gray')
+  assert.equal(f.color, 'chart-actual', 'the series color (the actual role token), not the forecast gray')
   assert.equal(h.bars.find(b => b.key === '2024').pattern, null)
   // The "hatch" series style (set by code) is accepted by the spec.
   assert.deepEqual(validateSpec(spec([S('a', 'bar', { style: { forecast: 'hatch' } })])), [])

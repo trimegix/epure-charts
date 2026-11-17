@@ -34,6 +34,9 @@
 // }
 import { makeFormatter } from './numberStyle.js'
 import { inkOnDark, labelMetrics, isPt, isFont } from './customStyle.js'
+import { localeOf, localizedFormat, t } from './locale.js'
+import { singleAccent, ACCENT, NEUTRAL } from './accent.js'
+import { stamp } from './figureMeta.js'
 
 export const CELL_TYPES = ['auto', 'number', 'text', 'harvey', 'check', 'icon', 'pentagon', 'pill']
 // Mark outline: weight and dashes ("Outline": color, style, weight).
@@ -123,8 +126,9 @@ export function buildTableScene(spec = {}, columns = [], rows = [], { width = 64
   const rowH = Number.isFinite(spec.rowHeight) ? Math.max(16, ptFloor, Math.round(spec.rowHeight)) : Math.round((DENSITY[spec.density] ?? DENSITY.normal) * Math.max(1, maxScale))
   const cols = arrange(columns, spec.insCols, spec.hideCols)
   const emphasis = new Set(spec.emphasis ?? [])
+  const L = localeOf(spec)
   let body = arrange(rows, spec.insRows, spec.hideRows)
-  if (!cols.length || (!body.length && !spec.totals)) return { empty: true, width, height: 0, cols: [], rows: [], cells: [], lines: [], stripes: [] }
+  if (!cols.length || (!body.length && !spec.totals)) return stamp({ empty: true, width, height: 0, cols: [], rows: [], cells: [], lines: [], stripes: [] }, 'table', spec)
 
   // ── Each column's type and scale ──
   const colType = c => spec.colTypes?.[c.key] ?? c.type ?? 'auto'
@@ -137,7 +141,8 @@ export function buildTableScene(spec = {}, columns = [], rows = [], { width = 64
     const dec = spec.decimals?.[c.key] ?? c.decimals ?? null
     const mag = spec.magnitude?.[c.key] ?? null
     const base = format ?? ((v, unit, d) => (d != null ? v.toLocaleString('en-US', { minimumFractionDigits: d, maximumFractionDigits: d }) : plainFormat(v)) + (unit === 'pct' || unit === '%' ? '%' : unit === 'x' ? 'x' : ''))
-    return makeFormatter(base, dec, mag, null)
+    // Printed in the chart's language (French: decimal comma, spaced thousands).
+    return localizedFormat(makeFormatter(base, dec, mag, null), L)
   }
 
   // ── Totals row: sum of numbers, mean of Harvey balls, count of checkboxes ──
@@ -155,7 +160,7 @@ export function buildTableScene(spec = {}, columns = [], rows = [], { width = 64
         cells[c.key] = fs.length ? (fs.reduce((s, f) => s + f, 0) / fs.length) * harveyMax(c) : null
       } else if (kind === 'check') cells[c.key] = `${vals.filter(v => checkOf(v) === 'yes').length}/${vals.length}`
     }
-    body = [...body, { key: TOTAL_ROW, label: 'Total', cells, total: true, computed: true }]
+    body = [...body, { key: TOTAL_ROW, label: t('Total', L), cells, total: true, computed: true }]
   }
 
   // ── Each cell's content (type driven by the value) ──
@@ -364,6 +369,15 @@ export function buildTableScene(spec = {}, columns = [], rows = [], { width = 64
     // Custom checkbox symbols: { yes, no }.
     const sym = pickStyle(spec.checkSymbols, c)
     if (sym) c.symbols = sym
+    // Single accent: the marks of emphasized rows (Harvey balls, checkboxes, icons,
+    // chevrons and boxes) in the accent color, every other mark neutral. Text keeps its ink.
+    if (singleAccent(spec) && c.col !== LABEL_COL) {
+      const hot = !r?.total && !!(r?.emphasis || emphasis.has(c.row))
+      const ac = hot ? ACCENT : NEUTRAL
+      if (c.type === 'harvey' || c.type === 'check') c.color = ac
+      else if (c.type === 'icon' && c.icon) c.icon = { ...c.icon, color: ac }
+      else if (c.type === 'pentagon' || c.type === 'pill') c.markFill = ac
+    }
   }
 
   // Position of text and marks in each cell (vertical alignment per column).
@@ -425,7 +439,7 @@ export function buildTableScene(spec = {}, columns = [], rows = [], { width = 64
   }
   if (spec.colLines) for (const c of colOut.slice(1)) lines.push({ key: `c-${c.key}`, x1: c.x, y1: 0, x2: c.x, y2: height, vertical: true })
 
-  return { empty: false, width: tableW, height, rowH, headH: headerRow ? headH : 0, cols: colOut, rows: rowOut, cells, lines, stripes }
+  return stamp({ empty: false, width: tableW, height, rowH, headH: headerRow ? headH : 0, cols: colOut, rows: rowOut, cells, lines, stripes }, 'table', spec)
 }
 
 /**

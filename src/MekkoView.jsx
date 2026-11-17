@@ -7,6 +7,7 @@
 // total; a series can move into a data table below the axis (segment menu).
 import { useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { IconPalette, IconLayoutBoard, IconChartBar, IconTag, IconArrowsVertical, IconLayoutList } from '@tabler/icons-react'
+import MekkoFigure from './MekkoFigure.jsx'
 import { buildMekkoScene, MEKKO_OTHER, mekkoHundredSideFromX, mekkoOtherFromY, mekkoValueFromY } from './mekkoScene.js'
 import { Seg, Check, Line, Swatches, Field } from './ChartWheel'
 import FormatBar from './FormatBar'
@@ -18,18 +19,19 @@ import { useSheet } from './useSheet.js'
 import { mekkoSheet } from './sheetAdapters.js'
 
 // A color: a palette token, or a hex picked by the user (custom style).
-import { tok, labelTextStyle, schemeMap, styleSummary } from './customStyle.js'
+import { tok, fs, labelTextStyle, schemeMap, styleSummary } from './customStyle.js'
 import { SchemeTools, TextStyle } from './CustomStyle.jsx'
 const PALETTE = [...COLOR_TOKENS, ...NEUTRAL_TOKENS]
 const DEFAULTS = { netLines: null, mode: null, labels: null, totals: null, widths: null, sort: null, gap: null, legend: null, other: null, segmentOrder: null, xLabels: null, outline: null, ridges: null, extent: null, toOther: null, valueLine: null, hundred: null, grandTotal: null, table: null, seriesColors: {}, cellColors: {} }
 
 // Chart width, and the row to reserve above the plot when the card header
 // has no room for the format bar (it never covers the chart).
-function useBox(ref) {
-  const [box, setBox] = useState({ width: 0, reserve: 0 })
+// `fixed`: the `width` prop (no measuring: server rendering, static pages).
+function useBox(ref, fixed) {
+  const [box, setBox] = useState({ width: fixed ?? 0, reserve: 0 })
   useLayoutEffect(() => {
     const el = ref.current
-    if (!el) return undefined
+    if (!el || fixed != null) return undefined
     const measure = () => {
       const r = el.getBoundingClientRect()
       // The bar sits on the title row: no reserved row above the plot.
@@ -40,26 +42,32 @@ function useBox(ref) {
     const ro = new ResizeObserver(measure)
     ro.observe(el)
     return () => ro.disconnect()
-  }, [ref])
-  return box
+  }, [ref, fixed])
+  return fixed != null ? { width: fixed, reserve: 0 } : box
 }
 // A color's name, for "Fill: teal".
 const COLOR_NAME = { 'cat-1': 'teal', 'cat-2': 'blue', 'cat-3': 'orange', 'cat-4': 'purple', 'cat-5': 'raspberry', 'cat-6': 'cyan', 'cat-7': 'slate', 'cat-8': 'bronze' }
 const colorName = t => COLOR_NAME[t] ?? String(t ?? '').replace(/-\d+$/, '')
 
-export default function MekkoView({ id = 'mekko', spec: specIn = {}, columns: columnsIn = [], format, height = 320, label = 'Mekko chart' }) {
+// width: fixed drawing width (no measuring; also the first width on hydration).
+// readOnly: the figure only: no format bar, menus, data sheet or per-browser preferences.
+// responsive: the SVG scales to its container (width="100%", ratio kept); dataTable: a
+// visually hidden table of the numbers next to the SVG.
+export default function MekkoView({ id = 'mekko', spec: specIn = {}, columns: columnsIn = [], format, height = 320, label = 'Mekko chart', width: widthProp, readOnly = false, responsive = false, dataTable = false }) {
   const boxRef = useRef(null)
-  const { width, reserve } = useBox(boxRef)
+  const { width, reserve } = useBox(boxRef, widthProp)
   const [drag, setDrag] = useState(null) // the "Other" threshold while dragging
   const [hDrag, setHDrag] = useState(null) // offset of the "100%" indicator while dragging
   const [vlDrag, setVlDrag] = useState(null) // the value line while dragging
-  const { prefs: P, set, update, reset, undo, canUndo } = useViewPrefs(`epure-chart-mekko-${id}`, DEFAULTS)
+  const prefsApi = useViewPrefs(`epure-chart-mekko-${id}`, DEFAULTS)
+  const { set, update, reset, undo, canUndo } = prefsApi
+  const P = readOnly ? DEFAULTS : prefsApi.prefs
   // The sheet drives the chart: columns, segments and widths come from it (source + edits).
   const sheetBase = useMemo(() => mekkoSheet.toBase(columnsIn, specIn.series ?? [], specIn), [columnsIn, specIn])
   const sheetApi = useSheet(`mekko-${id}`, sheetBase, mekkoSheet.validate)
-  const fromSheet = mekkoSheet.fromSheet(sheetApi.sheet, columnsIn, specIn.series ?? [])
-  const columns = fromSheet.columns
-  const baseSpec = { ...specIn, series: fromSheet.series }
+  const fromSheet = readOnly ? null : mekkoSheet.fromSheet(sheetApi.sheet, columnsIn, specIn.series ?? [])
+  const columns = fromSheet ? fromSheet.columns : columnsIn
+  const baseSpec = fromSheet ? { ...specIn, series: fromSheet.series } : specIn
   const spec = {
     ...baseSpec,
     ...Object.fromEntries(Object.entries(P).filter(([k, v]) => v != null && !['seriesColors', 'cellColors'].includes(k))),
@@ -84,7 +92,7 @@ export default function MekkoView({ id = 'mekko', spec: specIn = {}, columns: co
   const cur = obj ?? pick?.obj
   const seg = scene?.segments.find(s => s.key === pick?.key)
   const col = scene?.columns.find(c => c.key === (pick?.col ?? seg?.colKey))
-  const seriesOf = sid => spec.series.find(s => s.id === sid)
+  const seriesOf = sid => (spec.series ?? []).find(s => s.id === sid)
   const percent = (spec.mode ?? 'percent') === 'percent'
   const xLabels = spec.widths === false ? 'none' : (spec.xLabels ?? 'share')
   const ORDER = { sheet: 'sheet', reverse: 'reversed', desc: 'largest at bottom', asc: 'smallest at bottom' }
@@ -282,6 +290,45 @@ export default function MekkoView({ id = 'mekko', spec: specIn = {}, columns: co
     set('other', v > 0 ? v : null)
   }
 
+  // The editing layer, passed to the figure: selection, clicks, menus and drags.
+  const part = (kind, it) => {
+    if (kind === 'legend') return { className: 'chart-engine-legend chart-engine-clickable', onClick: go('legend'), onContextMenu: go('legend') }
+    if (kind === 'segment') {
+      const on = pick?.obj === 'segment' && pick.key === it.key
+      return {
+        ...(on ? { stroke: tok('gold'), strokeWidth: 2 } : {}),
+        className: `chart-engine-clickable${on ? ' is-selected' : ''}`, onClick: go('segment', { key: it.key }), onContextMenu: go('segment', { key: it.key }),
+      }
+    }
+    if (kind === 'label') return { className: 'chart-engine-clickable', onClick: go('labels'), onContextMenu: go('labels') }
+    if (kind === 'valueLine') return {
+      className: 'chart-engine-clickable chart-engine-handle--y', onPointerDown: dragValueLine, onClick: go('valueline'), onContextMenu: go('valueline'),
+      onDoubleClick: e => { e.stopPropagation(); set('valueLine', true) },
+    }
+    if (kind === 'valueLineStroke') return pick?.obj === 'valueline' ? { stroke: tok('gold') } : null
+    if (kind === 'hundred') return {
+      x: it.x + (hDrag ?? 0), className: 'chart-engine-clickable', onPointerDown: dragHundred, onContextMenu: go('chart'),
+      style: { fontSize: fs(10.5), fontFamily: 'var(--font-mono)', cursor: 'ew-resize' },
+    }
+    if (kind === 'grandTotal') return { className: 'chart-engine-clickable', onClick: go('labels'), onContextMenu: go('chart') }
+    if (kind === 'tableHead') return {
+      className: `chart-engine-clickable${pick?.obj === 'tablerow' && pick.key === it.seriesId ? ' is-selected' : ''}`,
+      onClick: go('tablerow', { key: it.seriesId }), onContextMenu: go('tablerow', { key: it.seriesId }),
+    }
+    if (kind === 'tableCell') return { className: 'chart-engine-clickable', onClick: go('tablerow', { key: it.seriesId }), onContextMenu: go('tablerow', { key: it.seriesId }) }
+    if (kind === 'yaxis') return { className: 'chart-engine-axis chart-engine-clickable', onClick: go('yaxis'), onContextMenu: go('yaxis') }
+    return null
+  }
+
+  if (readOnly) {
+    return (
+      <div ref={boxRef} className="chart-engine chart-engine-box">
+        {scene?.empty && <div className="chart-engine-empty">No data for this chart yet.</div>}
+        <MekkoFigure scene={scene} interactive={!readOnly} label={label} responsive={responsive} dataTable={dataTable} />
+      </div>
+    )
+  }
+
   return (
     <div ref={boxRef} className="chart-engine chart-engine-box" style={reserve ? { paddingTop: reserve } : undefined} onContextMenu={e => { if (!e.defaultPrevented) open(e, { obj: 'chart' }) }} onDoubleClick={e => { if (!e.target.closest?.('.chart-datasheet, .chart-wheel, .chart-pop')) { close(); setObj(null); sheetApi.setSheetOpen(true) } }}>
       <EditedNote api={sheetApi} />
@@ -291,72 +338,7 @@ export default function MekkoView({ id = 'mekko', spec: specIn = {}, columns: co
       </div>
       {scene?.empty && <div className="chart-engine-empty">No data for this chart yet.</div>}
       {scene && !scene.empty && (
-        <svg width={scene.width} height={scene.height} role="img" aria-label={label}>
-          <g className="chart-engine-legend chart-engine-clickable" onClick={go('legend')} onContextMenu={go('legend')}>
-            {scene.legend.map(it => (
-              <g key={it.key} transform={`translate(${it.x},0)`}>
-                {it.line ? <line x1={0} x2={11} y1={it.y} y2={it.y} stroke={tok(it.color)} strokeWidth={2.5} /> : <rect x={0} y={it.y - 5} width={10} height={10} rx={2} fill={tok(it.color)} />}
-                <text x={16} y={it.y} dominantBaseline="central" style={{ fontSize: 11 }}>{it.label}</text>
-              </g>
-            ))}
-          </g>
-          {scene.axes.y.ticks.map(t => <line key={t.value} x1={scene.plot.left} x2={scene.plot.right} y1={t.y} y2={t.y} stroke={tok('gray-200')} strokeWidth={1} shapeRendering="crispEdges" pointerEvents="none" />)}
-          {scene.segments.map(s => {
-            const on = pick?.obj === 'segment' && pick.key === s.key
-            return (
-              <rect key={s.key} x={s.x} y={s.y} width={Math.max(0, s.width)} height={Math.max(0, s.height)} fill={tok(s.color)}
-                stroke={on ? tok('gold') : s.stroke ? tok(s.stroke.color) : 'none'} strokeWidth={on ? 2 : s.stroke?.width ?? 0}
-                className={`chart-engine-clickable${on ? ' is-selected' : ''}`} onClick={go('segment', { key: s.key })} onContextMenu={go('segment', { key: s.key })}>
-                <title>{`${seriesOf(s.seriesId)?.label ?? 'Other'} · ${Math.round(s.share * 100)}% · ${format ? format(s.value) : s.value}`}</title>
-              </rect>
-            )
-          })}
-          {/* Net lines: one stroke per column, at the series value. */}
-          {(scene.netLines ?? []).map(n => <line key={`net-${n.key}`} x1={n.x1} x2={n.x2} y1={n.y} y2={n.y} stroke={tok(n.color)} strokeWidth={2.5} pointerEvents="none" />)}
-          {scene.ridges.map(r => <rect key={`ridge-${r.key}`} x={r.x} y={r.y} width={r.width} height={r.height} fill="none" stroke={tok('black')} strokeWidth={1.75} pointerEvents="none" />)}
-          {scene.labels.filter(l => l.leader).map(l => <line key={`lead-${l.key}`} x1={l.leader.x1} y1={l.leader.y1} x2={l.leader.x2} y2={l.leader.y2} stroke={tok('gray-500')} strokeWidth={0.75} pointerEvents="none" />)}
-          {scene.labels.map(l => (
-            <text key={l.key} x={l.x} y={l.y} textAnchor={l.anchor} fill={tok(l.color)} fontWeight={600} pointerEvents={l.color === 'white' ? 'none' : undefined}
-              className="chart-engine-clickable" onClick={go('labels')} onContextMenu={go('labels')}
-              style={{ fontSize: 10.5, fontFamily: 'var(--font-mono)', ...labelTextStyle(P) }}>{l.text}</text>
-          ))}
-          {scene.valueLine && (() => {
-            const v = scene.valueLine, on = pick?.obj === 'valueline'
-            return (
-              <g className="chart-engine-clickable chart-engine-handle--y" onPointerDown={dragValueLine} onClick={go('valueline')} onContextMenu={go('valueline')}
-                onDoubleClick={e => { e.stopPropagation(); set('valueLine', true) }}>
-                <line x1={v.x1} x2={v.x2} y1={v.y} y2={v.y} stroke={tok(on ? 'gold' : 'black')} strokeWidth={1.25} strokeDasharray="5 3" />
-                <line x1={v.x1} x2={v.x2} y1={v.y} y2={v.y} stroke="transparent" strokeWidth={10} />
-                <text x={v.labelX} y={v.labelY} textAnchor="start" fill={tok('black')} fontWeight={600} stroke={tok('surface')} strokeWidth={3} paintOrder="stroke" style={{ fontSize: 10.5, fontFamily: 'var(--font-mono)' }}>{v.text}</text>
-                <title>{`${v.auto ? 'Weighted mean' : 'Value line'} · ${v.text} · drag to move, double-click for the weighted mean`}</title>
-              </g>
-            )
-          })()}
-          {scene.hundred && (
-            <text x={scene.hundred.x + (hDrag ?? 0)} y={scene.hundred.y} textAnchor={scene.hundred.anchor} fill={tok('gray-700')} fontWeight={600} className="chart-engine-clickable"
-              onPointerDown={dragHundred} onContextMenu={go('chart')}
-              style={{ fontSize: 10.5, fontFamily: 'var(--font-mono)', cursor: 'ew-resize' }}>{scene.hundred.text}<title>Drag to the left or right of the chart (click: other side)</title></text>
-          )}
-          {scene.grandTotal && (
-            <text x={scene.grandTotal.x} y={scene.grandTotal.y} textAnchor={scene.grandTotal.anchor} fill={tok('black')} fontWeight={600} className="chart-engine-clickable"
-              onClick={go('labels')} onContextMenu={go('chart')} style={{ fontSize: 10.5, fontFamily: 'var(--font-mono)' }}>{scene.grandTotal.text}</text>
-          )}
-          {scene.table.heads.length > 0 && (
-            <g className="chart-engine-axis">
-              {scene.table.heads.map(h => (
-                <text key={h.seriesId} x={h.x} y={h.y} textAnchor="end" className={`chart-engine-clickable${pick?.obj === 'tablerow' && pick.key === h.seriesId ? ' is-selected' : ''}`}
-                  onClick={go('tablerow', { key: h.seriesId })} onContextMenu={go('tablerow', { key: h.seriesId })}>{h.text}</text>
-              ))}
-              {scene.table.rows.map(r => (
-                <text key={r.key} x={r.x} y={r.y} textAnchor="middle" className="chart-engine-clickable" onClick={go('tablerow', { key: r.seriesId })} onContextMenu={go('tablerow', { key: r.seriesId })}
-                  style={{ fontSize: 10, fontFamily: 'var(--font-mono)' }}>{r.text}{r.text !== r.full && <title>{r.full}</title>}</text>
-              ))}
-            </g>
-          )}
-          <g className="chart-engine-axis chart-engine-clickable" onClick={go('yaxis')} onContextMenu={go('yaxis')}>
-            {scene.axes.y.ticks.map(t => <text key={t.value} x={scene.plot.left - 6} y={t.y} textAnchor="end" dominantBaseline="central" style={{ fontFamily: 'var(--font-mono)' }}>{t.label}</text>)}
-            <rect x={0} y={scene.plot.top} width={scene.plot.left} height={scene.plot.height} fill="transparent" />
-          </g>
+        <MekkoFigure scene={scene} interactive={!readOnly} label={label} responsive={responsive} dataTable={dataTable} labelStyle={labelTextStyle(P)} part={part}>
           {scene.otherHandle && (() => {
             const h = scene.otherHandle
             const txt = h.value ? `Other < ${Math.round(h.value * 100)}% · ${h.pooled} segment${h.pooled === 1 ? '' : 's'}` : 'Drag up to group small segments into Other'
@@ -371,15 +353,7 @@ export default function MekkoView({ id = 'mekko', spec: specIn = {}, columns: co
               </g>
             )
           })()}
-          <g className="chart-engine-axis" pointerEvents="none">
-            {scene.axes.x.ticks.map(t => (
-              <g key={t.key}>
-                <text x={t.x} y={scene.axes.x.y + 14} textAnchor="middle">{t.label}</text>
-                {t.share && <text x={t.x} y={scene.axes.x.y + 27} textAnchor="middle" style={{ fontSize: 10, fontFamily: 'var(--font-mono)' }}>{t.share}</text>}
-              </g>
-            ))}
-          </g>
-        </svg>
+        </MekkoFigure>
       )}
       {pick && (
         <FormatBar onOpenSheet={() => sheetApi.setSheetOpen(true)} key={`${pick.mode}|${pick.obj}|${pick.key}`} mode={pick.mode} anchor={pick.anchor} objects={objects} object={cur}

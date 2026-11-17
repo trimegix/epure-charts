@@ -77,3 +77,36 @@ test('profile: one line per series, no bars, domain without forced zero', async 
   assert.equal(sc.profiles[0].points.length, 3)
   assert.ok(sc.axis.ticks[0].value > 0)
 })
+
+test('range marker: median of the points, on the range bar, labelled on demand', () => {
+  const sc = buildBarhScene({ rangeMarker: 'median', rangeMarkerLabel: true }, [
+    { key: 'a', label: 'A', range: [10, 30], points: [10, 12, 20, 30] },
+    { key: 'b', label: 'B', points: [5, 25, 9] },
+    { key: 'c', label: 'C', range: [0, 40] },
+  ], OPTS)
+  const [a, b, c] = sc.rows
+  assert.equal(a.marker.value, 16)
+  const bar = sc.bars.find(z => z.key === 'a')
+  assert.ok(a.marker.x > bar.x && a.marker.x < bar.x + bar.width)
+  assert.equal(a.marker.text, '€16.0M')
+  assert.ok(a.marker.ty < bar.y)
+  // Points without a range: the bar spans them, the marker is their median.
+  assert.deepEqual(sc.bars.find(z => z.key === 'b').range, [5, 25])
+  assert.equal(b.marker.value, 9)
+  assert.equal(c.marker, undefined)
+  assert.ok(sc.rows[1].y1 - sc.rows[1].y0 >= 36, 'the row holds the marker label')
+})
+
+test('range marker: mean, the row\'s own marker, line shape, named label', () => {
+  const sc = buildBarhScene({ rangeMarker: 'mean', rangeMarkerShape: 'line', rangeMarkerLabel: 'Mean' }, [
+    { key: 'a', label: 'A', range: [0, 10], points: [1, 2, 6] },
+    { key: 'b', label: 'B', range: [0, 10], marker: 7 },
+  ], OPTS)
+  assert.equal(sc.rows[0].marker.value, 3)
+  assert.equal(sc.rows[0].marker.shape, 'line')
+  assert.equal(sc.rows[1].marker.value, 7)
+  assert.equal(sc.rows[1].marker.text, 'Mean €7.0M')
+  // No spec.rangeMarker and no row marker: nothing drawn, no label.
+  const plain = buildBarhScene({}, [{ key: 'a', label: 'A', range: [0, 10], points: [1, 2, 6] }], OPTS)
+  assert.equal(plain.rows[0].marker, undefined)
+})

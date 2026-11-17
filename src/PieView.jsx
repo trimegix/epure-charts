@@ -225,7 +225,7 @@ export default function PieView({ id = 'pie', spec: baseSpec = {}, slices: slice
     return (
       <div ref={boxRef} className="chart-engine chart-engine-box">
         {scene?.empty && <div className="chart-engine-empty">No data for this chart yet.</div>}
-        <PieFigure scene={scene} label={label} responsive={responsive} dataTable={dataTable} />
+        <PieFigure scene={scene} interactive={!readOnly} label={label} responsive={responsive} dataTable={dataTable} />
       </div>
     )
   }
@@ -239,7 +239,7 @@ export default function PieView({ id = 'pie', spec: baseSpec = {}, slices: slice
       </div>
       {scene?.empty && <div className="chart-engine-empty">No data for this chart yet.</div>}
       {scene && !scene.empty && (
-        <PieFigure scene={scene} label={label} responsive={responsive} dataTable={dataTable} labelStyle={labelTextStyle(P)} part={part}>
+        <PieFigure scene={scene} interactive={!readOnly} label={label} responsive={responsive} dataTable={dataTable} labelStyle={labelTextStyle(P)} part={part}>
           {dragTip && <text x={dragTip.x + 12} y={dragTip.y - 10} fill={tok('black')} fontWeight={600} stroke={tok('surface')} strokeWidth={3} paintOrder="stroke" pointerEvents="none" style={{ fontSize: 11, fontFamily: 'var(--font-mono)' }}>{dragTip.text}</text>}
           {pick?.obj === 'slice' && scene.arcs.find(a => a.key === pick.key)?.handles.map((h, i) => (
             <rect key={`sh-${i}`} x={h.x - 3.5} y={h.y - 3.5} width={7} height={7} className="chart-engine-knob is-on chart-engine-handle--rotate" onPointerDown={e => dragSliceEdge(e, h)}>

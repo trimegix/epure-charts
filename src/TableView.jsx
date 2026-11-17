@@ -16,7 +16,7 @@ import { IconPalette, IconTable, IconColumns, IconLayoutRows, IconSquare } from 
 import { buildTableScene, nextInsertKey, markEdit, resizeTableWidths, resizeTableRowHeight, LABEL_COL, TOTAL_ROW } from './tableScene.js'
 import { setCell } from './sheetModel.js'
 import { colorName } from './colorNames.js'
-import { HarveyBall, CheckMark } from './HarveyBall.jsx'
+import TableFigure from './TableFigure.jsx'
 import { Seg, Check, Line, Field } from './ChartWheel'
 import FormatBar from './FormatBar'
 import { useViewPrefs } from './useViewPrefs.js'
@@ -26,7 +26,7 @@ import { useSheet } from './useSheet.js'
 import { tableSheet } from './sheetAdapters.js'
 
 // A color: a palette token, or a hex picked by the user (custom style).
-import { tok, isHex, fontName, fontFamily, isPt } from './customStyle.js'
+import { tok, isHex, fontName, isPt } from './customStyle.js'
 import { CustomColor, TextStyle } from './CustomStyle.jsx'
 const OBJ_KEYS = ['colTypes', 'cellTypes', 'align', 'widths', 'fontSizes', 'markSizes', 'decimals', 'magnitude', 'harveyMax', 'text', 'fills', 'colors', 'markFills', 'valign', 'rotate', 'outlineColors', 'outlineStyles', 'overrides', 'checkSymbols', 'pts', 'fonts']
 const ARR_KEYS = ['emphasis', 'insRows', 'insCols', 'hideRows', 'hideCols']
@@ -72,17 +72,19 @@ function TokenPick({ tokens, value, onPick, pale }) {
 // Summary of the Style control: "Style: Serif · 14 pt" (font, then size in pt or the step).
 const styleLabel = (font, pt, tier) => `Style: ${[font ? fontName(font) : tier && 'Default', isPt(pt) ? `${pt} pt` : tier].filter(Boolean).join(' · ') || 'as column'}`
 
-function useWidth(ref) {
-  const [w, setW] = useState(0)
+// The drawing width: the `width` prop when given (no measuring: server rendering,
+// static pages), else the box's width, followed with a ResizeObserver.
+function useWidth(ref, fixed) {
+  const [w, setW] = useState(fixed ?? 0)
   useLayoutEffect(() => {
     const el = ref.current
-    if (!el) return undefined
+    if (!el || fixed != null) return undefined
     setW(Math.round(el.getBoundingClientRect().width))
     const ro = new ResizeObserver(([e]) => setW(Math.round(e.contentRect.width)))
     ro.observe(el)
     return () => ro.disconnect()
-  }, [ref])
-  return w
+  }, [ref, fixed])
+  return fixed ?? w
 }
 
 /** Follows the pointer until release; onMove(dx) from the starting point. */
@@ -94,27 +96,22 @@ function track(e, onMove) {
   window.addEventListener('pointermove', move); window.addEventListener('pointerup', up)
 }
 
-// A cell's status icon: up / down arrow, dash, dot.
-// k: the cell's text scale (the icon grows with it).
-function StatusIcon({ cx, cy, icon, k = 1 }) {
-  const c = tok(icon.color)
-  const a = 5 * k, b = 3 * k, d = 4 * k
-  if (icon.shape === 'up') return <path d={`M${cx - a},${cy + b} L${cx},${cy - d} L${cx + a},${cy + b} Z`} fill={c} />
-  if (icon.shape === 'down') return <path d={`M${cx - a},${cy - b} L${cx},${cy + d} L${cx + a},${cy - b} Z`} fill={c} />
-  if (icon.shape === 'flat') return <rect x={cx - a} y={cy - k} width={2 * a} height={2 * k} rx={k} fill={c} />
-  return <circle cx={cx} cy={cy} r={4.5 * k} fill={c} />
-}
-
 /** Table view: cells driven by their values (number, text, Harvey ball, checkbox, icon), with format bars and menus. */
-export default function TableView({ id = 'table', spec: baseSpec = {}, columns: columnsIn = [], rows: rowsIn = [], format, label = 'Table' }) {
+// width: fixed drawing width (no measuring; also the first width on hydration).
+// readOnly: the figure only: no format bar, menus, data sheet or per-browser preferences.
+// responsive: the SVG scales to its container (width="100%", ratio kept).
+// dataTable: the table's content also as a visually hidden HTML table.
+export default function TableView({ id = 'table', spec: baseSpec = {}, columns: columnsIn = [], rows: rowsIn = [], format, label = 'Table', width: widthProp, readOnly = false, responsive = false, dataTable = false }) {
   const boxRef = useRef(null)
-  const width = useWidth(boxRef)
-  const { prefs: P, set, update, reset, undo, canUndo } = useViewPrefs(`epure-chart-table-${id}`, DEFAULTS)
+  const width = useWidth(boxRef, widthProp)
+  const prefsApi = useViewPrefs(`epure-chart-table-${id}`, DEFAULTS)
+  const { set, update, reset, undo, canUndo } = prefsApi
+  const P = readOnly ? DEFAULTS : prefsApi.prefs
   // The sheet drives the table: cells, rows and columns come from it (source + edits).
   const sheetBase = useMemo(() => tableSheet.toBase(columnsIn, rowsIn), [columnsIn, rowsIn])
   // Validation reads the effective Harvey scale (including a set preference), like the drawn table.
   const sheetApi = useSheet(`table-${id}`, sheetBase, sh => tableSheet.validate(sh, columnsIn, { ...baseSpec, harveyMax: { ...(baseSpec.harveyMax ?? {}), ...(P.harveyMax ?? {}) } }))
-  const { columns, rows } = tableSheet.fromSheet(sheetApi.sheet, columnsIn, rowsIn)
+  const { columns, rows } = readOnly ? { columns: columnsIn, rows: rowsIn } : tableSheet.fromSheet(sheetApi.sheet, columnsIn, rowsIn)
   // Effective spec: set preference > host spec; objects merged, lists replaced.
   const spec = { ...baseSpec }
   for (const [k, v] of Object.entries(P)) {
@@ -438,6 +435,28 @@ export default function TableView({ id = 'table', spec: baseSpec = {}, columns: 
     return null
   })()
 
+  // Editing on the drawn cells: selection, menus, keyboard, double-click.
+  const part = (kind, c) => {
+    if (kind !== 'cell') return null
+    const focusable = c.row === '__head__' || c.col === LABEL_COL
+    return {
+      className: 'chart-engine-clickable chart-table__cell', tabIndex: focusable ? 0 : undefined,
+      onClick: e => pickCell(e, c), onContextMenu: e => pickCell(e, c), onKeyDown: focusable ? e => onKeyCell(e, c) : undefined,
+      // Double-click on a cell: the data sheet (the cell is redrawn on the first click).
+      // Harvey ball or checkbox: double-click cycles the state.
+      onDoubleClick: e => { e.stopPropagation(); if (writeMark(c, true)) return; close(); setObj(null); sheetApi.setSheetOpen(true) },
+    }
+  }
+
+  if (readOnly) {
+    return (
+      <div ref={boxRef} className="chart-engine chart-engine-box">
+        {scene?.empty && <div className="chart-engine-empty">No data for this table yet.</div>}
+        <TableFigure scene={scene} interactive={!readOnly} label={label} responsive={responsive} dataTable={dataTable} />
+      </div>
+    )
+  }
+
   return (
     <div ref={boxRef} className="chart-engine chart-engine-box" onContextMenu={e => { if (!e.defaultPrevented) open(e, { obj: 'chart' }) }} onDoubleClick={e => { if (!e.target.closest?.('.chart-datasheet, .chart-wheel, .chart-pop')) { close(); setObj(null); sheetApi.setSheetOpen(true) } }}>
       <EditedNote api={sheetApi} />
@@ -447,52 +466,16 @@ export default function TableView({ id = 'table', spec: baseSpec = {}, columns: 
       </div>
       {scene?.empty && <div className="chart-engine-empty">No data for this table yet.</div>}
       {scene && !scene.empty && (
-        <svg width={scene.width + 2} height={scene.height + 2} role="table" aria-label={label} className="chart-table">
-          <g transform="translate(1,1)">
-            {scene.rows.filter(r => r.kind === 'header').map(r => <rect key="hb" x={0} y={r.y} width={scene.width} height={r.h} className="chart-table__head" />)}
-            {scene.stripes.map(s => <rect key={s.key} x={s.x} y={s.y} width={s.w} height={s.h} className="chart-table__stripe" style={s.fill ? { fill: fillCss(s.fill) } : undefined} />)}
-            {scene.rows.filter(r => r.kind === 'total').map(r => <rect key="tb" x={0} y={r.y} width={scene.width} height={r.h} className="chart-table__total" />)}
-            {scene.lines.map(l => <line key={l.key} x1={l.x1} y1={l.y1} x2={l.x2} y2={l.y2} className={`chart-table__line${l.strong ? ' is-strong' : ''}`} />)}
-            {scene.cells.map(c => {
-              const focusable = c.row === '__head__' || c.col === LABEL_COL
-              const name = c.text ?? (c.type === 'harvey' ? (c.harvey == null ? 'no value' : `${Math.round(c.harvey * 100)}%`) : c.type === 'check' ? c.check : c.icon ? String(c.value) : '')
-              return (
-                <g key={c.key} role="cell" className="chart-engine-clickable chart-table__cell" tabIndex={focusable ? 0 : undefined} aria-label={name || 'Empty cell'}
-                  onClick={e => pickCell(e, c)} onContextMenu={e => pickCell(e, c)} onKeyDown={focusable ? e => onKeyCell(e, c) : undefined}
-                  // Double-click on a cell: the data sheet (the cell is redrawn on the first click).
-                  // Harvey ball or checkbox: double-click cycles the state.
-                  onDoubleClick={e => { e.stopPropagation(); if (writeMark(c, true)) return; close(); setObj(null); sheetApi.setSheetOpen(true) }}>
-                  <rect x={c.x} y={c.y} width={c.w} height={c.h} fill={c.fill ? fillCss(c.fill) : 'transparent'} />
-                  {c.shape && (c.shape.points
-                    ? <polygon points={c.shape.points} fill={fillCss(c.markFill ?? 'gray-100')} stroke={c.outline && c.outline.width !== 0 ? tok(c.outline.color || 'gray-500') : 'none'} strokeWidth={c.outline?.width ?? 0} strokeDasharray={c.outline?.dash} />
-                    : <rect x={c.shape.x} y={c.shape.y} width={c.shape.w} height={c.shape.h} rx={c.shape.rx} fill={fillCss(c.markFill ?? 'gray-100')} stroke={c.outline && c.outline.width !== 0 ? tok(c.outline.color || 'gray-500') : 'none'} strokeWidth={c.outline?.width ?? 0} strokeDasharray={c.outline?.dash} />)}
-                  {['text', 'number', 'pentagon', 'pill'].includes(c.type) && c.text !== '' && (
-                    <text x={c.tx} y={c.cy} textAnchor={c.anchor} dominantBaseline="central" fill={tok(c.color ?? (c.header && c.row === '__head__' ? 'gray-600' : 'gray-800'))} fontWeight={c.bold ? 600 : 400}
-                      transform={c.rotate === 90 ? `rotate(-90 ${c.tx} ${c.cy})` : undefined}
-                      style={{ fontSize: c.fs, fontFamily: c.font ? fontFamily(c.font) : c.type === 'number' ? 'var(--font-mono)' : 'var(--font)', textDecoration: c.overwritten ? 'underline dotted' : undefined }}>
-                      {/* Wrapped header, ellipsed text: full text on hover. */}
-                      {c.lines ? c.lines.map((l, i) => <tspan key={i} x={c.tx} dy={i === 0 ? `${(-(c.lines.length - 1) / 2) * 1.2}em` : '1.2em'}>{l}</tspan>) : (c.shown ?? c.text)}
-                      {c.clipped && <title>{c.text}</title>}
-                    </text>
-                  )}
-                  {/* Cell unlinked from the sheet: corner marked as in the sheet ("overwritten"). */}
-                  {c.overwritten && <path d={`M${c.x},${c.y} h6 L${c.x},${c.y + 6} Z`} fill={tok('cat-2')}><title>Overwritten: no longer linked to the data sheet</title></path>}
-                  {c.type === 'harvey' && <HarveyBall inline cx={c.anchor === 'start' ? c.x + 10 + c.r : c.anchor === 'end' ? c.x + c.w - 10 - c.r : c.cx} cy={c.cy} size={c.r * 2 + 1} value={c.harvey} color={c.color} fill={c.markFill} outline={c.outline} invalid={c.invalid} />}
-                  {c.type === 'check' && <CheckMark inline cx={c.anchor === 'start' ? c.x + 10 + c.size / 2 : c.anchor === 'end' ? c.x + c.w - 10 - c.size / 2 : c.cx} cy={c.cy} size={c.size} value={c.check} color={c.color} fill={c.markFill} outline={c.outline} symbols={c.symbols} />}
-                  {c.type === 'icon' && c.icon && <StatusIcon cx={c.anchor === 'start' ? c.x + 10 + 5 * (c.k ?? 1) : c.anchor === 'end' ? c.x + c.w - 10 - 5 * (c.k ?? 1) : c.cx} cy={c.cy} icon={c.icon} k={c.k ?? 1} />}
-                </g>
-              )
-            })}
-            {sel && <rect x={sel.x + 0.5} y={sel.y + 0.5} width={Math.max(0, sel.w - 1)} height={Math.max(0, sel.h - 1)} className="chart-table__sel" pointerEvents="none" />}
-            <rect x={scene.width - 7} y={scene.height - 7} width={8} height={8} className="chart-table__corner" style={{ cursor: 'nwse-resize' }} fill={cur === 'chart' && pick ? tok('gold') : 'transparent'}
-              onPointerDown={dragTable}><title>Drag to resize the table</title></rect>
-            {spec.headerRow !== false && scene.cols.map(c => (
-              <rect key={`w-${c.key}`} x={c.x + c.w - 3} y={0} width={6} height={scene.headH || scene.rowH} className="chart-table__resize" onPointerDown={e => dragWidth(e, c)}>
-                <title>{`Drag to set the width (${Math.round(c.w)} px)`}</title>
-              </rect>
-            ))}
-          </g>
-        </svg>
+        <TableFigure scene={scene} interactive={!readOnly} label={label} responsive={responsive} dataTable={dataTable} part={part}>
+          {sel && <rect x={sel.x + 0.5} y={sel.y + 0.5} width={Math.max(0, sel.w - 1)} height={Math.max(0, sel.h - 1)} className="chart-table__sel" pointerEvents="none" />}
+          <rect x={scene.width - 7} y={scene.height - 7} width={8} height={8} className="chart-table__corner" style={{ cursor: 'nwse-resize' }} fill={cur === 'chart' && pick ? tok('gold') : 'transparent'}
+            onPointerDown={dragTable}><title>Drag to resize the table</title></rect>
+          {spec.headerRow !== false && scene.cols.map(c => (
+            <rect key={`w-${c.key}`} x={c.x + c.w - 3} y={0} width={6} height={scene.headH || scene.rowH} className="chart-table__resize" onPointerDown={e => dragWidth(e, c)}>
+              <title>{`Drag to set the width (${Math.round(c.w)} px)`}</title>
+            </rect>
+          ))}
+        </TableFigure>
       )}
       {pick && (
         <FormatBar onOpenSheet={() => sheetApi.setSheetOpen(true)} key={`${pick.mode}|${pick.obj}|${pick.row}|${pick.col}`} mode={pick.mode} anchor={pick.anchor} objects={objects} object={objects[cur] ? cur : 'chart'}

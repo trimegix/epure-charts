@@ -19,7 +19,7 @@ import { cardGeometry } from './cardGeometry'
 import { undoLast, canUndo } from './chartPrefs'
 import { useCompactLevel, compactList, compactValue } from './compactBar.jsx'
 import BarBoundary from './BarBoundary.jsx'
-import { tok, schemeMap, styleSummary } from './customStyle.js'
+import { tok, schemeMap, styleSummary, baseToken } from './customStyle.js'
 import { SchemeTools, TextStyle } from './CustomStyle.jsx'
 import { TONE_TOKEN } from './waterfallScene.js'
 
@@ -189,7 +189,8 @@ function BridgeBarInner({ api, pick = {}, anchor, onClose, axisPreview, axisSamp
             <Line key={t} label={l}><Swatches palette={api.palette} value={p.toneColors?.[t]} onPick={c => api.setToneColor(t, c)} /></Line>
           ))}
           {/* Named fill schemes: one color per family, in order. */}
-          <SchemeTools current={api.tones.map(([t]) => p.toneColors?.[t] ?? TONE_TOKEN[t] ?? 'gray-400')} active={p.schemeName}
+          {/* The scheme editor resolves palette tokens to hex: a semantic tone token goes in as its palette fallback. */}
+          <SchemeTools current={api.tones.map(([t]) => p.toneColors?.[t] ?? baseToken(TONE_TOKEN[t]) ?? 'gray-400')} active={p.schemeName}
             onApply={sc => { if (sc) api.setPref('toneColors', schemeMap(api.tones.map(([t]) => t), sc.colors)); api.setPref('schemeName', sc?.name ?? null) }} />
         </>
       )],

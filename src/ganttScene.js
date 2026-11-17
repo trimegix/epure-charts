@@ -40,6 +40,10 @@
 //   rowHeight?: px, groups?: true              rows grouped under their group (banner)
 //   progress?: true                            progress (done) drawn inside the bar
 //   lang?: 'en'|'fr'|'de'…                     month / day names (Intl) and default titles
+//                                              (default: the chart locale, spec.locale)
+//   accent?: 'single', emphasis?: [key]         single accent: rows or tasks named (row key,
+//                                              task key or 'row|task') in the accent, the rest neutral
+//   background?: token, progress?, rtl?        drawing options, carried on the scene
 //   colTitles?: { activity, responsible, status, remark, keyDates }  replaced titles
 //   scaleTexts?: { [header unit key]: text }   free text in place of a scale date
 //   labelSpans?: { 'responsible|key': { rows, bracket? } }  label spanning several rows
@@ -52,6 +56,9 @@
 // Pure, tested under node --test.
 import { estimateWidth } from './scene.js'
 import { labelMetrics } from './customStyle.js'
+import { localeOf, localizeNumber } from './locale.js'
+import { accentColor, accentInk, emphasisOf } from './accent.js'
+import { stamp as stampScene } from './figureMeta.js'
 
 const DAY = 86400000
 /**
@@ -102,11 +109,13 @@ export function ganttNames(lang = 'en') {
 }
 /** Default column and scale titles, per language. */
 export const GANTT_TITLES = {
-  en: { activity: 'Activity', responsible: 'Responsible', status: 'Status', remark: 'Remark', keyDates: 'Key dates', year: 'Year', quarter: 'Quarter', month: 'Month', week: 'Week', day: 'Day', q: 'Q', w: 'W' },
-  fr: { activity: 'Activité', responsible: 'Responsable', status: 'Statut', remark: 'Remarque', keyDates: 'Dates clés', year: 'Année', quarter: 'Trimestre', month: 'Mois', week: 'Semaine', day: 'Jour', q: 'T', w: 'S' },
-  de: { activity: 'Aktivität', responsible: 'Verantwortlich', status: 'Status', remark: 'Bemerkung', keyDates: 'Stichtage', year: 'Jahr', quarter: 'Quartal', month: 'Monat', week: 'Woche', day: 'Tag', q: 'Q', w: 'KW' },
+  en: { activity: 'Activity', responsible: 'Responsible', status: 'Status', remark: 'Remark', keyDates: 'Key dates', year: 'Year', quarter: 'Quarter', month: 'Month', week: 'Week', day: 'Day', q: 'Q', w: 'W', d: 'd', wd: 'wd', h: 'h' },
+  fr: { activity: 'Activité', responsible: 'Responsable', status: 'Statut', remark: 'Remarque', keyDates: 'Dates clés', year: 'Année', quarter: 'Trimestre', month: 'Mois', week: 'Semaine', day: 'Jour', q: 'T', w: 'S', d: 'j', wd: 'j ouvr.', h: 'h' },
+  de: { activity: 'Aktivität', responsible: 'Verantwortlich', status: 'Status', remark: 'Bemerkung', keyDates: 'Stichtage', year: 'Jahr', quarter: 'Quartal', month: 'Monat', week: 'Woche', day: 'Tag', q: 'Q', w: 'KW', d: 'T', wd: 'AT', h: 'Std.' },
 }
-const titlesOf = lang => GANTT_TITLES[lang] ?? GANTT_TITLES.en
+const titlesOf = lang => ({ ...GANTT_TITLES.en, ...GANTT_TITLES[lang] })
+/** The language a Gantt reads in: spec.lang first, else the chart locale. */
+export const ganttLang = spec => spec?.lang ?? localeOf(spec)
 const PRESETS = new Set(['d mmm', 'dd/mm', 'mm/dd', 'iso', 'mmm yy', 'dd/mm/yyyy', 'mm/dd/yyyy', 'd mmm yyyy', 'mmm d yyyy'])
 // Format codes (Excel style): d dd ddd dddd, m mm mmm
 // mmmm, yy yyyy, q (quarter), w ww (ISO week); "text" or \x stays as is.
@@ -272,9 +281,9 @@ function unitCells(unit, { t0, t1, fs, weekStart }) {
 }
 
 // Candidate labels of a unit, longest to shortest (the first that fits wins).
-function tierTexts(unit, t, spec, fs, top) {
+function tierTexts(unit, t, spec, fs, top, lang) {
   const d = new Date(t), mm = d.getUTCMonth(), yy = d.getUTCFullYear()
-  const N = ganttNames(spec.lang), T = titlesOf(spec.lang), MONTHS = N.short
+  const N = ganttNames(lang), T = titlesOf(lang), MONTHS = N.short
   const fy = y => (fs === 0 ? String(y) : `FY${String(y + 1).slice(2)}`)
   switch (unit) {
     case 'year': return [fy(yy)]
@@ -295,6 +304,7 @@ function tierTexts(unit, t, spec, fs, top) {
 /** Builds the pure geometry of a Gantt chart (see the header of this file for spec and rows). */
 export function buildGanttScene(spec = {}, rowsIn0 = [], opts = {}) {
   const width = Math.max(320, Math.round(opts.width ?? 720))
+  const lang = ganttLang(spec)
   const LM = labelMetrics(opts.labelStyle ?? spec, FONT)
   // Set size: the row follows the label (the bar, lower than the row, holds the text).
   const RH = Math.max(spec.rowHeight ?? 26, LM.base ? 0 : Math.ceil(LM.size + 14))
@@ -311,8 +321,8 @@ export function buildGanttScene(spec = {}, rowsIn0 = [], opts = {}) {
   const rowsIn = resolveDates(rowsIn0)
   const items = rowsIn.flatMap(r => r.items)
   const valid = items.filter(i => Number.isFinite(i.s))
-  const base = { width, height: 80, plot: null, header: [], gridlines: [], rows: [], bars: [], milestones: [], brackets: [], summaries: [], links: [], shades: [], weekends: [], events: [], cells: [], colHeads: [], labels: [], labelBrackets: [], hidden: [], today: null, empty: !valid.length }
-  if (base.empty) return base
+  const base = { lang, rtl: !!spec.rtl, background: spec.background ?? null, progress: !!spec.progress, width, height: 80, plot: null, header: [], gridlines: [], rows: [], bars: [], milestones: [], brackets: [], summaries: [], links: [], shades: [], weekends: [], events: [], cells: [], colHeads: [], labels: [], labelBrackets: [], hidden: [], today: null, empty: !valid.length }
+  if (base.empty) return stampScene(base, 'gantt', spec)
 
   const events = (spec.events ?? []).map((ev, i) => ({ ...ev, key: ev.key ?? `ev${i}`, t: parseDate(ev.date) })).filter(ev => Number.isFinite(ev.t))
   const weekStart = ((spec.weekStart ?? 0) % 7 + 7) % 7
@@ -358,7 +368,7 @@ export function buildGanttScene(spec = {}, rowsIn0 = [], opts = {}) {
     r.level = Math.max(0, Math.round(r.level ?? 0))
     r.parent = !r.group && i + 1 < rows.length && !rows[i + 1].group && (rows[i + 1].level ?? 0) > r.level
   })
-  const TT = { ...titlesOf(spec.lang), ...(spec.colTitles ?? {}) }
+  const TT = { ...titlesOf(lang), ...(spec.colTitles ?? {}) }
   if (events.length) rows.push({ key: '__events__', label: TT.keyDates, group: false, level: 0, events: true, items: [] })
 
   // Label columns: activity, responsible and status on the left;
@@ -414,7 +424,7 @@ export function buildGanttScene(spec = {}, rowsIn0 = [], opts = {}) {
       const key = `${unit === 'year' ? 'y' : unit[0]}${c.start}`
       // Free text typed on a unit replaces the date.
       const own = spec.scaleTexts?.[key]
-      const text = own != null ? own : tierTexts(unit, c.start, spec, fs, top).find(t => w > estimateWidth(t, level === 0 ? 11 : 10) + 4) ?? ''
+      const text = own != null ? own : tierTexts(unit, c.start, spec, fs, top, lang).find(t => w > estimateWidth(t, level === 0 ? 11 : 10) + 4) ?? ''
       base.header.push({ level, unit, key, x0: X(c.a), x1: X(c.b), y: 12 + level * TIER, text, custom: own != null })
     }
   })
@@ -436,7 +446,7 @@ export function buildGanttScene(spec = {}, rowsIn0 = [], opts = {}) {
     tiers.forEach((unit, level) => {
       if (colsOn.length && level === tiers.length - 1) return // the column titles row
       const custom = typeof spec.scaleLabels === 'object' ? spec.scaleLabels[unit] : null
-      base.tierLabels.push({ key: unit, unit, x: plot.left - 6, y: 12 + level * TIER, text: custom ?? (unit === 'year' && fs ? 'FY' : titlesOf(spec.lang)[unit] ?? TIER_NAME[unit]) })
+      base.tierLabels.push({ key: unit, unit, x: plot.left - 6, y: 12 + level * TIER, text: custom ?? (unit === 'year' && fs ? 'FY' : titlesOf(lang)[unit] ?? TIER_NAME[unit]) })
     })
   }
   base.tiers = tiers
@@ -469,7 +479,10 @@ export function buildGanttScene(spec = {}, rowsIn0 = [], opts = {}) {
   const labelsMode = spec.labels ?? 'inside'
   const dateLabels = spec.dateLabels ?? 'none'
   const dfmt = spec.dateFormat ?? 'd mmm'
-  const L = spec.lang
+  const L = lang
+  // Single accent: a task is emphasized by its key, its row's key or 'row|task'.
+  const emph = emphasisOf(spec)
+  const markColor = (r, it, id, color) => accentColor(spec, [id, it.key, r.key].find(k => emph.has(String(k))) ?? id, color)
   const dateText = (s, e, ms, it = {}) => {
     if (dateLabels === 'none') return null
     // A milestone set on an end can show the previous day ("Previous Day").
@@ -477,8 +490,8 @@ export function buildGanttScene(spec = {}, rowsIn0 = [], opts = {}) {
     if (dateLabels === 'start') return formatDate(s, dfmt, it.sTime, L)
     if (dateLabels === 'end') return formatDate(e, dfmt, it.eTime, L)
     if (dateLabels === 'duration') {
-      if (it.sTime || it.eTime) return `${Math.round((e - s) / HOUR)} h`
-      const n = Math.round(clock(e + DAY) - clock(s)); return `${n} ${hide ? 'wd' : 'd'}`
+      if (it.sTime || it.eTime) return localizeNumber(`${Math.round((e - s) / HOUR)} ${TT.h}`, L)
+      const n = Math.round(clock(e + DAY) - clock(s)); return localizeNumber(`${n} ${hide ? TT.wd : TT.d}`, L)
     }
     return `${formatDate(s, dfmt, it.sTime, L)} – ${formatDate(e, dfmt, it.eTime, L)}`
   }
@@ -576,7 +589,7 @@ export function buildGanttScene(spec = {}, rowsIn0 = [], opts = {}) {
       if (it.milestone) {
         const mx = X(s), my = y0 + RH / 2, mr = RH * 0.28
         const marker = it.marker ?? spec.marker ?? 'diamond'
-        base.milestones.push({ key: id, rowKey: r.key, itemKey: it.key, prevDay: !!it.prevDay, link: it.preds.length ? it.link : null, x: mx, y: my, r: mr, marker, path: markerPath(marker, mx, my, mr), color: it.color ?? r.color ?? 'gold', label: it.label ?? null, date: stamp(s, it.sTime), line: it.line ? { y1: plot.top, y2: plot.bottom } : null })
+        base.milestones.push({ key: id, rowKey: r.key, itemKey: it.key, prevDay: !!it.prevDay, link: it.preds.length ? it.link : null, x: mx, y: my, r: mr, marker, path: markerPath(marker, mx, my, mr), color: markColor(r, it, id, it.color ?? r.color ?? 'gold'), label: it.label ?? null, date: stamp(s, it.sTime), line: it.line ? { y1: plot.top, y2: plot.bottom } : null })
         ends.set(id, { xs: mx - mr, xe: mx + mr, y: my, h: mr, cx: mx })
         const txt = [labelsMode !== 'none' && it.label, dateText(s, s, true, it)].filter(Boolean).join(' · ')
         if (txt) base.labels.push({ key: id, x: mx + RH * 0.36, y: my + BL, text: txt, anchor: 'start', color: 'gray-700' })
@@ -586,7 +599,7 @@ export function buildGanttScene(spec = {}, rowsIn0 = [], opts = {}) {
       const shape = it.shape ?? r.shape ?? spec.shape ?? 'bar'
       const tallArrow = arrowTall && shape !== 'bar'
       const bw = Math.max(2, x1 - x0), by = y0 + (tallArrow ? RH * 0.07 : (RH - BAR_H) / 2), bh = tallArrow ? RH * 0.86 : BAR_H
-      const bar = { key: id, rowKey: r.key, itemKey: it.key, label: it.label ?? null, x: x0, y: by, width: bw, height: bh, shape, path: barPath(shape, x0, by, bw, bh), color: it.color ?? r.color ?? 'cat-2', outline: it.outline ?? r.outline ?? spec.outline ?? null, link: it.preds.length ? it.link : null, done: Number.isFinite(it.done) ? Math.max(0, Math.min(1, it.done)) : null, start: stamp(s, it.sTime), end: stamp(e, it.eTime), linked: it.preds.length > 0 }
+      const bar = { key: id, rowKey: r.key, itemKey: it.key, label: it.label ?? null, x: x0, y: by, width: bw, height: bh, shape, path: barPath(shape, x0, by, bw, bh), color: markColor(r, it, id, it.color ?? r.color ?? 'cat-2'), outline: it.outline ?? r.outline ?? spec.outline ?? null, link: it.preds.length ? it.link : null, done: Number.isFinite(it.done) ? Math.max(0, Math.min(1, it.done)) : null, start: stamp(s, it.sTime), end: stamp(e, it.eTime), linked: it.preds.length > 0 }
       base.bars.push(bar)
       ends.set(id, { xs: x0, xe: x0 + bw, y: y0 + RH / 2, h: bh / 2 })
       const dt = dateText(s, e, false, it)
@@ -793,7 +806,14 @@ export function buildGanttScene(spec = {}, rowsIn0 = [], opts = {}) {
   base.frame = { from: base.range.from, to: base.range.to, auto }
   // Labels truncated for lack of room: second pass with a band above the bars.
   if (needAbove.size && !bandRows.size && labelsMode !== 'none') return buildGanttScene(spec, rowsIn0, { ...opts, _bandRows: [...needAbove], _band: Math.ceil((LM.base ? FONT : LM.size) * 0.8) + 6 })
-  return base
+  // Single accent: the ink of a label inside its bar follows the bar (dark on the neutral).
+  for (const l of base.labels) {
+    if (l.color !== 'white') continue
+    const own = base.bars.find(b => b.key === String(l.key).replace(/\|date$/, ''))
+    const ink = own && accentInk(spec, own.color)
+    if (ink) Object.assign(l, { color: ink, inside: true })
+  }
+  return stampScene(base, 'gantt', spec)
 }
 
 // ─── Plan editing (rows, hierarchy, dragged dates) ───────────────────────────

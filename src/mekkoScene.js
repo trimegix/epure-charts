@@ -31,11 +31,17 @@
 // columns: [{ key, label, extent?, values: { [seriesId]: number } }]
 // spec.labelPt / spec.labelFont (or opts.labelStyle; "Style" control): segment labels
 // and totals measured, fitted and bounded at their actual size (labelMetrics).
+// spec.locale: the engine's words ('Other', 'Total') and numbers in that language;
+// spec.accent 'single': every segment neutral but those spec.emphasis names (a series id,
+// a segment 'colKey|seriesId' or a column key).
 // Pure, tested under node --test.
 import { scaleLinear } from 'd3-scale'
 import { estimateWidth, defaultFormat } from './scene.js'
 import { roundToSum } from './numberStyle.js'
 import { inkOn, labelMetrics } from './customStyle.js'
+import { localeOf, localizedFormat, localizeNumber, t as word } from './locale.js'
+import { singleAccent, emphasisOf, ACCENT, NEUTRAL, accentInk } from './accent.js'
+import { stamp } from './figureMeta.js'
 
 const CAT = ['cat-1', 'cat-2', 'cat-3', 'cat-4', 'cat-5', 'cat-6', 'cat-7', 'cat-8']
 const FONT = 10.5
@@ -73,7 +79,10 @@ export function mekkoOtherFromY(scene, y) {
 export function buildMekkoScene(spec = {}, columnsIn = [], opts = {}) {
   const width = Math.max(240, Math.round(opts.width ?? 600))
   const height = Math.max(180, Math.round(opts.height ?? 320))
-  const format = opts.format ?? defaultFormat
+  const L = localeOf(spec)
+  const format = localizedFormat(opts.format ?? defaultFormat, L)
+  const num = str => localizeNumber(str, L)
+  const OTHER = word('Other', L)
   const mode = spec.mode === 'units' ? 'units' : 'percent'
   const LM = labelMetrics(opts.labelStyle ?? spec, FONT)
   const LS = LM.size
@@ -99,7 +108,7 @@ export function buildMekkoScene(spec = {}, columnsIn = [], opts = {}) {
   if (spec.sort === 'desc') cols = [...cols].sort((a, b) => ext(b) - ext(a))
   if (spec.sort === 'asc') cols = [...cols].sort((a, b) => ext(a) - ext(b))
   const base = { width, height, plot: null, segments: [], netLines: [], columns: [], labels: [], axes: null, legend: [], ridges: [], valueLine: null, hundred: null, grandTotal: null, noRoom: 0, table: { rows: [], heads: [] }, empty: !cols.length || !series.length, mode, extent: extentOn, hasExtent }
-  if (base.empty) return base
+  if (base.empty) return stamp(base, 'mekko', spec)
 
   // "Other" pooling computed before the legend: it only depends on the shares, not on the
   // geometry. The legend follows what is drawn: a series entirely merged into
@@ -118,14 +127,14 @@ export function buildMekkoScene(spec = {}, columnsIn = [], opts = {}) {
   const shown = new Set(parts.flatMap(p => p.segs.map(z => z.s.id)))
   const anyPooled = parts.some(p => p.pooled.length)
   const legendSeries = series.filter(s => shown.has(s.id) || !parts.some(p => p.pooled.some(z => z.s.id === s.id)))
-  if (anyPooled) legendSeries.push({ id: MEKKO_OTHER, label: 'Other', color: OTHER_COLOR })
+  if (anyPooled) legendSeries.push({ id: MEKKO_OTHER, label: OTHER, color: OTHER_COLOR })
   const legendOn = (spec.legend ?? 'top') !== 'none'
   let lx = 0, lrow = 0
   if (legendOn) {
     base.legend = [...legendSeries, ...netSeries.map(s => ({ ...s, line: true }))].map(s => {
       const w = 16 + estimateWidth(s.label, 11)
       if (lx > 0 && lx + w > width) { lx = 0; lrow++ }
-      const it = { key: s.id, label: s.label, color: s.color, x: lx, y: lrow * LEGEND_ROW + 9, ...(s.line ? { line: true } : {}) }
+      const it = { key: s.id, label: s.label, color: accentOf(spec, s.color, s.id), x: lx, y: lrow * LEGEND_ROW + 9, ...(s.line ? { line: true } : {}) }
       lx += w + 16
       return it
     })
@@ -143,10 +152,10 @@ export function buildMekkoScene(spec = {}, columnsIn = [], opts = {}) {
   // grand total is shown: their labels sit there, after the "Other" handle, outside the columns.
   const vlOn = spec.valueLine != null && spec.valueLine !== false
   const maxTot = Math.max(0, ...cols.map(tot))
-  const vlText = !vlOn ? '' : mode === 'percent' ? '100.0%' : format(typeof spec.valueLine === 'number' ? Math.max(maxTot, Math.abs(spec.valueLine)) : maxTot)
-  const grandText = grandOn ? `Total ${format(cols.reduce((t, c) => t + tot(c), 0))}` : ''
+  const vlText = !vlOn ? '' : mode === 'percent' ? num('100.0%') : format(typeof spec.valueLine === 'number' ? Math.max(maxTot, Math.abs(spec.valueLine)) : maxTot)
+  const grandText = grandOn ? `${word('Total', L)} ${format(cols.reduce((t, c) => t + tot(c), 0))}` : ''
   const hundredRight = hundredOn && spec.hundred === 'right'
-  const marginW = vlOn || grandOn || hundredRight ? Math.ceil(Math.max(estimateWidth(vlText, 10.5), estimateWidth(grandText, 10.5), hundredRight ? estimateWidth('100%', 10.5) : 0)) + 4 : 0
+  const marginW = vlOn || grandOn || hundredRight ? Math.ceil(Math.max(estimateWidth(vlText, 10.5), estimateWidth(grandText, 10.5), hundredRight ? estimateWidth(num('100%'), 10.5) : 0)) + 4 : 0
   // Margin reserved for the outside labels of the last column (second pass, see below).
   const outPad = marginW ? 0 : Math.max(0, opts._outPad ?? 0)
   const plot = { left, right: width - 16 - marginW - outPad, top: legendH + (totalsOn || hundredOn || grandOn ? (totalsOn && !LM.base ? Math.max(18, Math.ceil(LS * 0.75) + 8) : 18) : 6), bottom: height - 20 - (xLabels !== 'none' ? 14 : 0) - tableH }
@@ -162,7 +171,7 @@ export function buildMekkoScene(spec = {}, columnsIn = [], opts = {}) {
   if (mode === 'units') y.nice(5)
   base.yDomain = y.domain()
   const ticks = y.ticks(5)
-  base.axes = { y: { x: plot.left, ticks: ticks.map(v => ({ value: v, y: y(v), label: mode === 'percent' ? `${Math.round(v * 100)}%` : format(v) })) }, x: { y: plot.bottom } }
+  base.axes = { y: { x: plot.left, ticks: ticks.map(v => ({ value: v, y: y(v), label: mode === 'percent' ? num(`${Math.round(v * 100)}%`) : format(v) })) }, x: { y: plot.bottom } }
 
   // A segment too small for its label: the label sits beside it, with a leader
   // line, when there is room on the right (last column, outside the value line margin).
@@ -199,23 +208,23 @@ export function buildMekkoScene(spec = {}, columnsIn = [], opts = {}) {
     if (order === 'reverse') segs.reverse()
     if (order === 'desc') segs.sort((a, b) => b.v - a.v || a.i - b.i)
     if (order === 'asc') segs.sort((a, b) => a.v - b.v || a.i - b.i)
-    if (pooled.length) segs.push({ s: { id: MEKKO_OTHER, label: 'Other', color: OTHER_COLOR }, v: pooled.reduce((a, z) => a + z.v, 0), members: pooled.map(z => z.s.id) })
+    if (pooled.length) segs.push({ s: { id: MEKKO_OTHER, label: OTHER, color: OTHER_COLOR }, v: pooled.reduce((a, z) => a + z.v, 0), members: pooled.map(z => z.s.id) })
     // Consistent rounding of the column shares (they sum to 100 %).
     const shareR = roundToSum(segs.map(z => (z.v / t) * 100), 0)
     let si = 0
     for (const { s, v, members } of segs) {
-      const shareTxt = `${shareR[si++]}%`
+      const shareTxt = num(`${shareR[si++]}%`)
       const from = mode === 'percent' ? acc / t : acc
       const to = mode === 'percent' ? (acc + v) / t : acc + v
       acc += v
       const y0 = y(to), y1 = y(from)
-      const seg = { key: `${c.key}|${s.id}`, colKey: c.key, seriesId: s.id, x, y: y0, width: w, height: y1 - y0, color: c.colors?.[s.id] ?? s.color, value: v, share: v / t, stroke, ...(members ? { members } : {}) }
+      const seg = { key: `${c.key}|${s.id}`, colKey: c.key, seriesId: s.id, x, y: y0, width: w, height: y1 - y0, color: accentOf(spec, c.colors?.[s.id] ?? s.color, s.id, `${c.key}|${s.id}`, c.key), value: v, share: v / t, stroke, label: s.label, valueText: format(v), shareText: num(`${Math.round((v / t) * 100)}%`), ...(members ? { members } : {}) }
       base.segments.push(seg)
       const lab = spec.labels ?? 'share'
       if (lab !== 'none') {
         const text = lab === 'value' ? format(v) : shareTxt
         if (LM.measure(text) + 6 <= w && seg.height >= LS + 4) {
-          base.labels.push({ key: seg.key, x: x + w / 2, y: y0 + seg.height / 2 + BL, text, anchor: 'middle', color: inkOn(seg.color) })
+          base.labels.push({ key: seg.key, x: x + w / 2, y: y0 + seg.height / 2 + BL, text, anchor: 'middle', color: accentInk(spec, seg.color) ?? inkOn(seg.color) })
         } else if (!outside(seg, text, ci)) base.noRoom++ // removed for lack of room: counted (the value remains on segment hover)
       }
     }
@@ -223,7 +232,7 @@ export function buildMekkoScene(spec = {}, columnsIn = [], opts = {}) {
       const v = c.values?.[s.id]
       if (!Number.isFinite(v)) continue
       const yy = y(mode === 'percent' ? Math.max(0, Math.min(1, v / t)) : Math.max(0, v))
-      base.netLines.push({ key: `${c.key}|${s.id}`, colKey: c.key, seriesId: s.id, x1: x, x2: x + w, y: yy, color: s.color, value: v })
+      base.netLines.push({ key: `${c.key}|${s.id}`, colKey: c.key, seriesId: s.id, x1: x, x2: x + w, y: yy, color: accentOf(spec, s.color, s.id), value: v })
     }
     const top = mode === 'percent' ? y(1) : y(t)
     base.columns.push({ key: c.key, label: c.label, x, width: w, cx: x + w / 2, total: t, extent: ext(c), share: ext(c) / grand, top })
@@ -241,7 +250,7 @@ export function buildMekkoScene(spec = {}, columnsIn = [], opts = {}) {
     }
     x += w + gap
   }
-  const under = c => (xLabels === 'share' ? `${Math.round(c.share * 100)}%` : xLabels === 'value' ? format(c.extent) : null)
+  const under = c => (xLabels === 'share' ? num(`${Math.round(c.share * 100)}%`) : xLabels === 'value' ? format(c.extent) : null)
   base.axes.x.ticks = base.columns.map(c => ({ key: c.key, x: c.cx, label: c.label, width: c.width, share: under(c) }))
   base.axes.x.labels = xLabels
 
@@ -255,19 +264,19 @@ export function buildMekkoScene(spec = {}, columnsIn = [], opts = {}) {
     const v = manual ? spec.valueLine : auto
     const yy = y(v)
     const vy = Math.max(plot.top, Math.min(plot.bottom, yy))
-    base.valueLine = { value: v, auto: !manual, y: vy, x1: plot.left, x2: plot.right, labelX: plot.right + 14, labelY: vy + 3.5,
-      text: mode === 'percent' ? `${(v * 100).toFixed(v * 100 < 10 ? 1 : 0)}%` : format(v) }
+    base.valueLine = { value: v, auto: !manual, name: manual ? null : word('Weighted average', L), y: vy, x1: plot.left, x2: plot.right, labelX: plot.right + 14, labelY: vy + 3.5,
+      text: mode === 'percent' ? num(`${(v * 100).toFixed(v * 100 < 10 ? 1 : 0)}%`) : format(v) }
   }
   // "100%" indicator (Mekko in %), on the left or right above the plot.
   // On the right, it sits in the margin, just below the top of the plot (clear of the column totals).
   if (hundredOn) base.hundred = spec.hundred === 'left'
-    ? { side: 'left', x: plot.left, y: plot.top - 5, anchor: 'start', text: '100%' }
-    : { side: 'right', x: plot.right + 14, y: plot.top + 11, anchor: 'start', text: '100%' }
+    ? { side: 'left', x: plot.left, y: plot.top - 5, anchor: 'start', text: num('100%') }
+    : { side: 'right', x: plot.right + 14, y: plot.top + 11, anchor: 'start', text: num('100%') }
   // Grand total: the sum of the column totals, top right (top left if the indicator is there).
   if (grandOn) {
     const g = base.columns.reduce((t, c) => t + c.total, 0)
     // Above the right margin, right-aligned: never over a column total.
-    base.grandTotal = { value: g, text: `Total ${format(g)}`, x: width - 2, y: plot.top - 5, anchor: 'end' }
+    base.grandTotal = { value: g, text: `${word('Total', L)} ${format(g)}`, x: width - 2, y: plot.top - 5, anchor: 'end' }
   }
   // Data table: one row per moved series, the value centered under each column.
   if (tableSeries.length) {
@@ -293,6 +302,12 @@ export function buildMekkoScene(spec = {}, columnsIn = [], opts = {}) {
   // Second pass: reserve room on the right for the outside labels that did not fit
   // (at most 20 % of the width); those that still do not fit stay counted.
   if (outWant && !opts._outPad) return buildMekkoScene(spec, columnsIn, { ...opts, _outPad: Math.min(outWant, Math.round(width * 0.2)) })
-  return base
+  return stamp(base, 'mekko', spec)
+}
+// Single-accent color of a mark: accent when any of its keys is emphasized.
+function accentOf(spec, color, ...keys) {
+  if (!singleAccent(spec)) return color
+  const e = emphasisOf(spec)
+  return keys.some(k => k != null && e.has(String(k))) ? ACCENT : NEUTRAL
 }
 const overlapBox = (a, b) => a.x0 < b.x1 && b.x0 < a.x1 && a.y0 < b.y1 && b.y0 < a.y1

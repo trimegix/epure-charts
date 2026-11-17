@@ -14,13 +14,25 @@
 //          axis?: true|false, rowHeight?, annotations?: [{ type:'valueLine', value, label, tone, dash, side? }] }
 // (side 'left' | 'right': the label moves to that side of the line, so two
 //  close lines never overlap their names)
-// rows: [{ key, label, values: { [seriesId]: number }, range?: [lo, hi], color?, emphasis? }]
+// rows: [{ key, label, values: { [seriesId]: number }, range?: [lo, hi], color?, emphasis?,
+//          marker?: number, points?: number[] }]
+// Range with a marker (dot plot, football field): a row's `marker` (a number), or
+// spec.rangeMarker 'median' | 'mean' computed from the row's `points` (a row with points
+// and no range spans their extent). Drawn on the range bar as a dot, or a vertical tick
+// with spec.rangeMarkerShape 'line'. spec.rangeMarkerLabel: true writes the value above
+// the marker, a string writes that name then the value ('Median €12.0M').
+// scene row.marker = { x, y, value, text, tx, ty, shape, color, r, h }.
+// spec.locale: the engine's words and numbers in that language; spec.accent 'single':
+// every bar neutral but those whose row key (or series id, or 'row|series') spec.emphasis names.
 // spec.labelPt / spec.labelFont (or opts.labelStyle; "Style" control): figures are measured
 // at their actual size (gutters, fit inside a segment) and the row grows to hold them.
 // Pure, tested under node --test. Colors as token names.
 import { scaleLinear } from 'd3-scale'
 import { estimateWidth, defaultFormat } from './scene.js'
 import { inkOn, labelMetrics } from './customStyle.js'
+import { localeOf, localizedFormat, t } from './locale.js'
+import { singleAccent, emphasisOf, ACCENT, NEUTRAL, accentInk } from './accent.js'
+import { stamp } from './figureMeta.js'
 
 const LABEL = 11
 const VALUE = 10.5
@@ -36,22 +48,52 @@ function ellipsize(text, maxW, size) {
 }
 
 /** Signed total of a row (the sum of its values, or the top of a range). */
+// Single-accent color of a mark: accent when any of its keys is emphasized.
+function accentOf(spec, color, ...keys) {
+  if (!singleAccent(spec)) return color
+  const e = emphasisOf(spec)
+  return keys.some(k => k != null && e.has(String(k))) ? ACCENT : NEUTRAL
+}
+
+const finite = a => (Array.isArray(a) ? a.filter(Number.isFinite) : [])
+function median(v) {
+  const s = [...v].sort((a, b) => a - b)
+  const m = s.length >> 1
+  return s.length % 2 ? s[m] : (s[m - 1] + s[m]) / 2
+}
+/** The marker value of a range row: its own `marker`, else the median or mean of its points. */
+function markerOf(spec, r) {
+  if (Number.isFinite(r.marker)) return r.marker
+  const pts = finite(r.points)
+  if (!pts.length) return null
+  if (spec?.rangeMarker === 'median') return median(pts)
+  if (spec?.rangeMarker === 'mean') return pts.reduce((a, v) => a + v, 0) / pts.length
+  return null
+}
+/** A row with points and no range spans their extent. */
+function withRange(r) {
+  if (!r || r.range) return r
+  const pts = finite(r.points)
+  return pts.length ? { ...r, range: [Math.min(...pts), Math.max(...pts)] } : r
+}
+
 const rowTotal = r => (r.range ? r.range[1] : Object.values(r.values ?? {}).reduce((s, v) => s + (Number.isFinite(v) ? v : 0), 0))
 
 export function buildBarhScene(spec, rowsIn = [], opts = {}) {
   if (spec?.butterfly) return buildButterflyScene(spec, rowsIn, opts)
+  const L = localeOf(spec)
   // 100 % bars: each row normalized to its sum.
   if (spec?.stacked100) {
     const pct = v => `${Math.round(v * 100)}%`
     const norm = rowsIn.map(r => {
-      const t = Object.values(r.values ?? {}).reduce((a, v) => a + Math.abs(Number.isFinite(v) ? v : 0), 0)
-      return { ...r, values: Object.fromEntries(Object.entries(r.values ?? {}).map(([k, v]) => [k, t ? v / t : 0])) }
+      const tot = Object.values(r.values ?? {}).reduce((a, v) => a + Math.abs(Number.isFinite(v) ? v : 0), 0)
+      return { ...r, values: Object.fromEntries(Object.entries(r.values ?? {}).map(([k, v]) => [k, tot ? v / tot : 0])) }
     })
     return buildBarhScene({ ...spec, stacked100: false, stacked: true, labels: spec.labels === 'end' || spec.labels == null ? 'segments' : spec.labels, axis: spec.axis ?? false }, norm, { ...opts, format: opts.formatShare ?? pct })
   }
   const width = Math.max(220, Math.round(opts.width ?? 640))
-  const format = opts.format ?? defaultFormat
-  const series0 = spec?.series ?? [{ id: 'value', label: 'Value', color: 'gray-700' }]
+  const format = localizedFormat(opts.format ?? defaultFormat, L)
+  const series0 = spec?.series ?? [{ id: 'value', label: t('Value', L), color: 'gray-700' }]
   // Rotated combination chart (type options follow the orientation): a series
   // with `mark: 'line'` reads as a line from row to row over the bars.
   const lineSeries = !spec?.profile && series0.length > 1 ? series0.filter(s => s.mark === 'line') : []
@@ -72,17 +114,19 @@ export function buildBarhScene(spec, rowsIn = [], opts = {}) {
   const inner0 = !stacked && series.length > 1 ? series.length : 1
   // Set size: the row holds its figures (one per bar of a grouped chart), never any overlap.
   const rowMin = LM.base || profile ? 0 : showLabels && inner0 > 1 ? Math.ceil((inner0 * (LM.size + 2)) / 0.72) : LM.size + 6
-  const rowH = Math.max(spec?.rowHeight ?? 28, rowMin)
+  // A marker labelled above the bar: the row holds the bar and its note.
+  const markerLabels = !!spec?.rangeMarkerLabel && rowsIn.some(r => r && markerOf(spec, withRange(r) ?? r) != null)
+  const rowH = Math.max(spec?.rowHeight ?? 28, rowMin, markerLabels ? 36 : 0)
   // Grouped with several series: the row is shared, each bar keeps ~13 px (its figure readable).
   const barH = !stacked && (spec?.series ?? []).length > 1 ? Math.round(rowH * 0.72) : Math.min(18, Math.round(rowH * 0.58))
 
-  let rows = rowsIn.filter(r => r && (r.range || Object.values(r.values ?? {}).some(Number.isFinite)))
+  let rows = rowsIn.map(withRange).filter(r => r && (r.range || Object.values(r.values ?? {}).some(Number.isFinite)))
   if (spec?.sort === 'desc') rows = [...rows].sort((a, b) => rowTotal(b) - rowTotal(a))
   if (spec?.sort === 'asc') rows = [...rows].sort((a, b) => rowTotal(a) - rowTotal(b))
 
   const multi = series0.length > 1
   // Legend hidden by the reading settings (spec.legend === false).
-  const legendItems = multi && spec?.legend !== false ? [...series.map(s => ({ key: s.id, label: s.label, color: s.color, pattern: s.pattern ?? null })), ...lineSeries.map(s => ({ key: s.id, label: s.label, color: s.color, line: true }))] : []
+  const legendItems = multi && spec?.legend !== false ? [...series.map(s => ({ key: s.id, label: s.label, color: accentOf(spec, s.color, s.id), pattern: s.pattern ?? null })), ...lineSeries.map(s => ({ key: s.id, label: s.label, color: accentOf(spec, s.color, s.id), line: true }))] : []
   let lx = 0
   let lrow = 0
   const legend = legendItems.map(it => {
@@ -103,14 +147,14 @@ export function buildBarhScene(spec, rowsIn = [], opts = {}) {
     width, height, plot: null, rows: [], bars: [], labels: [], gridlines: [], annotations: [],
     axis: null, legend, empty: rows.length === 0, profiles: [],
   }
-  if (base.empty) return base
+  if (base.empty) return stamp(base, 'barh', spec)
 
   // ── Domain: zero included (except pure ranges), bounds, value lines ──
   const vals = []
   const ranged = rows.every(r => r.range)
   if (!ranged && !profile) vals.push(0)
   for (const r of rows) {
-    if (r.range) { vals.push(r.range[0], r.range[1]); continue }
+    if (r.range) { vals.push(r.range[0], r.range[1]); const m = markerOf(spec, r); if (m != null) vals.push(m); continue }
     if (stacked) {
       let pos = 0, neg = 0
       for (const s of series) { const v = r.values?.[s.id]; if (Number.isFinite(v)) { if (v >= 0) pos += v; else neg += v } }
@@ -168,7 +212,18 @@ export function buildBarhScene(spec, rowsIn = [], opts = {}) {
     const top = cy - barH / 2
     if (r.range) {
       const [a, b] = r.range
-      base.bars.push({ key: r.key, seriesId: series[0].id, x: x(Math.min(a, b)), width: Math.max(1, Math.abs(x(b) - x(a))), y: top, height: barH, color: r.color ?? series[0].color, pattern: patternOf(r, series[0]) })
+      base.bars.push({ key: r.key, seriesId: series[0].id, x: x(Math.min(a, b)), width: Math.max(1, Math.abs(x(b) - x(a))), y: top, height: barH, color: accentOf(spec, r.color ?? series[0].color, r.key, series[0].id), pattern: patternOf(r, series[0]), range: [Math.min(a, b), Math.max(a, b)] })
+      const m = markerOf(spec, r)
+      if (m != null) {
+        const mx = x(m)
+        const name = typeof spec?.rangeMarkerLabel === 'string' ? spec.rangeMarkerLabel : null
+        const text = spec?.rangeMarkerLabel ? (name ? `${name} ${format(m)}` : format(m)) : null
+        base.rows[base.rows.length - 1].marker = {
+          x: mx, y: cy, value: m, text, tx: mx, ty: top - 4,
+          shape: spec?.rangeMarkerShape === 'line' ? 'line' : 'dot', color: spec?.rangeMarkerColor ?? 'black',
+          r: Math.max(3, Math.min(5, barH * 0.28)), h: barH + 4,
+        }
+      }
       if (showLabels) {
         base.labels.push({ key: `${r.key}|lo`, x: x(Math.min(a, b)) - 5, y: cy + BL, text: format(Math.min(a, b)), anchor: 'end' })
         base.labels.push({ key: `${r.key}|hi`, x: x(Math.max(a, b)) + 5, y: cy + BL, text: format(Math.max(a, b)), anchor: 'start' })
@@ -195,11 +250,12 @@ export function buildBarhScene(spec, rowsIn = [], opts = {}) {
       const bw = Math.max(1, Math.abs(x(to) - x(from)))
       base.bars.push({
         key: r.key, seriesId: s.id, x: x(Math.min(from, to)), width: bw,
-        y: yy, height: Math.max(2, h - (stacked ? 0 : 1)), color: r.colors?.[s.id] ?? r.color ?? s.color, value: v, pattern: patternOf(r, s),
+        y: yy, height: Math.max(2, h - (stacked ? 0 : 1)), color: accentOf(spec, r.colors?.[s.id] ?? r.color ?? s.color, r.key, s.id, `${r.key}|${s.id}`), value: v, pattern: patternOf(r, s),
       })
-      const t = format(v)
-      if (segLabels && LM.measure(t) + 8 <= bw && (LM.base || LM.size + 2 <= h)) {
-        base.labels.push({ key: `${r.key}|${s.id}`, x: x(Math.min(from, to)) + bw / 2, y: yy + h / 2 + BL, text: t, anchor: 'middle', color: inkOn(r.colors?.[s.id] ?? r.color ?? s.color) })
+      const txt = format(v)
+      if (segLabels && LM.measure(txt) + 8 <= bw && (LM.base || LM.size + 2 <= h)) {
+        const fill = base.bars[base.bars.length - 1].color
+        base.labels.push({ key: `${r.key}|${s.id}`, x: x(Math.min(from, to)) + bw / 2, y: yy + h / 2 + BL, text: txt, anchor: 'middle', color: accentInk(spec, fill) ?? inkOn(fill) })
       }
     })
     if (showLabels && perBar) {
@@ -222,11 +278,11 @@ export function buildBarhScene(spec, rowsIn = [], opts = {}) {
   // The lines of the combination chart: a point at the center of each row, at its value.
   for (const s of lineSeries) {
     const pts = base.rows.map(row => ({ row, v: rows.find(r => r.key === row.key)?.values?.[s.id] })).filter(z => Number.isFinite(z.v)).map(z => ({ key: z.row.key, x: x(z.v), y: z.row.y, value: z.v }))
-    if (pts.length) base.profiles.push({ seriesId: s.id, color: s.color ?? 'gray-700', dash: DASH[s.dash ?? 'solid'] ?? null, points: pts, d: pts.map((p, i) => `${i ? 'L' : 'M'}${p.x},${p.y}`).join(' ') })
+    if (pts.length) base.profiles.push({ seriesId: s.id, color: accentOf(spec, s.color ?? 'gray-700', s.id), dash: DASH[s.dash ?? 'solid'] ?? null, points: pts, d: pts.map((p, i) => `${i ? 'L' : 'M'}${p.x},${p.y}`).join(' ') })
   }
   if (profile) {
     base.profiles = series.filter(s => prof[s.id]?.length).map(s => ({
-      seriesId: s.id, color: s.color ?? 'gray-700', dash: DASH[s.dash ?? 'solid'] ?? null, points: prof[s.id],
+      seriesId: s.id, color: accentOf(spec, s.color ?? 'gray-700', s.id), dash: DASH[s.dash ?? 'solid'] ?? null, points: prof[s.id],
       d: prof[s.id].map((p, i) => `${i ? 'L' : 'M'}${p.x},${p.y}`).join(' '),
     }))
     if (spec?.labels === 'all') for (const pr of base.profiles) for (const p of pr.points) base.labels.push({ key: `${p.key}|${pr.seriesId}`, x: p.x + 7, y: p.y - 5, text: format(p.value), anchor: 'start', color: pr.color })
@@ -239,14 +295,14 @@ export function buildBarhScene(spec, rowsIn = [], opts = {}) {
       color: v.tone ?? 'black', dash: DASH[v.dash ?? 'dash'] ?? '4 3',
     })
   }
-  return base
+  return stamp(base, 'barh', spec)
 }
 
 // ─── Butterfly chart: two series back to back, same scale,
 // a single set of labels in the center. spec.series[0] on the left, spec.series[1] on the right.
 export function buildButterflyScene(spec, rowsIn = [], opts = {}) {
   const width = Math.max(260, Math.round(opts.width ?? 640))
-  const format = opts.format ?? defaultFormat
+  const format = localizedFormat(opts.format ?? defaultFormat, localeOf(spec))
   const [L, R] = spec.series ?? []
   const rows = rowsIn.filter(r => r && (Number.isFinite(r.values?.[L?.id]) || Number.isFinite(r.values?.[R?.id])))
   const showLabels = (spec.labels ?? 'end') !== 'none'
@@ -257,7 +313,7 @@ export function buildButterflyScene(spec, rowsIn = [], opts = {}) {
   const headH = 18
   const height = headH + rows.length * rowH + 6
   const base = { width, height, plot: null, rows: [], bars: [], labels: [], gridlines: [], annotations: [], axis: null, legend: [], empty: !rows.length || !L || !R, butterfly: true }
-  if (base.empty) return base
+  if (base.empty) return stamp(base, 'barh', spec)
   const labelW = Math.min(width * 0.3, Math.max(...rows.map(r => estimateWidth(r.label, LABEL))) + 16)
   const valW = showLabels ? Math.max(...rows.flatMap(r => [L, R].map(s => (Number.isFinite(r.values?.[s.id]) ? LM.measure(format(Math.abs(r.values[s.id]))) : 0)))) + 8 : 4
   const mid = width / 2
@@ -268,8 +324,8 @@ export function buildButterflyScene(spec, rowsIn = [], opts = {}) {
   plot.width = plot.right - plot.left; plot.height = plot.bottom - plot.top
   base.plot = plot
   base.legend = [
-    { key: L.id, label: L.label, color: L.color ?? 'cat-1', x: mid - labelW / 2 - 4, y: 9, anchor: 'end' },
-    { key: R.id, label: R.label, color: R.color ?? 'cat-2', x: mid + labelW / 2 + 4, y: 9, anchor: 'start' },
+    { key: L.id, label: L.label, color: accentOf(spec, L.color ?? 'cat-1', L.id), x: mid - labelW / 2 - 4, y: 9, anchor: 'end' },
+    { key: R.id, label: R.label, color: accentOf(spec, R.color ?? 'cat-2', R.id), x: mid + labelW / 2 + 4, y: 9, anchor: 'start' },
   ]
   rows.forEach((r, i) => {
     const y0 = headH + i * rowH, cy = y0 + rowH / 2, top = cy - barH / 2
@@ -277,12 +333,12 @@ export function buildButterflyScene(spec, rowsIn = [], opts = {}) {
     const lv = Math.abs(r.values?.[L.id] ?? 0), rv = Math.abs(r.values?.[R.id] ?? 0)
     const lw = sx(lv), rw = sx(rv)
     const lx = mid - labelW / 2 - lw
-    base.bars.push({ key: r.key, seriesId: L.id, x: lx, width: Math.max(1, lw), y: top, height: barH, color: r.colors?.[L.id] ?? L.color ?? 'cat-1', value: r.values?.[L.id] ?? 0 })
-    base.bars.push({ key: r.key, seriesId: R.id, x: mid + labelW / 2, width: Math.max(1, rw), y: top, height: barH, color: r.colors?.[R.id] ?? R.color ?? 'cat-2', value: r.values?.[R.id] ?? 0 })
+    base.bars.push({ key: r.key, seriesId: L.id, x: lx, width: Math.max(1, lw), y: top, height: barH, color: accentOf(spec, r.colors?.[L.id] ?? L.color ?? 'cat-1', r.key, L.id, `${r.key}|${L.id}`), value: r.values?.[L.id] ?? 0 })
+    base.bars.push({ key: r.key, seriesId: R.id, x: mid + labelW / 2, width: Math.max(1, rw), y: top, height: barH, color: accentOf(spec, r.colors?.[R.id] ?? R.color ?? 'cat-2', r.key, R.id, `${r.key}|${R.id}`), value: r.values?.[R.id] ?? 0 })
     if (showLabels) {
       base.labels.push({ key: `${r.key}|${L.id}`, x: lx - 4, y: cy + BL, text: format(lv), anchor: 'end' })
       base.labels.push({ key: `${r.key}|${R.id}`, x: mid + labelW / 2 + rw + 4, y: cy + BL, text: format(rv), anchor: 'start' })
     }
   })
-  return base
+  return stamp(base, 'barh', spec)
 }

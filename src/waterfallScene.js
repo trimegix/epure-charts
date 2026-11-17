@@ -25,15 +25,23 @@
 //   · distorted connector: an anchor set midway through the
 //     waterfall that does not land on the running total gets an oblique connector flagged as a conflict
 //   · value line (spec.valueLine: true = the starting level, or a value), draggable
+//   · bridge indexed to 100 (spec.index === 100): the start is 100 and every value
+//     (bars, labels, axis, differences) reads as an index of it, no absolute figure;
+//     a start that is zero, negative or missing leaves the bridge as is (scene.indexIgnored)
+//   · language (spec.locale) and single accent (spec.accent 'single', spec.emphasis = step keys)
 import { scaleLinear, scaleBand } from 'd3-scale'
 import { estimateWidth, defaultFormat } from './scene.js'
 import { resolveCollisions } from './labelLayout.js'
 import { isLightHex, labelMetrics } from './customStyle.js'
+import { localeOf, localizedFormat, localizeNumber, t } from './locale.js'
+import { accentColor, singleAccent, ACCENT } from './accent.js'
+import { stamp } from './figureMeta.js'
 
-export const HYPOTHESIS_TOKEN = 'gold'
-export const HYPOTHESIS_TEXT = 'gold-dark'
+// Semantic tokens (--chart-*), each falling back on the palette color it replaced.
+export const HYPOTHESIS_TOKEN = 'chart-hypothesis'
+export const HYPOTHESIS_TEXT = 'chart-hypothesis-text'
 export const TONE_TOKEN = {
-  anchor: 'black', positive: 'green', negative: 'red', upside: 'blue-chart', gap: 'amber',
+  anchor: 'chart-anchor', positive: 'chart-pos', negative: 'chart-neg', upside: 'chart-upside', gap: 'chart-gap',
 }
 const TONE_LEGEND = {
   anchor: 'Anchor', positive: 'Value created', negative: 'Drag', upside: 'Upside to exit', gap: 'Unreconciled',
@@ -123,6 +131,21 @@ export function bridgeLevels(steps, opts = {}) {
   })
 }
 
+/** An index value (spec.index === 100): the number alone, no currency nor unit. */
+function indexFormat(L) {
+  return (v, unit, decimals) => (v == null || !Number.isFinite(v) ? '—' : localizeNumber(v.toFixed(decimals ?? 0), L))
+}
+
+/** Scales every value a step carries (its value, segments, net lines, high scenario). */
+function scaleStep(s, k) {
+  const m = v => (Number.isFinite(v) ? v * k : v)
+  const out = { ...s, value: m(s.value) }
+  if (s.high != null) out.high = m(s.high)
+  if (s.display != null) out.display = m(s.display)
+  for (const f of ['parts', 'partsAll', 'nets']) if (Array.isArray(s[f])) out[f] = s[f].map(p => ({ ...p, value: m(p.value) }))
+  return out
+}
+
 function signed(v, unit, dec, format) {
   // A zero lever is written 0, not "+€0M": it has neither meaning nor sign.
   if (Math.abs(v) < 0.5 * 10 ** -dec) return '0'
@@ -134,12 +157,12 @@ function signed(v, unit, dec, format) {
  * tick passes one billion, all are written in €B, with just as many
  * decimals as the step needs (€0.5B, €1.0B… rather than €500M next to €1.00B).
  */
-export function axisLabels(values, unit, format, gap = false) {
+export function axisLabels(values, unit, format, gap = false, locale = 'en') {
   if (gap) return values.map(v => (v === 0 ? '0' : signed(v, unit, 0, format)))
   const step = values.length > 1 ? Math.abs(values[1] - values[0]) : 0
   if (unit === 'M' && values.some(v => Math.abs(v) >= 1000)) {
     const d = step > 0 ? Math.max(0, Math.min(2, -Math.floor(Math.log10(step / 1000) + 1e-9))) : 1
-    return values.map(v => (v === 0 ? '0' : `€${(v / 1000).toFixed(d)}B`))
+    return values.map(v => (v === 0 ? '0' : localizeNumber(`€${(v / 1000).toFixed(d)}B`, locale)))
   }
   return values.map(v => (v === 0 ? '0' : format(v, unit, 0)))
 }
@@ -163,18 +186,20 @@ const NET_GAP = 4
 export function buildWaterfallScene(spec, bridge, opts = {}) {
   const width = Math.max(200, Math.round(opts.width ?? 640))
   const height = Math.max(160, Math.round(opts.height ?? 260))
-  const format = opts.format ?? defaultFormat
+  const L = localeOf(spec)
+  let format = localizedFormat(opts.format ?? defaultFormat, L)
+  let axisFormat = localizedFormat(opts.axisFormat ?? null, L)
   const LM = labelMetrics(opts.labelStyle ?? spec, LABEL_FONT)
-  const measure = LM.base ? estimateWidth : (t, sz) => LM.measure(t, sz)
+  const measure = LM.base ? estimateWidth : (tx, sz) => LM.measure(tx, sz)
   const labelH = LM.base ? LABEL_H : LM.size + 4
-  const unit = bridge?.unit ?? 'M'
+  let unit = bridge?.unit ?? 'M'
   const dec = spec?.numberFormat?.decimals ?? 0
   // Net lines (on a multi-series waterfall): the segments of these
   // series leave the stack and the step's sum; a horizontal line marks their level
   // (e.g. a budget reference on a waterfall). A step is recomputed on its stacked segments only.
   const netIds = new Set((spec?.netLines ?? []).map(String))
   const isNet = p => netIds.has(String(p.key))
-  const steps = (bridge?.steps ?? []).filter(s => Number.isFinite(s.value)).map(s => {
+  let steps = (bridge?.steps ?? []).filter(s => Number.isFinite(s.value)).map(s => {
     if (!netIds.size || !Array.isArray(s.parts) || !s.parts.some(isNet)) return s
     const kept = s.parts.filter(p => !isNet(p) && Number.isFinite(p.value))
     const nets = s.parts.filter(p => isNet(p) && Number.isFinite(p.value))
@@ -182,6 +207,22 @@ export function buildWaterfallScene(spec, bridge, opts = {}) {
     return { ...s, value: s.kind === 'total' ? s.value : sum, parts: kept.length > 1 ? kept : undefined, partsAll: kept, nets }
   })
   // Data table: values move under the axis (the bars no longer carry a label).
+  // Indexed to 100: the start (the first column, an anchor) becomes 100 and every value
+  // is scaled with it; the figures lose their currency and unit. The levels are linear in
+  // the values, so the geometry keeps its proportions.
+  let indexed = false
+  let indexIgnored = false
+  if (spec?.index === 100) {
+    const start = steps[0] && steps[0].kind !== 'delta' ? bridgeLevels(steps, { down: spec?.direction === 'down', backCalc: !!spec?.backCalc })[0].to : null
+    if (Number.isFinite(start) && start > 0) {
+      const k = 100 / start
+      steps = steps.map(s => scaleStep(s, k))
+      format = indexFormat(L)
+      axisFormat = null
+      unit = 'index'
+      indexed = true
+    } else indexIgnored = true
+  }
   const tableOn = !!spec?.table
   const tableRows = tableOn ? (spec.table === 'running' ? ['value', 'running'] : ['value']) : []
   const showLabels = (spec?.labels ?? 'all') === 'all' && !tableOn
@@ -194,8 +235,9 @@ export function buildWaterfallScene(spec, bridge, opts = {}) {
   const base = {
     width, height, plot: null, axes: { x: { ticks: [] }, left: null }, gridlines: [], bars: [], labels: [],
     connectors: [], whiskers: [], annotations: [], legend: [], columns: [], netLines: [], empty: steps.length === 0,
+    indexed, ...(indexIgnored ? { indexIgnored: true } : {}),
   }
-  if (base.empty) return base
+  if (base.empty) return stamp(base, 'waterfall', spec)
 
   // Dragged connectors: a movement can only restart from an earlier, non-adjacent column.
   const links = {}
@@ -210,14 +252,16 @@ export function buildWaterfallScene(spec, bridge, opts = {}) {
   // ── Legend: the tones present, in waterfall order ──────────────────────
   // An assumption waterfall reads in two words: what is signed, what is simulated.
   const hypo = steps.some(s => s.hypothesis)
-  const tones = [...new Set(steps.filter(s => !s.hypothesis).map(s => s.tone))].filter(t => TONE_LEGEND[t])
+  // Single accent: the colors no longer say the family, the family swatches leave the legend.
+  const single = singleAccent(spec)
+  const tones = single ? [] : [...new Set(steps.filter(s => !s.hypothesis).map(s => s.tone))].filter(tn => TONE_LEGEND[tn])
   // Chosen colors (reading settings): per family (toneColors), then per bar (stepColors).
-  const toneColor = t => spec?.toneColors?.[t] ?? TONE_TOKEN[t]
-  const legendItems = tones.map(t => ({
-    key: t, label: hypo && t === 'anchor' ? 'Signed' : TONE_LEGEND[t], color: toneColor(t), kind: 'swatch',
+  const toneColor = tn => spec?.toneColors?.[tn] ?? TONE_TOKEN[tn]
+  const legendItems = tones.map(tn => ({
+    key: tn, label: t(hypo && tn === 'anchor' ? 'Signed' : TONE_LEGEND[tn], L), color: toneColor(tn), kind: 'swatch',
   }))
-  if (hypo) legendItems.push({ key: 'hypothesis', label: 'Working (simulated)', color: HYPOTHESIS_TOKEN, kind: 'outline' })
-  if (hasWhisker) legendItems.push({ key: 'high', label: 'High scenario', color: TONE_TOKEN.upside, kind: 'whisker' })
+  if (hypo) legendItems.push({ key: 'hypothesis', label: t('Working (simulated)', L), color: single ? 'chart-neutral' : HYPOTHESIS_TOKEN, kind: 'outline' })
+  if (hasWhisker) legendItems.push({ key: 'high', label: t('High scenario', L), color: TONE_TOKEN.upside, kind: 'whisker' })
   const netColor = (s, p) => spec?.stepColors?.[`net|${p.key}`] ?? 'black'
   for (const k of netIds) {
     const st = steps.find(s => (s.nets ?? []).some(p => String(p.key) === k))
@@ -275,9 +319,10 @@ export function buildWaterfallScene(spec, bridge, opts = {}) {
   const rawTicks = yStep ? Array.from({ length: Math.floor((dHi - Math.ceil(dLo / yStep - 1e-9) * yStep) / yStep + 1e-9) + 1 }, (_, i) => Number((Math.ceil(dLo / yStep - 1e-9) * yStep + i * yStep).toPrecision(12))) : y.ticks(tickCount)
   // Ticks stay within the useful area; the top margin is breathing room.
   const ticks = rawTicks.filter(v => y(v) >= plotTop - 1 && y(v) <= plotBottom + 1)
-  const tickText = ya.labels === false ? ticks.map(() => '') : opts.axisFormat && !gapAxis ? ticks.map(v => (v === 0 ? '0' : opts.axisFormat(v, unit, 0))) : axisLabels(ticks, unit, opts.axisFormat ?? format, gapAxis)
+  const tickText = ya.labels === false ? ticks.map(() => '') : axisFormat && !gapAxis ? ticks.map(v => (v === 0 ? '0' : axisFormat(v, unit, 0))) : axisLabels(ticks, unit, axisFormat ?? format, gapAxis, L)
   const tickLabels = ticks.map((v, i) => ({ value: v, y: y(v), label: tickText[i] }))
-  const headW = tableRows.length ? Math.max(...tableRows.map(r => estimateWidth(TABLE_HEAD[r], 10))) + 10 : 0
+  const tableHead = r => t(TABLE_HEAD[r], L)
+  const headW = tableRows.length ? Math.max(...tableRows.map(r => estimateWidth(tableHead(r), 10))) + 10 : 0
   const gutter = Math.max(Math.ceil(Math.max(...tickLabels.map(t => estimateWidth(t.label, TICK_FONT)), 0)) + 10, headW)
 
   const plot = { left: gutter, right: width - 8, top: plotTop, bottom: plotBottom }
@@ -309,17 +354,17 @@ export function buildWaterfallScene(spec, bridge, opts = {}) {
   // The "100 %" base: a chosen level (spec.pctBase = its key), otherwise the first anchor.
   const baseIdx = spec?.pctBase != null ? steps.findIndex(s => s.key === spec.pctBase && s.kind !== 'delta') : -1
   const base100 = Math.abs(levels[baseIdx >= 0 ? baseIdx : 0]?.to ?? 0)
-  const pctOf = v => (base100 ? `${((v / base100) * 100).toFixed(0)}%` : '')
+  const pctOf = v => (base100 ? localizeNumber(`${((v / base100) * 100).toFixed(0)}%`, L) : '')
   const labelText = (s, l) => {
     const raw = labelTextValue(s, l)
     if (content === 'value' || !base100 || gapAxis) return raw
     const v = s.kind === 'delta' ? s.value : l.to
-    const pct = s.kind === 'delta' ? `${v >= 0 ? '+' : '−'}${Math.abs((v / base100) * 100).toFixed(0)}%` : pctOf(v)
+    const pct = s.kind === 'delta' ? localizeNumber(`${v >= 0 ? '+' : '−'}${Math.abs((v / base100) * 100).toFixed(0)}%`, L) : pctOf(v)
     return content === 'pct' ? pct : `${raw} (${pct})`
   }
   const labelTextValue = (s, l) => {
     if (s.kind === 'delta') return signed(s.value, unit, dec, format)
-    if (s.vs) return `${signed(l.to, unit, dec, format)} vs ${s.vs}`
+    if (s.vs) return `${signed(l.to, unit, dec, format)} ${t('vs', L)} ${s.vs}`
     if (gapAxis) return s.display != null ? format(s.display, unit, dec) : '—'
     return format(l.to, unit, dec)
   }
@@ -332,7 +377,7 @@ export function buildWaterfallScene(spec, bridge, opts = {}) {
     const yB = y(l.to)
     const top = Math.min(yA, yB)
     const hyp = !!s.hypothesis
-    const color = hyp ? HYPOTHESIS_TOKEN : (spec?.stepColors?.[s.key] ?? toneColor(s.tone) ?? 'gray-700')
+    const color = accentColor(spec, s.key, hyp ? HYPOTHESIS_TOKEN : (spec?.stepColors?.[s.key] ?? toneColor(s.tone) ?? 'gray-700'))
     // An anchor set at zero (gap waterfall) is drawn as a 4 px line.
     const tick = gapAxis && s.kind === 'anchor' && l.to === 0
     // A step with several segments (stacked segments, mixed signs):
@@ -351,7 +396,7 @@ export function buildWaterfallScene(spec, bridge, opts = {}) {
         const auto = s.kind === 'delta' ? (sg * p.value >= 0 ? toneColor('positive') : toneColor('negative')) : levelRamp[pi % levelRamp.length]
         base.bars.push({
           key: s.key, part: p.key, x: e.left, width: barW, y: Math.min(a, b), height: Math.max(1, Math.abs(b - a)),
-          color: spec?.stepColors?.[`${s.key}|${p.key}`] ?? p.color ?? auto,
+          color: accentColor(spec, s.key, spec?.stepColors?.[`${s.key}|${p.key}`] ?? p.color ?? auto),
           tone: s.kind !== 'delta' ? s.tone : sg * p.value >= 0 ? 'positive' : 'negative', projected: !!s.projected, hypothesis: false, value: p.value, label: p.label, section: s.section ?? null,
         })
       })
@@ -364,7 +409,8 @@ export function buildWaterfallScene(spec, bridge, opts = {}) {
       })
     }
     // A hex that is too light (free style) is not written on the background: the figure switches to dark ink.
-    const textColor = hyp ? HYPOTHESIS_TEXT : isLightHex(color) ? 'gray-800' : color
+    // Single accent: the figures sit outside the bars, dark on the accent, muted elsewhere.
+    const textColor = single ? (color === ACCENT ? 'black' : 'chart-neutral-ink') : hyp ? HYPOTHESIS_TEXT : isLightHex(color) ? 'gray-800' : color
     // A step with a whisker carries its label above the cap: the
     // dotted line never crosses the figure.
     const capY = hasWhisker && s.high != null && y(s.high) < top - 1 ? y(s.high) : null
@@ -441,7 +487,7 @@ export function buildWaterfallScene(spec, bridge, opts = {}) {
       const tol = Math.max(1e-9, Math.abs(levels[i].level) * 1e-6, 0.5 * 10 ** -dec)
       const clash = !gapAxis && steps[j].kind === 'anchor' && Math.abs(levels[j].to - levels[i].level) > tol
       base.connectors.push({ x1: a.right, x2: b.left, y: yy, from: steps[i].key, to: steps[j].key, linked: src != null,
-        ...(clash ? { distorted: true, y2: y(levels[j].to), gap: levels[j].to - levels[i].level, text: `${signed(levels[j].to - levels[i].level, unit, dec, format)} vs running total` } : {}) })
+        ...(clash ? { distorted: true, y2: y(levels[j].to), gap: levels[j].to - levels[i].level, text: `${signed(levels[j].to - levels[i].level, unit, dec, format)} ${t('vs running total', L)}` } : {}) })
     }
   }
 
@@ -462,13 +508,13 @@ export function buildWaterfallScene(spec, bridge, opts = {}) {
     base.table = { top: y0, heads: [], rows: [] }
     tableRows.forEach((r, ri) => {
       const yy = y0 + ri * TABLE_ROW + 10
-      base.table.heads.push({ key: r, text: TABLE_HEAD[r], x: plot.left - 6, y: yy })
+      base.table.heads.push({ key: r, text: tableHead(r), x: plot.left - 6, y: yy })
       steps.forEach((s, i) => {
         const l = levels[i]
         const full = r === 'value' ? labelText(s, l) : format(l.level, unit, dec)
         const fits = estimateWidth(full, 10) <= step - 2
         base.table.rows.push({ key: `${r}|${s.key}`, row: r, stepKey: s.key, x: edge(s.key).mid, y: yy, text: fits ? full : '…', full,
-          color: r === 'value' ? (s.hypothesis ? HYPOTHESIS_TEXT : (spec?.stepColors?.[s.key] ?? toneColor(s.tone) ?? 'gray-700')) : 'gray-700' })
+          color: r === 'value' ? (single ? (accentColor(spec, s.key, null) === ACCENT ? 'black' : 'chart-neutral-ink') : s.hypothesis ? HYPOTHESIS_TEXT : (spec?.stepColors?.[s.key] ?? toneColor(s.tone) ?? 'gray-700')) : 'gray-700' })
       })
     })
   }
@@ -498,7 +544,7 @@ export function buildWaterfallScene(spec, bridge, opts = {}) {
       : spec?.diffBase === 'start' || (spec?.diffBase === 'pctBase' && spec?.pctBase == null) ? (levels[0]?.to || va) : va
     const pct = delta / Math.abs(ref)
     const sgn = delta >= 0 ? '+' : '−'
-    const text = `${sgn}${format(Math.abs(delta), unit, dec)} (${sgn}${Math.abs(pct * 100).toFixed(0)}%)`
+    const text = `${sgn}${format(Math.abs(delta), unit, dec)} (${localizeNumber(`${sgn}${Math.abs(pct * 100).toFixed(0)}%`, L)})`
     base.annotations.push({
       type: 'diff', from: d.from, to: d.to, text,
       xa: edge(d.from).mid, xb: edge(d.to).mid,
@@ -507,5 +553,5 @@ export function buildWaterfallScene(spec, bridge, opts = {}) {
     })
   }
 
-  return base
+  return stamp(base, 'waterfall', spec)
 }

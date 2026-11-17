@@ -17,8 +17,9 @@ const SR_ONLY = { position: 'absolute', width: 1, height: 1, padding: 0, margin:
  * @param {boolean} [p.responsive] scale to the container's width
  * @param {{ caption?: string, head: string[], rows: Array<Array<string|number>> }} [p.table] data for the hidden table
  * @param {boolean} [p.dataTable] render that table
+ * @param {boolean} [p.interactive] an editable view: the title goes to aria-label only (no tooltip)
  */
-export default function FigureSvg({ width, height, meta, label, responsive = false, table = null, dataTable = false, role = 'img', className, style, children, ...rest }) {
+export default function FigureSvg({ width, height, meta, label, responsive = false, table = null, dataTable = false, interactive = false, role = 'img', className, style, children, ...rest }) {
   const w = Math.max(0, Math.round(width * 100) / 100)
   const h = Math.max(0, Math.round(height * 100) / 100)
   const title = meta?.title ?? null
@@ -28,7 +29,9 @@ export default function FigureSvg({ width, height, meta, label, responsive = fal
       width={responsive ? '100%' : w} height={responsive ? undefined : h}
       preserveAspectRatio="xMidYMid meet" role={role} aria-label={label ?? title ?? undefined}
       className={className} style={responsive ? { ...BASE, height: 'auto', display: 'block', ...style } : { ...BASE, ...style }} {...rest}>
-      {title && <title>{title}</title>}
+      {/* Editable views: no root <title> (the browser would show it as a tooltip over the whole
+          chart); the aria-label carries it. */}
+      {title && !interactive && <title>{title}</title>}
       {desc && <desc>{desc}</desc>}
       {children}
     </svg>

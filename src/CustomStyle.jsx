@@ -21,7 +21,7 @@ const useCustomSchemes = () => useSyncExternalStore(subscribeStyle, customScheme
 function readToken(t) {
   if (typeof document === 'undefined') return null
   const probe = document.createElement('span')
-  probe.style.color = `var(--${t})`
+  probe.style.color = tok(t) // semantic tokens keep their palette fallback
   probe.style.display = 'none'
   document.body.appendChild(probe)
   const v = getComputedStyle(probe).color

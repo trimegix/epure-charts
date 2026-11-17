@@ -3,6 +3,23 @@
    set under :where(:root), so any host definition overrides it.
    Light by default; dark with prefers-color-scheme or data-theme="dark". */
 
+
+/* Semantic chart tokens: what a color MEANS. Unset, each falls back on the palette
+   token in brackets (tok() writes var(--chart-pos, var(--green))), so define only the
+   ones your theme changes:
+     --chart-pos (green)        value created, a positive step
+     --chart-neg (red)          a drag, a negative step
+     --chart-accent (gold)      the one highlighted element (accent: 'single')
+     --chart-neutral (gray-300) everything else in single-accent mode
+     --chart-neutral-ink (gray-500)
+     --chart-hypothesis (gold), --chart-hypothesis-text (gold-dark)
+     --chart-anchor (black)     totals and anchors of a bridge
+     --chart-upside (blue-chart), --chart-gap (amber)
+     --chart-actual (gray-700), --chart-plan (gold), --chart-ic (blue-chart),
+     --chart-budget (gray-600), --chart-forecast (gray-300)
+   Type: --chart-fs (11px, body text) and --chart-fs-note (10px, notes) scale every
+   size the figures draw; layout is computed at the defaults. */
+
 :where(:root) {
   --amber: #E0912F;
   --amber-bg: #FBECC8;

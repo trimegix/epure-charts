@@ -123,9 +123,59 @@ Every chart has a data sheet (`DataSheet`) and the same interaction model.
 
 **Formatting.** Number formats (prefixes, decimals, separators, scaling), date formats, label content and position, colors (palette or any hex color), patterns and hatching for forecasts, fonts and sizes, named color schemes you can export and import as JSON.
 
+## Static rendering
+
+Every view draws through a **figure**: a component without hooks that renders a scene
+(plain, laid-out JSON) to SVG. Use the figures to render on the server, in a static site
+or to a file, without the editor:
+
+```jsx
+import { buildWaterfallScene, WaterfallFigure, sceneToSVGString } from 'epure-charts/static'
+
+const scene = buildWaterfallScene(spec, bridge, { width: 720, height: 360 })
+renderToString(<WaterfallFigure scene={scene} responsive />) // complete <svg>, no DOM needed
+sceneToSVGString(scene, { tokens: { 'chart-pos': '#117a65' } }) // standalone SVG, CSS variables resolved
+```
+
+`epure-charts/static` exports the scene builders and the figures (`ChartFigure`,
+`WaterfallFigure`, `BarhFigure`, `PieFigure`, `ScatterFigure`, `MekkoFigure`, `GanttFigure`,
+`TableFigure`, `SlopeFigure`, `FunnelFigure`). It imports neither the data sheet nor the
+icons nor the editing CSS.
+
+Figure props: `scene`, `responsive` (width="100%", ratio kept), `dataTable` (the numbers as
+a visually hidden table, for screen readers), `label`. Every SVG has a `viewBox`, and a
+`<title>` and `<desc>` taken from the spec.
+
+The interactive views take the same options, plus:
+
+| Prop | |
+|---|---|
+| `width` | fixed drawing width: no measuring, so the chart renders on the server; also the first width on hydration |
+| `readOnly` | the figure only: no format bar, menus, data sheet or per-browser preferences |
+| `responsive`, `dataTable` | passed to the figure |
+
+**Provenance.** A spec can carry `source`, `note` and `base` (`{ sample, period, scope }`).
+The figure does not draw them; they travel in `scene.meta.provenance` for the page (title
+and footer) or a deck exporter. See [docs/scenes.md](docs/scenes.md) for the scene
+conventions and [docs/scene-shapes.md](docs/scene-shapes.md) for every field.
+
+**Language.** `spec.locale: 'fr'` (or `setDefaultLocale('fr')` for the page): engine words in
+French, decimal comma, no-break space before % and units (« 12,5 % », « 1 234 M€ »).
+
+**Single accent.** `spec.accent: 'single'` with `spec.emphasis: [keys]`: everything neutral
+but the emphasized series, steps, rows or slices.
+
+**More forms.** `buildSlopeScene` (before / after for N items), `buildFunnelScene`
+(selection funnel with named filters and pass rates), `spec.index: 100` on a waterfall (a
+bridge indexed to 100: orders of magnitude without the figures), range markers on
+horizontal bars (`spec.rangeMarker: 'median' | 'mean'`, or `marker` per row), and
+`smallMultiples(build, panels, { columns, same })` to share one scale across several scenes.
+
 ## Theming
 
 All colors and fonts are CSS custom properties (`--cat-1` … `--cat-7`, `--gray-*`, `--font`, `--font-mono`, …). Import `epure-charts/theme.css` for the defaults, or define the same variables in your own stylesheet: your values win. Light and dark themes are supported (`prefers-color-scheme` or `data-theme="dark"`).
+
+Semantic tokens name what a color means (`--chart-pos`, `--chart-neg`, `--chart-accent`, `--chart-neutral`, `--chart-actual`, `--chart-plan`, `--chart-hypothesis`…); each falls back on a palette color, so define only the ones you change. `--chart-fs` and `--chart-fs-note` scale the text the figures draw.
 
 ## Persistence
 

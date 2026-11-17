@@ -1,9 +1,10 @@
 // ─── epure-charts · chart view ──────────────────────────────────────────────
 // Measures its container, resolves the series, calls buildScene, draws the scene
-// as SVG. NO layout computation here: a wrong pixel is fixed in
-// scene.js. Colors are tokens read as var(--…): the theme follows without
-// CSS recoloring.
-import { useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from 'react'
+// through ChartFigure (the drawing, hook-free) and adds the editing layer
+// (selection, menus, handles, data sheet). NO layout computation here: a wrong
+// pixel is fixed in scene.js. Colors are tokens read as var(--…): the theme
+// follows without CSS recoloring.
+import { Fragment, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { useCharts } from './useCharts'
 import ChartHeader from './ChartHeader'
@@ -20,10 +21,11 @@ import { targetMark } from './useWheelPlacement'
 import { lineMarks } from './barPlacement.js'
 import { beginStep, endStep } from './chartPrefs'
 import BarhView from './BarhView.jsx'
-import PatternDefs from './patterns.jsx'
+import ChartFigure from './ChartFigure.jsx'
+import { Swatch } from './chartMarks.jsx'
 
 // A color is a palette token, or a user-picked hex (custom style).
-import { tok, colorId, fontFamily } from './customStyle.js'
+import { tok, fsNote } from './customStyle.js'
 
 // Selection across the charts of the page (for "Set Same Scale"): the last
 // selected scale object, per axis (y: value axis, segment, point; x: numeric X axis).
@@ -39,13 +41,15 @@ const GRAIN_SUB = { quarter: 'Quarterly', year: 'Annual', category: 'By company'
 
 // The box width: follows the CURRENT element (it changes when the chart rotates into bars)
 // and ignores a detached element (its zero width would make the chart disappear).
-function useWidth(ref) {
-  const [width, setWidth] = useState(0)
+// `fixed` (the `width` prop): no measuring at all (server rendering, static pages).
+function useWidth(ref, fixed) {
+  const [width, setWidth] = useState(fixed ?? 0)
   const obs = useRef({ el: null, ro: null })
   // No dependencies on purpose: the observed element can change between renders;
   // the guard (same element → nothing) prevents any loop.
   // eslint-disable-next-line react-hooks/exhaustive-deps
   useLayoutEffect(() => {
+    if (fixed != null) return
     const el = ref.current
     if (el === obs.current.el) return
     obs.current.ro?.disconnect()
@@ -59,38 +63,7 @@ function useWidth(ref) {
   // On unmount (including strict mode's simulated unmount), the element is forgotten: the
   // remount reattaches it instead of assuming it is already observed.
   useEffect(() => () => { obs.current.ro?.disconnect(); obs.current = { el: null, ro: null } }, [])
-  return width
-}
-
-// Arrowhead oriented along the segment (xa,ya) → (xb,yb), placed at (xb,yb).
-function arrowHead(xa, ya, xb, yb, size = 6) {
-  const a = Math.atan2(yb - ya, xb - xa)
-  const p = (da, r) => `${xb - r * Math.cos(a + da)},${yb - r * Math.sin(a + da)}`
-  return `M${xb},${yb} L${p(0.45, size)} L${p(-0.45, size)} Z`
-}
-
-// A line marker, in its shape (marker shape).
-function Marker({ shape, x, y, r = 3, fill, stroke }) {
-  if (shape === 'square') return <rect x={x - r} y={y - r} width={2 * r} height={2 * r} fill={fill} stroke={stroke} strokeWidth={1.5} />
-  if (shape === 'diamond') return <path d={`M${x},${y - r - 1} L${x + r + 1},${y} L${x},${y + r + 1} L${x - r - 1},${y} Z`} fill={fill} stroke={stroke} strokeWidth={1.5} />
-  if (shape === 'triangle') return <path d={`M${x},${y - r - 1} L${x + r + 1},${y + r} L${x - r - 1},${y + r} Z`} fill={fill} stroke={stroke} strokeWidth={1.5} />
-  return <circle cx={x} cy={y} r={r} fill={fill} stroke={stroke} strokeWidth={1.75} />
-}
-
-
-// Fill patterns: <PatternDefs> (patterns.jsx) defines one
-// <pattern> per pattern × color pair; its id follows `${scope}-pt-${pattern}-${color}`.
-const patternId = (scope, name, color) => `${scope}-pt-${name}-${colorId(color)}`
-
-function Swatch({ item, x, y, scope }) {
-  if (item.mark === 'bar') {
-    return <rect x={x} y={y - 5} width={10} height={10} rx={2} fill={item.pattern && scope ? `url(#${patternId(scope, item.pattern, item.color)})` : tok(item.color)}
-      stroke={item.pattern && scope ? tok(item.color) : undefined} strokeWidth={item.pattern ? 0.75 : undefined} />
-  }
-  return (
-    <line x1={x} x2={x + 14} y1={y} y2={y} stroke={tok(item.color)} strokeWidth={2}
-      strokeDasharray={item.dash ?? undefined} strokeLinecap={item.dash ? 'butt' : 'round'} />
-  )
+  return fixed ?? width
 }
 
 // `selectedId` (optional): highlighted series, driven by the parent (the editor);
@@ -106,12 +79,20 @@ function Swatch({ item, x, y, scope }) {
 // `format(v, unit, dec)` the number formatter, `bare` removes the header
 // (the host carries its own), `height` fixes the height, `legend={false}` removes
 // the SVG legend.
+//
+// Static rendering: `width` fixes the drawing width (no measuring: server rendering,
+// static pages; also the first width on hydration); `readOnly` draws the figure only
+// (the spec and the series as given: no view settings, format bar, menus, data sheet
+// or per-browser preferences, no shared scale); `responsive` scales the SVG to its
+// container (ratio kept); `dataTable` adds the numbers as a visually hidden table.
 export default function ChartView({
-  spec: baseSpec, currentId, onSelectSeries, selectedId, headerSlot, reading = true,
+  spec: baseSpec, currentId, onSelectSeries, selectedId, headerSlot, reading: readingIn = true,
   resolved: provided, format: formatProp, bare = false, height: fixedHeight, legend = true, menuSlot = null,
+  width: widthProp, readOnly = false, responsive = false, dataTable = false,
 }) {
+  const reading = readOnly ? false : readingIn
   const boxRef = useRef(null)
-  const width = useWidth(boxRef)
+  const width = useWidth(boxRef, widthProp)
   const [hover, setHover] = useState(null)
   const [ownFocus, setFocus] = useState(null)
   const controlled = selectedId !== undefined
@@ -163,7 +144,8 @@ export default function ChartView({
   // A group set by the host (spec.scaleGroup: the charts of one page) applies by default;
   // "Reset to independent scale" turns it off (same: false).
   const ownSame = api?.fmt?.yAxis?.left?.same
-  const sameGroup = ownSame === false ? null : ownSame ?? spec.scaleGroup ?? null
+  // Read-only: a static figure, from its own data (neither published nor read from a group).
+  const sameGroup = readOnly || ownSame === false ? null : ownSame ?? spec.scaleGroup ?? null
   const same = !!sameGroup
   const groupKey = sameGroup === true ? '*' : String(sameGroup ?? '')
   const sameV = useSameScaleVersion()
@@ -756,6 +738,19 @@ export default function ChartView({
   if (pScene && !pScene.empty) {
     const P = pScene
     const openP = (e, l) => open(e, { tab: 'series', seriesId: l.seriesId })
+    const catClick = c => (api ? { className: 'chart-engine-clickable', onClick: e => open(e, { tab: 'xaxis', key: c.key, keyLabel: c.label }), onContextMenu: e => open(e, { tab: 'xaxis', key: c.key, keyLabel: c.label }) } : null)
+    const valueClick = api ? { className: 'chart-engine-clickable', onClick: e => open(e, { tab: 'yaxis', side: 'left' }), onContextMenu: e => open(e, { tab: 'yaxis', side: 'left' }) } : null
+    const profilePart = (kind, it) => {
+      if (kind === 'legend') return { onContextMenu: e => open(e, { tab: 'legend' }) }
+      if (kind === 'line') return {
+        className: 'chart-engine-clickable', onClick: e => openP(e, it), onContextMenu: e => openP(e, it),
+        tabIndex: api ? 0 : undefined, role: api ? 'button' : undefined, 'aria-label': `${it.seriesId} profile line`,
+        onKeyDown: api ? e => onObjKey(e, { tab: 'series', seriesId: it.seriesId }) : undefined,
+      }
+      if (kind === 'catTick') return catClick(it)
+      if (kind === 'valueTick') return valueClick
+      return null
+    }
     return (
       <div className="chart-engine" onContextMenu={api ? e => { if (!e.defaultPrevented) open(e, { tab: 'chart' }) } : undefined}>
         {!bare && (
@@ -763,46 +758,9 @@ export default function ChartView({
             menu={reading ? <>{headerSlot}<ChartWheelButton api={api} formatters={formatters} /></> : headerSlot} />
         )}
         <div ref={boxRef} className="chart-engine-box">
-          <svg width={P.width} height={P.height} role="img" aria-label={spec.title}
-            onDoubleClick={api ? () => { setPick(null); api.setSheetOpen(true) } : undefined}>
-            <g className="chart-engine-legend" style={{ fontSize: 11 }} onContextMenu={e => open(e, { tab: 'legend' })}>
-              {P.legend.map(it => (
-                <g key={it.seriesId} transform={`translate(${it.x},0)`} opacity={it.empty ? 0.5 : 1}>
-                  <Swatch item={it} x={0} y={it.y} />
-                  <text x={20} y={it.y} dominantBaseline="central">{it.text}</text>
-                </g>
-              ))}
-            </g>
-            {api && <rect x={P.plot.left} y={P.plot.top} width={P.plot.width} height={P.plot.height} fill="transparent" onContextMenu={e => open(e, { tab: 'chart' })} />}
-            {P.gridlines.map((g, i) => (
-              <line key={`pg${i}`} x1={g.x} x2={g.x} y1={g.y1} y2={g.y2} stroke={tok(g.zero ? 'gray-400' : 'gray-200')} strokeWidth={1} shapeRendering="crispEdges" pointerEvents="none" />
-            ))}
-            {P.lines.map(l => (
-              <g key={l.seriesId} className="chart-engine-clickable" onClick={e => openP(e, l)} onContextMenu={e => openP(e, l)}
-                tabIndex={api ? 0 : undefined} role={api ? 'button' : undefined} aria-label={`${l.seriesId} profile line`}
-                onKeyDown={api ? e => onObjKey(e, { tab: 'series', seriesId: l.seriesId }) : undefined}>
-                {l.d && <path d={l.d} fill="none" stroke={tok(l.color)} strokeWidth={l.strokeWidth} strokeDasharray={l.dash ?? undefined} strokeLinejoin="round" />}
-                {l.d && <path d={l.d} fill="none" stroke="transparent" strokeWidth={10} />}
-                {l.markerShape && l.points.map(m => <Marker key={m.key} shape={l.markerShape} x={m.x} y={m.y} fill={tok('white')} stroke={tok(l.color)} />)}
-              </g>
-            ))}
-            {P.labels.map(l => (
-              <text key={l.key} x={l.x} y={l.y} textAnchor={l.anchor} fill={tok(l.color)} fontWeight={600} stroke={tok('surface')} strokeWidth={3} paintOrder="stroke"
-                pointerEvents="none" style={{ fontSize: l.size, fontFamily: 'var(--font-mono)' }}>{l.text}</text>
-            ))}
-            <g className="chart-engine-axis" style={{ fontSize: 11 }}>
-              {P.axes.cat.map(c => (
-                <text key={c.key} x={P.plot.left - 8} y={c.y} textAnchor="end" dominantBaseline="central" className={api ? 'chart-engine-clickable' : undefined}
-                  onClick={api ? e => open(e, { tab: 'xaxis', key: c.key, keyLabel: c.label }) : undefined}
-                  onContextMenu={api ? e => open(e, { tab: 'xaxis', key: c.key, keyLabel: c.label }) : undefined}>{c.label}</text>
-              ))}
-              {P.axes.value.map(t => (
-                <text key={`pv${t.value}`} x={t.x} y={P.plot.bottom + 15} textAnchor="middle" className={api ? 'chart-engine-clickable' : undefined}
-                  onClick={api ? e => open(e, { tab: 'yaxis', side: 'left' }) : undefined}
-                  onContextMenu={api ? e => open(e, { tab: 'yaxis', side: 'left' }) : undefined}>{t.label}</text>
-              ))}
-            </g>
-          </svg>
+          <ChartFigure scene={P} interactive={!readOnly} scope={clipId} label={spec.title} responsive={responsive} dataTable={dataTable} part={profilePart}
+            layers={{ under: api && <rect x={P.plot.left} y={P.plot.top} width={P.plot.width} height={P.plot.height} fill="transparent" onContextMenu={e => open(e, { tab: 'chart' })} /> }}
+            onDoubleClick={api ? () => { setPick(null); api.setSheetOpen(true) } : undefined} />
           {wheel}
         </div>
         {api?.sheetOpen && (
@@ -851,6 +809,512 @@ export default function ChartView({
     )
   }
 
+  // ── The editing layer, drawn through ChartFigure ────────────────────────────
+  // part(kind, item): handlers, selection and highlight of each drawn element;
+  // layers: hit areas, outlines and handles at their depth in the drawing.
+  const isSelSide = side => isAxisSel(side)
+  const legendItemKey = (e, it) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); if (api) open(e, { tab: 'legend' }); else select(it.seriesId) } }
+  const part = readOnly ? undefined : (kind, it) => {
+    switch (kind) {
+      case 'legend': return {
+        className: `chart-engine-legend${pick?.tab === 'legend' ? ' is-selected' : ''}`,
+        onContextMenu: e => open(e, { tab: 'legend' }),
+        onPointerDown: api && pick?.tab === 'legend' ? e => {
+          if (e.button !== 0) return
+          const r0 = e.currentTarget.ownerSVGElement.getBoundingClientRect()
+          const sx = e.clientX - r0.left, sy = e.clientY - r0.top
+          const o = legendShift ?? { dx: 0, dy: 0 }
+          drag(e, (mx, my) => api.setFmt('legendOffset', { dx: Math.round(o.dx + mx - sx), dy: Math.round(o.dy + my - sy) }))
+        } : undefined,
+        onDoubleClick: api && legendShift ? e => { e.stopPropagation(); api.setFmt('legendOffset', null) } : undefined,
+      }
+      // With view settings, a click selects the legend; without, it highlights the series.
+      case 'legendItem': return {
+        opacity: dim(it.seriesId), className: 'chart-engine-clickable',
+        onClick: e => (api ? open(e, { tab: 'legend' }) : select(it.seriesId)),
+        tabIndex: 0, role: 'button', 'aria-label': it.text, onKeyDown: e => legendItemKey(e, it),
+      }
+      case 'area': return { fillOpacity: it.opacity * dim(it.seriesId) }
+      case 'bar': return {
+        opacity: it.opacity * dim(it.seriesId), className: `chart-engine-clickable${isBarSel(it) ? ' is-selected' : ''}`,
+        onClick: e => openBar(e, it), onContextMenu: e => openBar(e, it),
+        tabIndex: api ? 0 : undefined, role: api ? 'button' : undefined, 'aria-label': api ? `${it.seriesId} ${it.key}` : undefined,
+        onKeyDown: api ? e => onObjKey(e, { tab: 'series', seriesId: it.seriesId, key: it.key, keyLabel: formatX(it.key, spec.x?.grain) }) : undefined,
+      }
+      case 'line': return {
+        opacity: dim(it.seriesId), className: 'chart-engine-clickable',
+        onClick: e => openLine(e, it), onContextMenu: e => openLine(e, it),
+        tabIndex: api ? 0 : undefined, role: api ? 'button' : undefined,
+        'aria-label': `${scene.legend.find(x => x.seriesId === it.seriesId)?.label ?? scene.endLabels.find(x => x.seriesId === it.seriesId)?.text ?? it.seriesId} line`,
+        onKeyDown: api ? e => onObjKey(e, { tab: 'series', seriesId: it.seriesId }) : undefined,
+      }
+      // The text of a user-added value line is clickable (its format bar), double-click = average.
+      case 'valueLineText': {
+        const on = api && it.user
+        return {
+          'data-ann': it.user ? '' : undefined, pointerEvents: on ? 'auto' : 'none', className: on ? 'chart-engine-clickable' : undefined,
+          onClick: on ? e => { const id = it.fi != null ? { kind: 'vline', i: it.fi } : { kind: 'vline' }; open(e, { tab: 'annotation', ann: id }); setSel(id) } : undefined,
+          onDoubleClick: on ? e => { e.stopPropagation(); if (it.fi != null) api.setValueLineAt(it.fi, { value: api.meanOfTotals() }); else resetValueLine() } : undefined,
+        }
+      }
+      case 'connector': case 'errorBar': case 'cagr': return { opacity: dim(it.seriesId) }
+      // Free texts: a click edits them, a drag moves them.
+      case 'note': return api ? {
+        className: `chart-engine-clickable${pick?.ann?.kind === 'note' && pick.ann.i === it.i ? ' is-selected' : ''}`, pointerEvents: undefined,
+        onPointerDown: e => {
+          if (e.button !== 0) return
+          const svg = e.currentTarget.ownerSVGElement
+          const r0 = svg.getBoundingClientRect()
+          const sx = e.clientX - r0.left, sy = e.clientY - r0.top
+          labelDragged.current = false
+          drag(e, (mx, my) => {
+            if (!labelDragged.current && Math.hypot(mx - sx, my - sy) < 4) return
+            labelDragged.current = true
+            const notes = [...(api.fmt.notes ?? [])]
+            notes[it.i] = { ...notes[it.i], fx: Math.max(0, Math.min(1, (mx - scene.plot.left) / scene.plot.width)), fy: Math.max(0, Math.min(1, (my - scene.plot.top) / scene.plot.height)) }
+            api.setFmt('notes', notes)
+          })
+        },
+        onClick: e => { if (labelDragged.current) { labelDragged.current = false; return } open(e, { tab: 'annotation', ann: { kind: 'note', i: it.i } }) },
+        onContextMenu: e => open(e, { tab: 'annotation', ann: { kind: 'note', i: it.i } }),
+      } : null
+      case 'labels': return { pointerEvents: api ? undefined : 'none' }
+      case 'label': return {
+        opacity: focus && !it.key.startsWith(`${focus}|`) && !it.key.startsWith('total|') ? 0.25 : 1,
+        ...(api ? {
+          className: `chart-engine-clickable${isLabelSel(it) ? ' is-selected' : ''}`,
+          onClick: e => { if (labelDragged.current) { labelDragged.current = false; return } openLabel(e, it.key, it.text) },
+          // Dragging a label moves it; the position is kept, "Reset label positions" restores it.
+          onPointerDown: e => dragLabel(e, it), onContextMenu: e => openLabel(e, it.key, it.text),
+        } : {}),
+        // Drawn on a fill (inside its bar): the selection shows as an underline (the
+        // selection color would be illegible on the segment).
+        style: it.on && isLabelSel(it) ? { textDecoration: 'underline' } : undefined,
+      }
+      case 'endLabel': return {
+        opacity: dim(it.seriesId), className: 'chart-engine-clickable',
+        // The name at the end of a line selects its series (its format bar), by click or keyboard.
+        onClick: api ? ev => open(ev, { tab: 'series', seriesId: it.seriesId }) : () => select(it.seriesId),
+        tabIndex: api ? 0 : undefined, role: api ? 'button' : undefined, 'aria-label': `${it.text} series`,
+        onKeyDown: api ? ev => onObjKey(ev, { tab: 'series', seriesId: it.seriesId }) : undefined,
+        onContextMenu: api ? ev => open(ev, { tab: 'legend', seriesLabels: true }) : undefined,
+        // Dragging a series name onto the legend moves it into the legend.
+        onPointerDown: api ? ev => {
+          if (ev.button !== 0) return
+          const svg = ev.currentTarget.ownerSVGElement
+          let lastY = null
+          const move = m => { lastY = m.clientY - svg.getBoundingClientRect().top }
+          const up = () => {
+            window.removeEventListener('pointermove', move); window.removeEventListener('pointerup', up)
+            if (lastY != null && lastY < scene.plot.top - 4) api.setFmt(api.fmt.legend === 'series' ? 'legend' : 'endLabels', api.fmt.legend === 'series' ? null : false)
+          }
+          window.addEventListener('pointermove', move); window.addEventListener('pointerup', up)
+        } : undefined,
+      }
+      // Table columns: click the header to bring the category back to the chart.
+      case 'tableHead': return api ? {
+        className: 'chart-engine-clickable', pointerEvents: undefined,
+        onClick: e => open(e, { tab: 'xaxis', key: it.key, keyLabel: it.header }), onContextMenu: e => open(e, { tab: 'xaxis', key: it.key, keyLabel: it.header }),
+      } : null
+      // The axis being edited is visible: line and ticks in the accent color.
+      case 'yAxisLine': return isSelSide(it.side) ? { stroke: tok('gold'), strokeWidth: 2 } : null
+      case 'yTick': return isSelSide(it.side) ? { style: { fill: 'var(--gold-dark)', fontWeight: 600 } } : null
+      // Axis title: can be dragged along the axis.
+      case 'yTitle': return api ? {
+        className: 'chart-engine-handle--y', pointerEvents: undefined,
+        onPointerDown: e => { if (e.button !== 0) return; const base = it.y - (it.axis.titleOffset ?? 0); drag(e, (_, my) => api.setFmt(`yAxis.${it.side}.titleOffset`, Math.round(Math.max(scene.plot.top, Math.min(scene.plot.bottom, my)) - base))) },
+        onDoubleClick: () => api.setFmt(`yAxis.${it.side}.titleOffset`, null),
+      } : null
+      case 'xAxisLine': return pick?.tab === 'xaxis' ? { stroke: tok('gold'), strokeWidth: 2 } : null
+      case 'xTick': return pick?.tab === 'xaxis' ? { style: { fill: 'var(--gold-dark)', fontWeight: 600 } } : null
+      case 'xTitle': return api ? {
+        className: 'chart-engine-handle', pointerEvents: undefined,
+        onPointerDown: e => { if (e.button !== 0) return; const mid = (scene.plot.left + scene.plot.right) / 2; drag(e, mx => api.setFmt('xAxis.titleOffset', Math.round(Math.max(scene.plot.left, Math.min(scene.plot.right, mx)) - mid))) },
+        onDoubleClick: () => api.setFmt('xAxis.titleOffset', null),
+      } : null
+      // Data table row headers (a series moved under the axis).
+      case 'rowHead': return api ? { className: 'chart-engine-clickable', pointerEvents: undefined, onClick: e => open(e, { tab: 'series', seriesId: it.seriesId }) } : null
+      default: return null
+    }
+  }
+  // A value axis is clickable (its tab), and draggable to the other side when selected.
+  const axisClick = (side, e) => {
+    const ax = scene.axes[side]
+    if (axisMoved.current) { axisMoved.current = false; return }
+    // The break is placed where the user clicked ("Add Break" at the pointer): one step wide.
+    const my = e.clientY - e.currentTarget.ownerSVGElement.getBoundingClientRect().top
+    const v = valueNear(side, my), [lo, hi] = ax.domain ?? []
+    const half = (ax.step || 0) / 2
+    const atBreak = !ax.log && v != null && half > 0 && v - half > lo && v + half < hi ? { from: Number((v - half).toFixed(10)), to: Number((v + half).toFixed(10)) } : null
+    open(e, { tab: 'yaxis', side, atBreak })
+  }
+  // Selected axis: drag it to the other side of the plot (highlighted positions).
+  const axisDrag = (side, e) => {
+    if (e.button !== 0 || !isAxisSel(side)) return
+    const svgEl = e.currentTarget.ownerSVGElement
+    const sx = e.clientX - svgEl.getBoundingClientRect().left
+    axisMoved.current = false
+    let target = null
+    drag(e, mx => {
+      if (!axisMoved.current && Math.abs(mx - sx) < 6) return
+      axisMoved.current = true
+      const mid = (scene.plot.left + scene.plot.right) / 2
+      target = (side === 'left' ? mx > mid : mx < mid) ? (side === 'left' ? 'right' : 'left') : null
+      setAxisDrop({ side, target })
+    }, () => {
+      setAxisDrop(null)
+      if (target) api.series.filter(x => api.axisOf(x.value) === side).forEach(x => api.setSeries(x.value, { axis: target }))
+    })
+  }
+  const layers = readOnly || !scene || scene.empty ? undefined : {
+    under: <>
+      {/* Selected legend: its width handle (resize the frame, the text wraps). */}
+      {api && pick?.tab === 'legend' && scene.legend.length > 1 && (() => {
+        const right = Math.max(...scene.legend.map(it => it.x + (it.width ?? 60)))
+        const top = scene.legendY + Math.min(...scene.legend.map(it => it.y)) - 8
+        return (
+          <rect data-wheel-anchor x={right + 4} y={top} width={6} height={16} rx={2} fill={tok('white')} stroke={tok('gold')} strokeWidth={1.5}
+            className="chart-engine-handle" onPointerDown={e => drag(e, mx => api.setFmt('legendWidth', Math.round(Math.max(80, mx))))}
+            onDoubleClick={() => api.setFmt('legendWidth', null)}><title>Drag to resize the legend (double-click: full width)</title></rect>
+        )
+      })()}
+      {/* The plot background: right-click → the chart menu. */}
+      {api && <rect x={scene.plot.left} y={scene.plot.top} width={scene.plot.width} height={scene.plot.height} fill="transparent"
+        onContextMenu={e => open(e, { tab: 'chart' })}
+        // Selection rectangle (rubber band): dragging over the background selects the bars it touches.
+        onPointerDown={e => {
+          if (e.button !== 0) return
+          const r0 = e.currentTarget.ownerSVGElement.getBoundingClientRect()
+          const sx = e.clientX - r0.left, sy = e.clientY - r0.top
+          let box = null, last = null
+          drag(e, (mx, my, ev) => {
+            last = ev
+            if (!box && Math.hypot(mx - sx, my - sy) < 5) return
+            box = { x0: Math.min(sx, mx), x1: Math.max(sx, mx), y0: Math.min(sy, my), y1: Math.max(sy, my) }
+            setBand(box)
+          }, () => {
+            setBand(null)
+            if (!box) return
+            const hit = scene.bars.filter(b => b.x < box.x1 && b.x + b.width > box.x0 && b.y < box.y1 && b.y + b.height > box.y0)
+            if (!hit.length) return
+            const f = hit[0]
+            open({ type: 'click', clientX: last?.clientX ?? 0, clientY: last?.clientY ?? 0, preventDefault() {}, stopPropagation() {}, currentTarget: null },
+              { tab: 'series', seriesId: f.seriesId, key: f.key, keyLabel: formatX(f.key, spec.x?.grain), points: hit.map(b => ({ seriesId: b.seriesId, key: b.key })) })
+          })
+        }} />}
+      {band && <rect x={band.x0} y={band.y0} width={band.x1 - band.x0} height={band.y1 - band.y0} fill={tok('gold-light')} fillOpacity={0.25} stroke={tok('gold')} strokeDasharray="3 2" pointerEvents="none" />}
+      {/* Hover: period band */}
+      {col && !pick && !sel && <rect x={col.x0} y={scene.plot.top} width={col.x1 - col.x0} height={scene.plot.height} fill={tok('gray-100')} />}
+    </>,
+    // A gridline is clickable: the value axis tab, gridlines section.
+    grid: api && scene.gridlines.map((g, i) => (
+      <line key={`gh${i}`} x1={g.x1} x2={g.x2} y1={g.y} y2={g.y} stroke="transparent" strokeWidth={4} className="chart-engine-clickable"
+        onClick={e => open(e, { tab: 'yaxis', side: 'left', section: 'grid' })} onContextMenu={e => open(e, { tab: 'yaxis', side: 'left', section: 'grid' })} />
+    )),
+    // Selected bars (Ctrl + click): an accent outline.
+    bars: pick?.tab === 'series' && (pick.points ?? (pick.key ? [{ seriesId: pick.seriesId, key: pick.key }] : [])).map(p => {
+      const b = scene.bars.find(x => x.seriesId === p.seriesId && x.key === p.key)
+      if (b) return <rect key={`sel-${p.seriesId}|${p.key}`} x={b.x - 2} y={b.y - 2} width={b.width + 4} height={b.height + 4} rx={3}
+        fill="none" stroke={tok('gold')} strokeWidth={1.5} pointerEvents="none" />
+      // A selected line point: an accent ring (only in multiple selection).
+      const lp = pick.points && scene.lines.find(l => l.seriesId === p.seriesId)?.points.find(q => q.key === p.key)
+      return lp ? <circle key={`sel-${p.seriesId}|${p.key}`} cx={lp.x} cy={lp.y} r={6} fill="none" stroke={tok('gold')} strokeWidth={1.5} pointerEvents="none" /> : null
+    }),
+    breaks: <>
+      {/* Selected axis with a break: two handles set its extent. */}
+      {['left', 'right'].map(sd => {
+        const b = scene.axes[sd]?.brk
+        if (!b || !api || pick?.tab !== 'yaxis' || (pick.side ?? 'left') !== sd) return null
+        const setBrk = (k, my) => {
+          const v = valueNear(sd, my)
+          if (v == null) return
+          const next = { from: b.from, to: b.to, [k]: v }
+          if (next.from < next.to) api.setFmt(`yAxis.${sd}.break`, next)
+        }
+        return [['to', b.y - b.gap / 2 - 5], ['from', b.y + b.gap / 2 + 5]].map(([k, hy]) => (
+          <rect key={`${sd}-${k}`} data-wheel-anchor x={scene.plot.left + 14} y={hy - 4} width={16} height={8} rx={2} fill={tok('white')} stroke={tok('gold')} strokeWidth={1.5}
+            className="chart-engine-handle--y" onPointerDown={e => drag(e, (_, my) => setBrk(k, my))}><title>{k === 'to' ? 'Drag to set where the axis resumes' : 'Drag to set where the axis breaks'}</title></rect>
+        ))
+      })}
+      {/* Selected category axis: the column width handle (gap width). */}
+      {pick?.tab === 'xaxis' && scene.bars.length > 0 && scene.columns.length > 1 && (() => {
+        const c0 = scene.columns.find(c => scene.bars.some(b => b.key === c.key))
+        const group = scene.bars.filter(b => b.key === c0.key)
+        const right = Math.max(...group.map(b => b.x + b.width))
+        const step = scene.columns[1].cx - scene.columns[0].cx
+        // On the axis line, in the gap between the first two columns: where it is dragged.
+        const hx = (right + (c0.cx + step - (right - c0.cx))) / 2
+        return (
+          <rect data-wheel-anchor x={hx - 4} y={scene.plot.bottom - 5} width={8} height={10} rx={2} fill={tok('white')} stroke={tok('gold')} strokeWidth={1.5}
+            className="chart-engine-handle" aria-label="Drag to change the column width"
+            onPointerDown={e => drag(e, mx => {
+              const half = Math.max(2, Math.abs(mx - c0.cx))
+              const g = Math.max(0, Math.min(0.9, 1 - (2 * half) / step))
+              const gr = Math.round(g * 20) / 20
+              api.setFmt('gap', gr)
+              // Tooltip while dragging: the gap as a % of the column width.
+              setDragHint({ x: mx + 10, y: scene.plot.bottom - 14, side: 'left', text: `Gap ${Math.round((gr / (1 - gr)) * 100)}%` })
+            }, () => setDragHint(null))}>
+            <title>Drag to change the column width</title>
+          </rect>
+        )
+      })()}
+    </>,
+    marks: <>
+      {/* Shared scale: a discreet marker at the top of the linked axis. */}
+      {same && <text x={scene.plot.left + 4} y={scene.plot.top + 9} fill={tok('gray-400')} pointerEvents="none" style={{ fontSize: fsNote(9) }}>shared scale</text>}
+      {/* Error bars of the edited series: a handle at the top end sets the deviation (± %). */}
+      {api && pick?.tab === 'series' && scene.annotations.filter(a => a.type === 'errorBar' && a.byPct && !a.pair && a.seriesId === pick.seriesId && a.value).map(a => (
+        <circle key={`ebh-${a.key}`} data-wheel-anchor cx={a.x} cy={a.y1} r={4.5} fill={tok('white')} stroke={tok('gold')} strokeWidth={1.5} className="chart-engine-handle--y"
+          onPointerDown={e => drag(e, (_, my) => {
+            const v = valueNear(a.axis ?? 'left', my)
+            if (v == null) return
+            const pct = Math.round((Math.abs(v - a.top) / Math.abs(a.value)) * 1000) / 10
+            api.setFmt('errorBars', { ...(api.fmt.errorBars ?? {}), [a.seriesId]: { ...(api.fmt.errorBars?.[a.seriesId] ?? {}), pct } })
+          })}><title>Drag to set the error (± %)</title></circle>
+      ))}
+    </>,
+    // Label with typed text: a "!" on its right; a click restores the original text.
+    labels: api && scene.labels.filter(l => l.overwritten && !l.rotate).map(l => {
+      const w = estimateWidth(l.text, l.size)
+      const x1 = l.anchor === 'end' ? l.x : l.anchor === 'start' ? l.x + w : l.x + w / 2
+      return (
+        <text key={`ow-${l.key}`} x={x1 + 3} y={l.y - l.size * 0.45} fill={tok('gold-dark')} fontWeight={700} className="chart-engine-clickable" style={{ fontSize: fsNote(9) }}
+          onClick={e => { e.stopPropagation(); api.setFmt('labels.texts', { ...(api.fmt.labels?.texts ?? {}), [l.key]: undefined }) }}>
+          !<title>Text typed over the data: click to restore the linked value</title>
+        </text>
+      )
+    }),
+    over: <>
+      {/* Hovered point on each line */}
+      {col && !pick && !sel && scene.lines.map(l => {
+        const p = l.points.find(pt => pt.key === col.key)
+        return p ? <circle key={`h-${l.seriesId}`} cx={p.x} cy={p.y} r={3.5} fill={tok(l.color)} stroke={tok('white')} strokeWidth={1.5} pointerEvents="none" /> : null
+      })}
+
+      {/* Selection layer: clickable labels, handles, cross */}
+      {owned.map(o => {
+        const { a, id } = o
+        const on = isSel(id)
+        const key = `ann-${id.kind}${id.i ?? ''}`
+        if (id.kind === 'vline') {
+          const hx = (a.x1 + a.x2) / 2
+          // The line from the original view settings, or one from the list (format.valueLines).
+          const setV = v => (id.i != null ? api.setValueLineAt(id.i, { value: v }) : api.setValueLine(v))
+          const back = () => (id.i != null ? api.setValueLineAt(id.i, { value: api.meanOfTotals() }) : resetValueLine())
+          return (
+            <g key={key} data-ann>
+              <line x1={a.x1} x2={a.x2} y1={a.y} y2={a.y} stroke="transparent" strokeWidth={10}
+                className="chart-engine-handle--y" onPointerDown={e => { if (e.button !== 0) return; setSel(id); drag(e, (_, my) => { const v = valueNear(a.axis, my); if (v != null) setV(v) }) }}
+                // Click: its format bar (value, label), like any annotation.
+                onClick={e => { open(e, { tab: 'annotation', ann: id }); setSel(id) }}
+                onContextMenu={e => { open(e, { tab: 'annotation', ann: id }); setSel(id) }}
+                // Double-click: back to the average.
+                onDoubleClick={e => { e.stopPropagation(); back() }} />
+              {on && <>
+                <line x1={a.x1} x2={a.x2} y1={a.y} y2={a.y} stroke={tok('gold')} strokeWidth={1.5} pointerEvents="none" />
+                <rect x={hx - 5} y={a.y - 5} width={10} height={10} rx={2} fill={tok('white')} stroke={tok('gold')} strokeWidth={1.5}
+                  className="chart-engine-handle--y" onPointerDown={e => drag(e, (_, my) => { const v = valueNear(a.axis, my); if (v != null) setV(v) })} />
+
+              </>}
+            </g>
+          )
+        }
+        const setEnd = (end, k) => (id.kind === 'cagr'
+          ? api.setCagr(id.i, end, k)
+          : id.i != null
+            ? api.setDiffAt(id.i, { [end]: { ...(api.diffs[id.i]?.[end] ?? {}), key: k } })
+            : api.setDiff(end === 'from' ? k : a.fromKey, end === 'to' ? k : a.toKey))
+        return (
+          <g key={key} data-ann>
+            <rect x={o.px - o.w / 2} y={o.py - 9} width={o.w} height={18} rx={9} fill="transparent"
+              stroke={on ? tok('gold') : 'none'} strokeWidth={1.5} className="chart-engine-ann"
+              // Click: the arrow is selected (handles at its ends) AND its format bar opens,
+              // with "From → to" (choose the columns); right-click: its menu.
+              onClick={e => { open(e, { tab: 'annotation', ann: id }); setSel(id) }}
+              onContextMenu={e => { open(e, { tab: 'annotation', ann: id }); setSel(id) }}
+              // Double-click on a difference arrow: its next mode.
+              onDoubleClick={e => {
+                e.stopPropagation()
+                if (id.kind !== 'diff') return
+                const modes = ['abs', 'pct', 'both']
+                const nx = modes[(modes.indexOf(api.fmt.diffMode ?? 'abs') + 1) % modes.length]
+                api.setFmt('diffMode', nx === 'abs' ? null : nx)
+              }} />
+            {on && <>
+              {[['from', a.xa, a.ya], ['to', a.xb, a.yb]].map(([end, x, y]) => (
+                <circle key={end} cx={x} cy={y} r={5} fill={tok('white')} stroke={tok('gold')} strokeWidth={1.5}
+                  className="chart-engine-handle" onPointerDown={e => dragEnd(e, a, end, k => setEnd(end, k))} />
+              ))}
+
+            </>}
+          </g>
+        )
+      })}
+
+      {/* Dragging a label: its offered spots, dotted in the accent color. */}
+      {labelCands?.map((c, i) => (
+        <rect key={`lc${i}`} x={c.x - c.w / 2 - 2} y={c.y - c.h - 1} width={c.w + 4} height={c.h + 4} rx={2} fill={tok('gold-light')} fillOpacity={0.35}
+          stroke={tok('gold')} strokeWidth={1} strokeDasharray="2 2" pointerEvents="none" />
+      ))}
+      {/* A label selected on its own shows the drag icon (it moves to an offered spot). */}
+      {api && !labelCands && pick?.tab === 'labels' && pick.labelKey && !pick.allLabels && (() => {
+        const l = scene.labels.find(x => x.key === pick.labelKey && !x.rotate)
+        if (!l) return null
+        const w = estimateWidth(l.text, l.size)
+        const x0 = (l.anchor === 'start' ? l.x : l.anchor === 'end' ? l.x - w : l.x - w / 2) - 9
+        const y0 = l.y - l.size * 0.35
+        return (
+          <path d={`M${x0},${y0 - 4} V${y0 + 4} M${x0 - 4},${y0} H${x0 + 4} M${x0 - 1.5},${y0 - 2.5} L${x0},${y0 - 4} L${x0 + 1.5},${y0 - 2.5} M${x0 - 1.5},${y0 + 2.5} L${x0},${y0 + 4} L${x0 + 1.5},${y0 + 2.5} M${x0 - 2.5},${y0 - 1.5} L${x0 - 4},${y0} L${x0 - 2.5},${y0 + 1.5} M${x0 + 2.5},${y0 - 1.5} L${x0 + 4},${y0} L${x0 + 2.5},${y0 + 1.5}`}
+            fill="none" stroke={tok('gold-dark')} strokeWidth={1} pointerEvents="none"><title>Drag the label: it snaps to the highlighted places</title></path>
+        )
+      })()}
+      {/* Selected chart: the rotation handle, top right of the plot;
+          dragged a quarter turn, columns become bars (and the profile, lines). */}
+      {api && pick?.tab === 'chart' && (api.hasBars || api.hasLines) && (() => {
+        const hx = scene.plot.right - 6, hy = scene.plot.top + 6
+        return (
+          <g data-wheel-anchor className="chart-engine-handle" onPointerDown={e => {
+            const r0 = e.currentTarget.ownerSVGElement.getBoundingClientRect()
+            const sx = e.clientX - r0.left, sy = e.clientY - r0.top
+            let far = false
+            drag(e, (mx, my) => { if (Math.hypot(mx - sx, my - sy) > 15) far = true }, () => {
+              if (!far) return
+              if (api.hasBars) api.setFmt('horizontal', true)
+              else api.setFmt('profile', api.fmt.profile ? null : true)
+              setPick(null)
+            })
+          }}>
+            <circle cx={hx} cy={hy} r={7} fill={tok('white')} stroke={tok('gold')} strokeWidth={1.5} />
+            <path d={`M${hx - 3},${hy + 2} A3.5,3.5 0 1 1 ${hx + 2},${hy + 2.5}`} fill="none" stroke={tok('gold-dark')} strokeWidth={1.2} />
+            <title>{api.hasBars ? 'Drag to rotate to horizontal bars' : 'Drag to rotate to a profile chart'}</title>
+          </g>
+        )
+      })()}
+      {axisDrop && ['left', 'right'].map(sd => (
+        <line key={`ad-${sd}`} x1={sd === 'left' ? scene.plot.left : scene.plot.right} x2={sd === 'left' ? scene.plot.left : scene.plot.right} y1={scene.plot.top} y2={scene.plot.bottom}
+          stroke={tok('gold')} strokeWidth={axisDrop.target === sd ? 3 : 1} strokeDasharray={axisDrop.target === sd ? undefined : '3 3'} pointerEvents="none" />
+      ))}
+      {/* Handle dragged back to the automatic scale. */}
+      {dragHint?.text && (
+        <text x={dragHint.x} y={dragHint.y} textAnchor={dragHint.side === 'left' ? 'start' : 'end'} dominantBaseline="central" fill={tok('gold-dark')} fontWeight={600}
+          stroke={tok('surface')} strokeWidth={3} paintOrder="stroke" pointerEvents="none" style={{ fontSize: 10.5 }}>{dragHint.text}</text>
+      )}
+      {/* Shift + hover: the range a Shift + click would select. */}
+      {shiftOn && col && pick?.tab === 'series' && pick.key && (() => {
+        const ks = scene.columns.map(c => c.key)
+        const [i0, i1] = [ks.indexOf(pick.key), ks.indexOf(col.key)].sort((a, b) => a - b)
+        if (i0 < 0) return null
+        return scene.bars.filter(b => b.seriesId === pick.seriesId && ks.indexOf(b.key) >= i0 && ks.indexOf(b.key) <= i1).map(b => (
+          <rect key={`sh-${b.key}`} x={b.x - 2} y={b.y - 2} width={b.width + 4} height={b.height + 4} rx={3} fill="none" stroke={tok('gold')} strokeWidth={1} strokeDasharray="3 2" pointerEvents="none" />
+        ))
+      })()}
+    </>,
+    axesUnder: <>
+      {/* Selected category axis: a handle on the baseline before each category; dragged
+          to the right, it opens a gap of one to four column widths (category gap). */}
+      {api && pick?.tab === 'xaxis' && scene.columns.filter(c => !String(c.key).startsWith('_')).length > 1 && (() => {
+        const real = scene.columns.filter(c => !String(c.key).startsWith('_'))
+        const step = real[1].cx - real[0].cx
+        return real.slice(1).filter(c => !api.gapBefore?.(c.key)).map(c => {
+          const gaps = api.fmt.catGaps ?? []
+          const n0 = gaps.includes(c.key) ? Math.max(1, Math.min(4, Math.round(Number(api.fmt.catGapSize?.[c.key]) || 1))) : 0
+          const prev = scene.columns[scene.columns.indexOf(c) - 1]
+          const hx = n0 ? c.x0 : (prev.cx + c.cx) / 2
+          return (
+            <path key={`gh-${c.key}`} data-wheel-anchor d={`M${hx},${scene.axes.x.y + 3} l4,5 l-4,5 l-4,-5 Z`} fill={tok('white')} stroke={tok('gold')} strokeWidth={1.25}
+              className="chart-engine-handle"
+              onPointerDown={e => {
+                const sx = e.clientX
+                drag(e, (mx, my, ev) => {
+                  const n = Math.max(0, Math.min(4, n0 + Math.round((ev.clientX - sx) / Math.max(8, step))))
+                  const rest = (api.fmt.catGaps ?? []).filter(k => k !== c.key)
+                  const sizes = { ...(api.fmt.catGapSize ?? {}) }
+                  delete sizes[c.key]
+                  if (n > 1) sizes[c.key] = n
+                  api.setFmt('catGaps', n ? [...rest, c.key] : rest.length ? rest : null)
+                  api.setFmt('catGapSize', Object.keys(sizes).length ? sizes : null)
+                })
+              }}>
+              <title>{`Drag right to open a gap before ${c.label} (${n0 ? `${n0} column${n0 > 1 ? 's' : ''}` : 'none'})`}</title>
+            </path>
+          )
+        })
+      })()}
+
+      {/* Axes: a click (left or right) opens their tab. */}
+      {api && ['left', 'right'].filter(sd => scene.axes[sd]).map(side => {
+        const ax = scene.axes[side]
+        const ys = ax.allTicks.map(t => t.y)
+        return (
+          <rect key={`yh-${side}`} x={side === 'left' ? 0 : ax.x} y={Math.min(...ys) - 8} width={Math.max(8, side === 'left' ? ax.x : scene.width - ax.x)} height={Math.max(...ys) - Math.min(...ys) + 16} fill="transparent"
+            className={`chart-engine-clickable${isAxisSel(side) ? ' is-selected' : ''}`}
+            // (event handlers: the compiler cannot tell they never run during render)
+            // eslint-disable-next-line react-hooks/refs
+            onClick={e => axisClick(side, e)} onContextMenu={e => axisClick(side, e)} onPointerDown={e => axisDrag(side, e)}
+            // eslint-disable-next-line react-hooks/refs
+            tabIndex={0} role="button" aria-label={`${side === 'left' ? 'Left' : 'Right'} value axis`} onKeyDown={e => onObjKey(e, { tab: 'yaxis', side })} />
+        )
+      })}
+      {api && <rect x={scene.plot.left} y={scene.axes.x.y} width={scene.plot.width} height={Math.min(36, Math.max(10, scene.height - scene.axes.x.y - (scene.legendY ? scene.height - scene.legendY : 0)))}
+        fill="transparent" className={`chart-engine-clickable${pick?.tab === 'xaxis' ? ' is-selected' : ''}`}
+        onClick={e => open(e, xAxisObj(e))} onContextMenu={e => open(e, xAxisObj(e))}
+        tabIndex={0} role="button" aria-label="Category axis" onKeyDown={e => onObjKey(e, { tab: 'xaxis' })} />}
+    </>,
+    axesOver: ['left', 'right'].map(side => {
+      const ax = scene.axes[side]
+      if (!ax) return null
+      return (
+        <Fragment key={`ys-${side}`}>
+          {/* Selected axis: its scale handles, max at the top, min at the bottom. */}
+          {pick?.tab === 'yaxis' && (pick.side ?? 'left') === side && !ax.log && ax.allTicks.length > 1 && (() => {
+            const [t0, t1] = [ax.allTicks[0], ax.allTicks.at(-1)]
+            const yOf = v => t0.y + ((v - t0.value) * (t1.y - t0.y)) / (t1.value - t0.value)
+            const ends = [['max', ax.domain[1]], ['min', ax.domain[0]]]
+            // Middle handle (tick mark spacing): on the 2nd tick,
+            // drag it to set the step, rounded to 1 / 2 / 2.5 / 5 × 10ⁿ.
+            const s0 = ax.allTicks[0], s1 = ax.allTicks[1]
+            const niceStep = d => { const e = 10 ** Math.floor(Math.log10(d)); const m = d / e; return (m < 1.5 ? 1 : m < 2.25 ? 2 : m < 3.5 ? 2.5 : m < 7.5 ? 5 : 10) * e }
+            const stepHandle = s1 && (
+              <circle key="step" data-wheel-anchor cx={side === 'left' ? ax.x + 8 : ax.x - 8} cy={s1.y} r={4.5} fill={tok('white')} stroke={tok('gold')} strokeWidth={1.5}
+                className="chart-engine-handle--y" aria-label="Drag to set the tick spacing"
+                onPointerDown={e => drag(e, (_, my, ev) => {
+                  const nv = valueNear(side, my)
+                  if (nv == null || !(Math.abs(nv - s0.value) > 0)) return
+                  const st = niceStep(Math.abs(nv - s0.value))
+                  // Automatic step reached: the setting is cleared ("Automatic").
+                  // Alt + drag keeps the manual setting.
+                  const auto = !ev?.altKey && ax.autoStep != null && Math.abs(st - ax.autoStep) < ax.autoStep * 1e-6
+                  api.setFmt(`yAxis.${side}.step`, auto ? null : st)
+                  setDragHint({ x: side === 'left' ? ax.x + 16 : ax.x - 16, y: my, side, text: auto ? 'Automatic' : null })
+                }, () => setDragHint(null))}
+                onDoubleClick={() => api.setFmt(`yAxis.${side}.step`, null)}><title>Drag to set the tick spacing (double-click: automatic)</title></circle>
+            )
+            return [stepHandle, ...ends.map(([k, v]) => (
+              <rect key={k} data-wheel-anchor x={side === 'left' ? ax.x + 3 : ax.x - 13} y={yOf(v) - 5} width={10} height={10} rx={2} fill={tok('white')} stroke={tok('gold')} strokeWidth={1.5}
+                className="chart-engine-handle--y" aria-label={`Drag to set the axis ${k}`}
+                title={`Drag to set the axis ${k}`}
+                onPointerDown={e => drag(e, (_, my, ev) => {
+                  // Dragged to the automatic bound (within 6 px), the handle snaps back to it: "Automatic".
+                  const av = ax.autoDomain?.[k === 'max' ? 1 : 0]
+                  const auto = !ev?.altKey && Number.isFinite(av) && Math.abs(my - yOf(av)) < 6
+                  // The bound snaps to the tick step (Alt + drag: to a tenth of a step).
+                  const fine = valueNear(side, my)
+                  const st = ax.step > 0 && !ev?.altKey ? ax.step : null
+                  const nv = auto || fine == null ? null : st ? Number((Math.round(fine / st) * st).toFixed(10)) : fine
+                  if (auto || nv != null) api.setFmt(`yAxis.${side}.${k}`, nv)
+                  // Value tooltip while dragging, "Automatic" on the automatic bound.
+                  setDragHint({ x: side === 'left' ? ax.x + 16 : ax.x - 16, y: my, side, text: auto ? 'Automatic' : nv != null ? formatters.axis(nv, ax.unit) : null })
+                }, () => setDragHint(null))} />
+            ))]
+          })()}
+        </Fragment>
+      )
+    }),
+  }
+  // Free texts linked to the sheet ("{B2}") read the current value.
+  const figScene = scene?.notes?.length && api ? { ...scene, notes: scene.notes.map(n => ({ ...n, text: noteText(n.text) })) } : scene
+
   return (
     // A right-click anywhere in the chart (margins, legend, axis titles…) opens our
     // menu (the target object's if it already handled it, otherwise the chart's), never the browser's.
@@ -875,752 +1339,10 @@ export default function ChartView({
         {/* Empty chart: the data sheet opens with one click. */}
         {scene?.empty && <div className="chart-engine-empty">No data for this chart yet.{api && <> <button type="button" className="chart-editor-pill" onClick={() => api.setSheetOpen(true)}>Open data sheet</button></>}</div>}
         {scene && !scene.empty && (
-          <svg width={scene.width} height={scene.height} role="img" aria-label={spec.title}
-            onMouseMove={onMove} onMouseLeave={() => setHover(null)}
+          <ChartFigure scene={figScene} interactive={!readOnly} scope={clipId} label={spec.title} responsive={responsive} dataTable={dataTable} part={part} layers={layers}
+            onMouseMove={readOnly ? undefined : onMove} onMouseLeave={readOnly ? undefined : () => setHover(null)}
             // Double-click: the data sheet.
-            onDoubleClick={api ? () => { setPick(null); api.setSheetOpen(true) } : undefined}>
-            {/* Selected legend: its width handle (resize the frame, the text wraps). */}
-            {api && pick?.tab === 'legend' && scene.legend.length > 1 && (() => {
-              const right = Math.max(...scene.legend.map(it => it.x + (it.width ?? 60)))
-              const top = scene.legendY + Math.min(...scene.legend.map(it => it.y)) - 8
-              return (
-                <rect data-wheel-anchor x={right + 4} y={top} width={6} height={16} rx={2} fill={tok('white')} stroke={tok('gold')} strokeWidth={1.5}
-                  className="chart-engine-handle" onPointerDown={e => drag(e, mx => api.setFmt('legendWidth', Math.round(Math.max(80, mx))))}
-                  onDoubleClick={() => api.setFmt('legendWidth', null)}><title>Drag to resize the legend (double-click: full width)</title></rect>
-              )
-            })()}
-            {/* Legend (and its frame) */}
-            {/* Legend moved by hand (dragging the legend): a stored offset. */}
-            <g transform={legendShift ? `translate(${legendShift.dx},${legendShift.dy})` : undefined}>
-            {scene.legendFrame && <rect x={scene.legendFrame.x} y={scene.legendFrame.y} width={scene.legendFrame.width} height={scene.legendFrame.height} rx={3} fill="none"
-              stroke={tok(api?.fmt?.legendFrameColor ?? 'gray-300')} strokeDasharray={{ dash: '4 3', dot: '1.5 2' }[api?.fmt?.legendFrameStyle]} pointerEvents="none" />}
-            <g className={`chart-engine-legend${pick?.tab === 'legend' ? ' is-selected' : ''}`} transform={`translate(0,${scene.legendY})`} style={{ fontSize: 11 * (scene.legendScale ?? scene.fontScale) }}
-              onContextMenu={e => open(e, { tab: 'legend' })}
-              onPointerDown={api && pick?.tab === 'legend' ? e => {
-                if (e.button !== 0) return
-                const r0 = e.currentTarget.ownerSVGElement.getBoundingClientRect()
-                const sx = e.clientX - r0.left, sy = e.clientY - r0.top
-                const o = legendShift ?? { dx: 0, dy: 0 }
-                drag(e, (mx, my) => api.setFmt('legendOffset', { dx: Math.round(o.dx + mx - sx), dy: Math.round(o.dy + my - sy) }))
-              } : undefined}
-              onDoubleClick={api && legendShift ? e => { e.stopPropagation(); api.setFmt('legendOffset', null) } : undefined}>
-              {scene.legend.map(it => (
-                <g key={it.seriesId} transform={`translate(${it.x},0)`} opacity={it.empty ? 0.5 : dim(it.seriesId)}
-                  className={it.empty ? undefined : 'chart-engine-clickable'}
-                  // With view settings, a click selects the legend; without, it highlights the series.
-                  onClick={it.empty ? undefined : e => (api ? open(e, { tab: 'legend' }) : select(it.seriesId))}
-                  tabIndex={it.empty ? undefined : 0} role={it.empty ? undefined : 'button'} aria-label={it.empty ? undefined : it.text}
-                  onKeyDown={it.empty ? undefined : e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); if (api) open(e, { tab: 'legend' }); else select(it.seriesId) } }}>
-                  <Swatch item={it} x={0} y={it.y} scope={clipId} />
-                  <text x={20} y={it.y} dominantBaseline="central">{it.text}</text>
-                </g>
-              ))}
-            </g>
-            </g>
-
-            {/* The plot background: right-click → the chart menu. */}
-            {api && <rect x={scene.plot.left} y={scene.plot.top} width={scene.plot.width} height={scene.plot.height} fill="transparent"
-              onContextMenu={e => open(e, { tab: 'chart' })}
-              // Selection rectangle (rubber band): dragging over the background selects the bars it touches.
-              onPointerDown={e => {
-                if (e.button !== 0) return
-                const r0 = e.currentTarget.ownerSVGElement.getBoundingClientRect()
-                const sx = e.clientX - r0.left, sy = e.clientY - r0.top
-                let box = null, last = null
-                drag(e, (mx, my, ev) => {
-                  last = ev
-                  if (!box && Math.hypot(mx - sx, my - sy) < 5) return
-                  box = { x0: Math.min(sx, mx), x1: Math.max(sx, mx), y0: Math.min(sy, my), y1: Math.max(sy, my) }
-                  setBand(box)
-                }, () => {
-                  setBand(null)
-                  if (!box) return
-                  const hit = scene.bars.filter(b => b.x < box.x1 && b.x + b.width > box.x0 && b.y < box.y1 && b.y + b.height > box.y0)
-                  if (!hit.length) return
-                  const f = hit[0]
-                  open({ type: 'click', clientX: last?.clientX ?? 0, clientY: last?.clientY ?? 0, preventDefault() {}, stopPropagation() {}, currentTarget: null },
-                    { tab: 'series', seriesId: f.seriesId, key: f.key, keyLabel: formatX(f.key, spec.x?.grain), points: hit.map(b => ({ seriesId: b.seriesId, key: b.key })) })
-                })
-              }} />}
-            {band && <rect x={band.x0} y={band.y0} width={band.x1 - band.x0} height={band.y1 - band.y0} fill={tok('gold-light')} fillOpacity={0.25} stroke={tok('gold')} strokeDasharray="3 2" pointerEvents="none" />}
-
-            {/* Hover: period band */}
-            {col && !pick && !sel && <rect x={col.x0} y={scene.plot.top} width={col.x1 - col.x0} height={scene.plot.height} fill={tok('gray-100')} />}
-
-            {/* Reference bands (under everything else) */}
-            {scene.annotations.filter(a => a.type === 'band').map((a, i) => (
-              <rect key={`b${i}`} x={a.x} y={a.y} width={a.width} height={a.height} fill={tok(a.color)} fillOpacity={0.7} pointerEvents="none" />
-            ))}
-
-            {/* Gridlines */}
-            {scene.gridlines.map((g, i) => (
-              <g key={i}>
-                <line x1={g.x1} x2={g.x2} y1={g.y} y2={g.y}
-                  stroke={tok(g.zero ? 'gray-400' : scene.gridColor ?? (scene.gridTone === 'dark' ? 'gray-300' : 'gray-200'))} strokeWidth={1}
-                  strokeDasharray={scene.gridStyle === 'dash' && !g.zero ? '3 3' : undefined} shapeRendering="crispEdges" />
-                {api && <line x1={g.x1} x2={g.x2} y1={g.y} y2={g.y} stroke="transparent" strokeWidth={4} className="chart-engine-clickable"
-                  onClick={e => open(e, { tab: 'yaxis', side: 'left', section: 'grid' })} onContextMenu={e => open(e, { tab: 'yaxis', side: 'left', section: 'grid' })} />}
-              </g>
-            ))}
-
-            <defs>
-              <PatternDefs scope={clipId} items={[...scene.bars, ...scene.legend]} />
-              <clipPath id={clipId}>
-                {(() => {
-                  // The frame = the axes' extent (min → max): a series beyond a manual max
-                  // is clipped at the frame; in automatic mode, a 4 px margin keeps markers whole.
-                  const axs = [scene.axes.left, scene.axes.right].filter(a => a?.frame)
-                  const pad = axs.some(a => a.manual) ? 1 : 4
-                  const top = axs.length ? Math.min(...axs.map(a => a.frame[0])) - pad : scene.plot.top - 4
-                  const bot = axs.length ? Math.max(...axs.map(a => a.frame[1])) + (axs.some(a => a.manual) ? 1 : 0) : scene.plot.bottom
-                  return <rect x={0} y={top} width={scene.width} height={Math.max(0, bot - top)} />
-                })()}
-              </clipPath>
-            </defs>
-
-            {/* Areas */}
-            <g clipPath={`url(#${clipId})`}>
-            {scene.areas.map(a => a.d && (
-              <path key={a.seriesId} d={a.d} fill={tok(a.color)} fillOpacity={a.opacity * dim(a.seriesId)} stroke="none" />
-            ))}
-
-            {/* Barres */}
-            {scene.bars.map(b => (
-              <rect key={`${b.seriesId}|${b.key}`} x={b.x} y={b.y} width={Math.max(0, b.width)} height={Math.max(0, b.height)}
-                rx={1.5} fill={b.hollow ? tok('surface') : b.pattern ? `url(#${patternId(clipId, b.pattern, b.color)})` : tok(b.color)} opacity={b.opacity * dim(b.seriesId)}
-                // Outline: an assumption's (dotted), otherwise the chosen one (Outline Color / Line Style);
-                // a patterned bar keeps a thin rule in its color.
-                stroke={b.hollow ? tok(b.color) : b.stroke ? tok(b.stroke) : b.pattern ? tok(b.color) : undefined}
-                strokeWidth={b.hollow ? 1.5 : b.stroke ? b.strokeWidth : b.pattern ? 1 : undefined}
-                strokeDasharray={b.hollow ? '3 2' : b.strokeDash ?? undefined}
-                className={`chart-engine-clickable${isBarSel(b) ? ' is-selected' : ''}`}
-                onClick={e => openBar(e, b)} onContextMenu={e => openBar(e, b)}
-                tabIndex={api ? 0 : undefined} role={api ? 'button' : undefined} aria-label={api ? `${b.seriesId} ${b.key}` : undefined}
-                onKeyDown={api ? e => onObjKey(e, { tab: 'series', seriesId: b.seriesId, key: b.key, keyLabel: formatX(b.key, spec.x?.grain) }) : undefined} />
-            ))}
-
-            </g>
-
-            {/* Selected bars (Ctrl + click): an accent outline. */}
-            {pick?.tab === 'series' && (pick.points ?? (pick.key ? [{ seriesId: pick.seriesId, key: pick.key }] : [])).map(p => {
-              const b = scene.bars.find(x => x.seriesId === p.seriesId && x.key === p.key)
-              if (b) return <rect key={`sel-${p.seriesId}|${p.key}`} x={b.x - 2} y={b.y - 2} width={b.width + 4} height={b.height + 4} rx={3}
-                fill="none" stroke={tok('gold')} strokeWidth={1.5} pointerEvents="none" />
-              // A selected line point: an accent ring (only in multiple selection).
-              const lp = pick.points && scene.lines.find(l => l.seriesId === p.seriesId)?.points.find(q => q.key === p.key)
-              return lp ? <circle key={`sel-${p.seriesId}|${p.key}`} cx={lp.x} cy={lp.y} r={6} fill="none" stroke={tok('gold')} strokeWidth={1.5} pointerEvents="none" /> : null
-            })}
-
-            {/* Lines (forecast paler) and markers */}
-            <g clipPath={`url(#${clipId})`}>
-            {scene.lines.map(l => (
-              <g key={l.seriesId} opacity={dim(l.seriesId)} className="chart-engine-clickable"
-                onClick={e => openLine(e, l)} onContextMenu={e => openLine(e, l)}
-                tabIndex={api ? 0 : undefined} role={api ? 'button' : undefined}
-                aria-label={`${scene.legend.find(it => it.seriesId === l.seriesId)?.label ?? scene.endLabels.find(it => it.seriesId === l.seriesId)?.text ?? l.seriesId} line`}
-                onKeyDown={api ? e => onObjKey(e, { tab: 'series', seriesId: l.seriesId }) : undefined}>
-                {l.d && <path d={l.d} fill="none" stroke={tok(l.color)} strokeWidth={l.strokeWidth}
-                  strokeDasharray={l.dash ?? undefined} strokeLinejoin="round" strokeLinecap={l.dash ? 'butt' : 'round'} />}
-                {l.dConn && <path d={l.dConn} fill="none" stroke={tok(l.color)} strokeWidth={0.75} strokeDasharray="2 2" />}
-                {l.dForecast && <path d={l.dForecast} fill="none" stroke={tok(l.color)} strokeWidth={l.strokeWidth}
-                  strokeDasharray={l.dash ?? '3 3'} strokeOpacity={0.55} />}
-                {/* Widened click area: a 2 px line is hard to hit. */}
-                {(l.d || l.dForecast) && <path d={[l.d, l.dForecast].filter(Boolean).join(' ')} fill="none" stroke="transparent" strokeWidth={10} />}
-                {l.markers.map((m, i) => (
-                  <Marker key={i} shape={l.markerShape} x={m.x} y={m.y} fill={tok('white')} stroke={tok(m.color ?? l.color)} />
-                ))}
-              </g>
-            ))}
-
-            </g>
-
-            {/* Axis break: a white band edged by two wavy lines, across the whole plot. */}
-            {['left', 'right'].map(sd => {
-              const b = scene.axes[sd]?.brk
-              if (!b) return null
-              // Wavy (default) or straight.
-              const w = (y0) => { if (b.shape === 'straight') return `M${scene.plot.left - 6},${y0} H${scene.plot.right + 6}`; let d = `M${scene.plot.left - 6},${y0}`; for (let x = scene.plot.left - 6; x < scene.plot.right + 6; x += 8) d += ` q2,-3 4,0 q2,3 4,0`; return d }
-              // Selected axis: two handles set the extent of the break.
-              const setBrk = (k, my) => {
-                const v = valueNear(sd, my)
-                if (v == null) return
-                const next = { from: b.from, to: b.to, [k]: v }
-                if (next.from < next.to) api.setFmt(`yAxis.${sd}.break`, next)
-              }
-              return (
-                <g key={`brk-${sd}`}>
-                  <g pointerEvents="none">
-                    <rect x={scene.plot.left - 6} y={b.y - b.gap / 2} width={scene.plot.width + 12} height={b.gap} fill={tok('surface')} />
-                    <path d={w(b.y - b.gap / 2)} fill="none" stroke={tok('gray-400')} strokeWidth={1} />
-                    <path d={w(b.y + b.gap / 2)} fill="none" stroke={tok('gray-400')} strokeWidth={1} />
-                  </g>
-                  {api && pick?.tab === 'yaxis' && (pick.side ?? 'left') === sd && [['to', b.y - b.gap / 2 - 5], ['from', b.y + b.gap / 2 + 5]].map(([k, hy]) => (
-                    <rect key={k} data-wheel-anchor x={scene.plot.left + 14} y={hy - 4} width={16} height={8} rx={2} fill={tok('white')} stroke={tok('gold')} strokeWidth={1.5}
-                      className="chart-engine-handle--y" onPointerDown={e => drag(e, (_, my) => setBrk(k, my))}><title>{k === 'to' ? 'Drag to set where the axis resumes' : 'Drag to set where the axis breaks'}</title></rect>
-                  ))}
-                </g>
-              )
-            })}
-
-            {/* Selected category axis: the column width handle (gap width). */}
-            {pick?.tab === 'xaxis' && scene.bars.length > 0 && scene.columns.length > 1 && (() => {
-              const c0 = scene.columns.find(c => scene.bars.some(b => b.key === c.key))
-              const group = scene.bars.filter(b => b.key === c0.key)
-              const right = Math.max(...group.map(b => b.x + b.width))
-              const step = scene.columns[1].cx - scene.columns[0].cx
-              // On the axis line, in the gap between the first two columns: where it is dragged.
-              const hx = (right + (c0.cx + step - (right - c0.cx))) / 2
-              return (
-                <rect data-wheel-anchor x={hx - 4} y={scene.plot.bottom - 5} width={8} height={10} rx={2} fill={tok('white')} stroke={tok('gold')} strokeWidth={1.5}
-                  className="chart-engine-handle" aria-label="Drag to change the column width"
-                  onPointerDown={e => drag(e, mx => {
-                    const half = Math.max(2, Math.abs(mx - c0.cx))
-                    const g = Math.max(0, Math.min(0.9, 1 - (2 * half) / step))
-                    const gr = Math.round(g * 20) / 20
-                    api.setFmt('gap', gr)
-                    // Tooltip while dragging: the gap as a % of the column width.
-                    setDragHint({ x: mx + 10, y: scene.plot.bottom - 14, side: 'left', text: `Gap ${Math.round((gr / (1 - gr)) * 100)}%` })
-                  }, () => setDragHint(null))}>
-                  <title>Drag to change the column width</title>
-                </rect>
-              )
-            })()}
-
-            {/* Value lines (target, threshold) */}
-            {scene.annotations.filter(a => a.type === 'valueLine').map((a, i) => (
-              <g key={`v${i}`} pointerEvents="none">
-                <line x1={a.x1} x2={a.x2} y1={a.y} y2={a.y} stroke={tok(a.color)} strokeWidth={1.25} strokeDasharray={a.dash} />
-                {/* The text of a user-added value line is clickable (its format bar), double-click = average. */}
-                {a.text && <text x={a.tx} y={a.ty} textAnchor={a.anchor} fill={tok(a.textColor)} style={{ fontSize: 10, fontFamily: 'var(--font)' }}
-                  data-ann={a.user ? '' : undefined} pointerEvents={api && a.user ? 'auto' : 'none'} className={api && a.user ? 'chart-engine-clickable' : undefined}
-                  onClick={api && a.user ? e => { const id = a.fi != null ? { kind: 'vline', i: a.fi } : { kind: 'vline' }; open(e, { tab: 'annotation', ann: id }); setSel(id) } : undefined}
-                  onDoubleClick={api && a.user ? e => { e.stopPropagation(); if (a.fi != null) api.setValueLineAt(a.fi, { value: api.meanOfTotals() }); else resetValueLine() } : undefined}>{a.text}</text>}
-              </g>
-            ))}
-
-            {/* Vertical markers (e.g. an event date) */}
-            {scene.annotations.filter(a => a.type === 'xMarker').map((a, i) => (
-              <g key={`x${i}`} pointerEvents="none">
-                <line x1={a.x} x2={a.x} y1={a.y1} y2={a.y2} stroke={tok(a.color)} strokeWidth={1.5} strokeDasharray="3 3" strokeOpacity={0.8} />
-                {a.text && <text x={a.x + 4} y={a.y1 + 10} fill={tok(a.color)} style={{ fontSize: 10, fontFamily: 'var(--font)' }}>{a.text}</text>}
-              </g>
-            ))}
-
-            {/* Min / max: the point (its number is among the labels) */}
-            {scene.annotations.filter(a => a.type === 'extremes').flatMap(a => a.items.map(it => (
-              <circle key={`${a.seriesId}-${it.kind}`} cx={it.x} cy={it.y} r={3} fill={tok('gray-700')} pointerEvents="none" />
-            )))}
-
-            {/* Value labels and totals */}
-            {/* A number is clickable: the wheel opens on its format. */}
-            {/* Series connectors and error bars */}
-            {scene.annotations.filter(a => a.type === 'connector').map((a, i) => (
-              <line key={`cn${i}`} x1={a.x1} y1={a.y1} x2={a.x2} y2={a.y2} stroke={tok('gray-500')} strokeWidth={0.75} strokeDasharray="3 2" pointerEvents="none" opacity={dim(a.seriesId)} />
-            ))}
-            {scene.annotations.filter(a => a.type === 'errorBar').map(a => {
-              const k = `eb-${a.seriesId}-${a.key}-${a.pair ?? 0}`
-              if (a.thick) return <rect key={k} x={a.x - a.cap / 2} y={Math.min(a.y1, a.y2)} width={a.cap} height={Math.abs(a.y2 - a.y1)} fill={tok(a.color ?? 'gray-400')} opacity={0.55} pointerEvents="none" />
-              const c = tok(a.color ?? 'gray-700')
-              // An end in its shape: line, none, dot, arrowhead (pointing outward).
-              const cap = (yy, shape, dir) => (shape === 'none' ? null
-                : shape === 'dot' ? <circle cx={a.x} cy={yy} r={2.5} fill={c} />
-                : shape === 'arrow' ? <path d={`M${a.x - 3.5},${yy - dir * 5} L${a.x},${yy} L${a.x + 3.5},${yy - dir * 5} Z`} fill={c} />
-                : <path d={`M${a.x - a.cap / 2},${yy} H${a.x + a.cap / 2}`} stroke={c} strokeWidth={a.weight ?? 1} />)
-              const up = a.y1 <= a.y2 ? -1 : 1
-              return (
-                <g key={k} pointerEvents="none" opacity={dim(a.seriesId)}>
-                  <path d={`M${a.x},${a.y1} V${a.y2}`} stroke={c} strokeWidth={a.weight ?? 1} fill="none" />
-                  {cap(a.y1, a.capHi, up)}
-                  {cap(a.y2, a.capLo, -up)}
-                </g>
-              )
-            })}
-            {/* Broken column: a wavy band across the bar (column break). */}
-            {/* Same sign at the top of a bar cut by a manual axis max (overflowCut). */}
-            {scene.annotations.filter(a => a.type === 'colBreak' || a.type === 'overflowCut').map(a => {
-              // Wave at the exact width of the bar (last step shortened).
-              const wv = y0 => { let d = `M${a.x},${y0}`; let x = a.x; while (x < a.x + a.width - 0.5) { const st = Math.min(6, a.x + a.width - x); d += ` q${st / 4},-2.5 ${st / 2},0 q${st / 4},2.5 ${st / 2},0`; x += st } return d }
-              return (
-                <g key={`${a.type}-${a.key}-${a.seriesId}`} pointerEvents="none">
-                  <rect x={a.x} y={a.y - 3} width={a.width} height={6} fill={tok('surface')} />
-                  <path d={wv(a.y - 3)} fill="none" stroke={tok('gray-500')} strokeWidth={1} />
-                  <path d={wv(a.y + 3)} fill="none" stroke={tok('gray-500')} strokeWidth={1} />
-                </g>
-              )
-            })}
-            {/* Shared scale: a discreet marker at the top of the linked axis. */}
-            {same && <text x={scene.plot.left + 4} y={scene.plot.top + 9} fill={tok('gray-400')} pointerEvents="none" style={{ fontSize: 9 }}>shared scale</text>}
-            {/* Universal connectors: elbow above the higher of the two (or a straight line). */}
-            {scene.annotations.filter(a => a.type === 'link').map(a => {
-              const top = Math.min(a.y1, a.y2) - 12
-              const d = a.elbow ? `M${a.x1},${a.y1} V${top} H${a.x2} V${a.y2}` : `M${a.x1},${a.y1} L${a.x2},${a.y2}`
-              return <path key={`lk${a.i}`} d={d} fill="none" stroke={tok('gray-600')} strokeWidth={1} strokeDasharray="4 3" pointerEvents="none" />
-            })}
-            {/* Error bars of the edited series: a handle at the top end sets the deviation (± %). */}
-            {api && pick?.tab === 'series' && scene.annotations.filter(a => a.type === 'errorBar' && a.byPct && !a.pair && a.seriesId === pick.seriesId && a.value).map(a => (
-              <circle key={`ebh-${a.key}`} data-wheel-anchor cx={a.x} cy={a.y1} r={4.5} fill={tok('white')} stroke={tok('gold')} strokeWidth={1.5} className="chart-engine-handle--y"
-                onPointerDown={e => drag(e, (_, my) => {
-                  const v = valueNear(a.axis ?? 'left', my)
-                  if (v == null) return
-                  const pct = Math.round((Math.abs(v - a.top) / Math.abs(a.value)) * 1000) / 10
-                  api.setFmt('errorBars', { ...(api.fmt.errorBars ?? {}), [a.seriesId]: { ...(api.fmt.errorBars?.[a.seriesId] ?? {}), pct } })
-                })}><title>Drag to set the error (± %)</title></circle>
-            ))}
-            {/* Linked labels: too thin for their segment, placed outside */}
-            {scene.labels.filter(l => l.leader && !l.moved).map(l => (
-              <line key={`lk-${l.key}`} x1={l.leader.x1} y1={l.leader.y1} x2={l.leader.x2} y2={l.leader.y2} stroke={tok('gray-400')} strokeWidth={0.75} pointerEvents="none" />
-            ))}
-            {/* Background of a label wider than its segment */}
-            {scene.labels.filter(l => l.backdrop).map(l => (
-              <rect key={`bd-${l.key}`} x={l.x - l.backdropW / 2} y={l.y - l.size * 0.85} width={l.backdropW} height={l.size * 1.2} rx={2} fill={tok(l.backdrop)} pointerEvents="none" />
-            ))}
-            {/* Free texts: a click edits them, a drag moves them. */}
-            {(scene.notes ?? []).map(n => (
-              <text key={`note${n.i}`} x={n.x} y={n.y} textAnchor={n.anchor ?? 'start'} fill={tok('gray-700')} fontWeight={n.bold ? 700 : 500}
-                transform={n.rotate ? `rotate(${-n.rotate} ${n.x} ${n.y})` : undefined}
-                dominantBaseline={n.valign === 'middle' ? 'central' : n.valign === 'bottom' ? 'text-after-edge' : undefined}
-                className={api ? `chart-engine-clickable${pick?.ann?.kind === 'note' && pick.ann.i === n.i ? ' is-selected' : ''}` : undefined}
-                pointerEvents={api ? undefined : 'none'} style={{ fontSize: n.size }}
-                onPointerDown={api ? e => {
-                  if (e.button !== 0) return
-                  const svg = e.currentTarget.ownerSVGElement
-                  const r0 = svg.getBoundingClientRect()
-                  const sx = e.clientX - r0.left, sy = e.clientY - r0.top
-                  labelDragged.current = false
-                  drag(e, (mx, my) => {
-                    if (!labelDragged.current && Math.hypot(mx - sx, my - sy) < 4) return
-                    labelDragged.current = true
-                    const notes = [...(api.fmt.notes ?? [])]
-                    notes[n.i] = { ...notes[n.i], fx: Math.max(0, Math.min(1, (mx - scene.plot.left) / scene.plot.width)), fy: Math.max(0, Math.min(1, (my - scene.plot.top) / scene.plot.height)) }
-                    api.setFmt('notes', notes)
-                  })
-                } : undefined}
-                onClick={api ? e => { if (labelDragged.current) { labelDragged.current = false; return } open(e, { tab: 'annotation', ann: { kind: 'note', i: n.i } }) } : undefined}
-                onContextMenu={api ? e => open(e, { tab: 'annotation', ann: { kind: 'note', i: n.i } }) : undefined}>
-                {noteText(n.text).split('\n').map((line, j) => <tspan key={j} x={n.x} dy={j ? n.size * 1.25 : 0}>{line}</tspan>)}
-              </text>
-            ))}
-            {/* Leader line of a label moved far from its place. */}
-            {scene.labels.filter(l => l.moved && !l.inBar && Math.hypot(l.x - l.ox, l.y - l.size * 0.35 - l.oy) > 16).map(l => (
-              <line key={`ld-${l.key}`} x1={l.ox} y1={l.oy} x2={l.x} y2={l.y - l.size * 0.35} stroke={tok('gray-400')} strokeWidth={0.75} pointerEvents="none" />
-            ))}
-            <g pointerEvents={api ? undefined : 'none'}>
-              {scene.labels.map(l => (
-                <text key={l.key} x={l.x} y={l.y} textAnchor={l.anchor} fill={tok(l.color)} fontWeight={l.weight ?? 600}
-                  className={api ? `chart-engine-clickable${isLabelSel(l) ? ' is-selected' : ''}` : undefined}
-                  onClick={api ? e => { if (labelDragged.current) { labelDragged.current = false; return } openLabel(e, l.key, l.text) } : undefined}
-                  // Dragging a label moves it; the position is kept, "Reset label positions" restores it.
-                  onPointerDown={api ? e => dragLabel(e, l) : undefined} onContextMenu={api ? e => openLabel(e, l.key, l.text) : undefined}
-                  // Background halo: a number on a curve stays legible (except inside a segment).
-                  stroke={l.color === 'white' ? undefined : tok('surface')} strokeWidth={l.color === 'white' ? undefined : 3} paintOrder="stroke"
-                  opacity={focus && !l.key.startsWith(`${focus}|`) && !l.key.startsWith('total|') ? 0.25 : 1}
-                  transform={l.rotate ? `rotate(${-l.rotate} ${l.x} ${l.y})` : undefined}
-                  // Drawn on a fill (inside its bar): automatic contrast holds even when selected
-                  // (the selection color would be illegible on the segment); the selection shows as an underline.
-                  style={{ fontSize: l.size, fontStyle: l.italic ? 'italic' : undefined, fontFamily: fontFamily(l.font), fill: l.on ? tok(l.color) : undefined,
-                    textDecoration: l.underline || (l.on && isLabelSel(l)) ? 'underline' : l.overwritten ? 'underline dotted' : undefined }}>{l.text}</text>
-              ))}
-            </g>
-
-            {/* A label's frame (border of its cell in the sheet). */}
-            {scene.labels.filter(l => l.border && !l.rotate).map(l => {
-              const w = estimateWidth(l.text, l.size)
-              const x0 = l.anchor === 'end' ? l.x - w : l.anchor === 'start' ? l.x : l.x - w / 2
-              return <rect key={`bx-${l.key}`} x={x0 - 3} y={l.y - l.size - 1} width={w + 6} height={l.size + 5} rx={2} fill="none" stroke={tok(l.color === 'white' ? 'white' : 'gray-700')} strokeWidth={0.75} pointerEvents="none" />
-            })}
-            {/* Label with typed text: a "!" on its right; a click restores the original text. */}
-            {api && scene.labels.filter(l => l.overwritten && !l.rotate).map(l => {
-              const w = estimateWidth(l.text, l.size)
-              const x1 = l.anchor === 'end' ? l.x : l.anchor === 'start' ? l.x + w : l.x + w / 2
-              return (
-                <text key={`ow-${l.key}`} x={x1 + 3} y={l.y - l.size * 0.45} fill={tok('gold-dark')} fontWeight={700} className="chart-engine-clickable" style={{ fontSize: 9 }}
-                  onClick={e => { e.stopPropagation(); api.setFmt('labels.texts', { ...(api.fmt.labels?.texts ?? {}), [l.key]: undefined }) }}>
-                  !<title>Text typed over the data: click to restore the linked value</title>
-                </text>
-              )
-            })}
-            {/* Annotated points (the last actual and its differences) */}
-            {scene.annotations.filter(a => a.type === 'callout').map((a, i) => (
-              <circle key={`co${i}`} cx={a.x} cy={a.y} r={4} fill={tok(a.tone)} stroke={tok('white')} strokeWidth={1.5} pointerEvents="none" />
-            ))}
-
-            {/* Difference arrows between two columns */}
-            {scene.annotations.filter(a => a.type === 'diff').map((a, i) => (
-              <g key={`d${i}`} pointerEvents="none">
-                {a.style === 'level' ? <>
-                  {/* Level difference: two dotted lines at both levels, the vertical arrow between them. */}
-                  <path d={`M${a.ra},${a.ya} H${a.xr + 4} M${a.rb},${a.yb} H${a.xr + 4}`} fill="none" stroke={tok('gray-400')} strokeWidth={0.75} strokeDasharray="2 2" />
-                  <path d={`M${a.xr},${a.ya} V${a.yb + (a.yb > a.ya ? -5 : 5)}`} fill="none" stroke={tok('gray-500')} strokeWidth={1} />
-                  <path d={arrowHead(a.xr, a.ya, a.xr, a.yb, 6)} fill={tok('gray-500')} />
-                </> : <>
-                  <path d={`M${a.xa},${a.ya} V${a.yTop} H${a.xb} V${a.yb - 5}`} fill="none" stroke={tok('gray-500')} strokeWidth={1} />
-                  <path d={`M${a.xb - 3.5},${a.yb - 6} L${a.xb},${a.yb} L${a.xb + 3.5},${a.yb - 6} Z`} fill={tok('gray-500')} />
-                </>}
-                <rect x={(a.px ?? (a.xa + a.xb) / 2) - a.pillW / 2} y={(a.py ?? a.yTop) - 9} width={a.pillW} height={18} rx={9} fill={tok('surface')} stroke={tok('gray-300')} />
-                <text x={a.px ?? (a.xa + a.xb) / 2} y={a.py ?? a.yTop} textAnchor="middle" dominantBaseline="central" fill={tok('black')} fontWeight={600}
-                  style={{ fontSize: 10.5, fontFamily: 'var(--font-mono)' }}>{a.text}</text>
-              </g>
-            ))}
-
-            {/* CAGR arrows */}
-            {scene.annotations.filter(a => a.type === 'cagr').map((a, i) => (
-              <g key={`c${i}`} pointerEvents="none" opacity={dim(a.seriesId)}>
-                <path d={a.d} fill="none" stroke={tok(a.tone)} strokeWidth={1.25} />
-                <path d={arrowHead(a.ctrlX, a.ctrlY, a.xb, a.yb)} fill={tok(a.tone)} />
-                <rect x={a.mx - a.pillW / 2} y={a.my - 9} width={a.pillW} height={18} rx={9} fill={tok('surface')} stroke={tok('gray-300')} />
-                <text x={a.mx} y={a.my} textAnchor="middle" dominantBaseline="central" fill={tok('black')} fontWeight={600}
-                  style={{ fontSize: 10.5, fontFamily: 'var(--font-mono)' }}>{a.text}</text>
-              </g>
-            ))}
-
-            {/* Names at the end of curves (≤ 4 series: instead of the legend) */}
-            {scene.endLabels.map(e => (
-              <text key={`e-${e.seriesId}`} x={e.x} y={e.y} dominantBaseline="central" fill={tok(e.color)} fontWeight={600}
-                stroke={tok('surface')} strokeWidth={3} paintOrder="stroke"
-                opacity={dim(e.seriesId)} className="chart-engine-clickable"
-                // The name at the end of a line selects its series (its format bar), by click or keyboard.
-                onClick={api ? ev => open(ev, { tab: 'series', seriesId: e.seriesId }) : () => select(e.seriesId)}
-                tabIndex={api ? 0 : undefined} role={api ? 'button' : undefined} aria-label={`${e.text} series`}
-                onKeyDown={api ? ev => onObjKey(ev, { tab: 'series', seriesId: e.seriesId }) : undefined}
-                onContextMenu={api ? ev => open(ev, { tab: 'legend', seriesLabels: true }) : undefined}
-                // Dragging a series name onto the legend moves it into the legend.
-                onPointerDown={api ? ev => {
-                  if (ev.button !== 0) return
-                  const svg = ev.currentTarget.ownerSVGElement
-                  let lastY = null
-                  const move = m => { lastY = m.clientY - svg.getBoundingClientRect().top }
-                  const up = () => {
-                    window.removeEventListener('pointermove', move); window.removeEventListener('pointerup', up)
-                    if (lastY != null && lastY < scene.plot.top - 4) api.setFmt(api.fmt.legend === 'series' ? 'legend' : 'endLabels', api.fmt.legend === 'series' ? null : false)
-                  }
-                  window.addEventListener('pointermove', move); window.addEventListener('pointerup', up)
-                } : undefined}
-                style={{ fontSize: 11 }}>{e.text}</text>
-            ))}
-
-            {/* Hovered point on each line */}
-            {col && !pick && !sel && scene.lines.map(l => {
-              const p = l.points.find(pt => pt.key === col.key)
-              return p ? <circle key={`h-${l.seriesId}`} cx={p.x} cy={p.y} r={3.5} fill={tok(l.color)} stroke={tok('white')} strokeWidth={1.5} pointerEvents="none" /> : null
-            })}
-
-            {/* Selection layer: clickable labels, handles, cross */}
-            {owned.map(o => {
-              const { a, id } = o
-              const on = isSel(id)
-              const key = `ann-${id.kind}${id.i ?? ''}`
-              if (id.kind === 'vline') {
-                const hx = (a.x1 + a.x2) / 2
-                // The line from the original view settings, or one from the list (format.valueLines).
-                const setV = v => (id.i != null ? api.setValueLineAt(id.i, { value: v }) : api.setValueLine(v))
-                const back = () => (id.i != null ? api.setValueLineAt(id.i, { value: api.meanOfTotals() }) : resetValueLine())
-                return (
-                  <g key={key} data-ann>
-                    <line x1={a.x1} x2={a.x2} y1={a.y} y2={a.y} stroke="transparent" strokeWidth={10}
-                      className="chart-engine-handle--y" onPointerDown={e => { if (e.button !== 0) return; setSel(id); drag(e, (_, my) => { const v = valueNear(a.axis, my); if (v != null) setV(v) }) }}
-                      // Click: its format bar (value, label), like any annotation.
-                      onClick={e => { open(e, { tab: 'annotation', ann: id }); setSel(id) }}
-                      onContextMenu={e => { open(e, { tab: 'annotation', ann: id }); setSel(id) }}
-                      // Double-click: back to the average.
-                      onDoubleClick={e => { e.stopPropagation(); back() }} />
-                    {on && <>
-                      <line x1={a.x1} x2={a.x2} y1={a.y} y2={a.y} stroke={tok('gold')} strokeWidth={1.5} pointerEvents="none" />
-                      <rect x={hx - 5} y={a.y - 5} width={10} height={10} rx={2} fill={tok('white')} stroke={tok('gold')} strokeWidth={1.5}
-                        className="chart-engine-handle--y" onPointerDown={e => drag(e, (_, my) => { const v = valueNear(a.axis, my); if (v != null) setV(v) })} />
-
-                    </>}
-                  </g>
-                )
-              }
-              const setEnd = (end, k) => (id.kind === 'cagr'
-                ? api.setCagr(id.i, end, k)
-                : id.i != null
-                  ? api.setDiffAt(id.i, { [end]: { ...(api.diffs[id.i]?.[end] ?? {}), key: k } })
-                  : api.setDiff(end === 'from' ? k : a.fromKey, end === 'to' ? k : a.toKey))
-              return (
-                <g key={key} data-ann>
-                  <rect x={o.px - o.w / 2} y={o.py - 9} width={o.w} height={18} rx={9} fill="transparent"
-                    stroke={on ? tok('gold') : 'none'} strokeWidth={1.5} className="chart-engine-ann"
-                    // Click: the arrow is selected (handles at its ends) AND its format bar opens,
-                    // with "From → to" (choose the columns); right-click: its menu.
-                    onClick={e => { open(e, { tab: 'annotation', ann: id }); setSel(id) }}
-                    onContextMenu={e => { open(e, { tab: 'annotation', ann: id }); setSel(id) }}
-                    // Double-click on a difference arrow: its next mode.
-                    onDoubleClick={e => {
-                      e.stopPropagation()
-                      if (id.kind !== 'diff') return
-                      const modes = ['abs', 'pct', 'both']
-                      const nx = modes[(modes.indexOf(api.fmt.diffMode ?? 'abs') + 1) % modes.length]
-                      api.setFmt('diffMode', nx === 'abs' ? null : nx)
-                    }} />
-                  {on && <>
-                    {[['from', a.xa, a.ya], ['to', a.xb, a.yb]].map(([end, x, y]) => (
-                      <circle key={end} cx={x} cy={y} r={5} fill={tok('white')} stroke={tok('gold')} strokeWidth={1.5}
-                        className="chart-engine-handle" onPointerDown={e => dragEnd(e, a, end, k => setEnd(end, k))} />
-                    ))}
-
-                  </>}
-                </g>
-              )
-            })}
-
-            {/* Dragging a label: its offered spots, dotted in the accent color. */}
-            {labelCands?.map((c, i) => (
-              <rect key={`lc${i}`} x={c.x - c.w / 2 - 2} y={c.y - c.h - 1} width={c.w + 4} height={c.h + 4} rx={2} fill={tok('gold-light')} fillOpacity={0.35}
-                stroke={tok('gold')} strokeWidth={1} strokeDasharray="2 2" pointerEvents="none" />
-            ))}
-            {/* A label selected on its own shows the drag icon (it moves to an offered spot). */}
-            {api && !labelCands && pick?.tab === 'labels' && pick.labelKey && !pick.allLabels && (() => {
-              const l = scene.labels.find(x => x.key === pick.labelKey && !x.rotate)
-              if (!l) return null
-              const w = estimateWidth(l.text, l.size)
-              const x0 = (l.anchor === 'start' ? l.x : l.anchor === 'end' ? l.x - w : l.x - w / 2) - 9
-              const y0 = l.y - l.size * 0.35
-              return (
-                <path d={`M${x0},${y0 - 4} V${y0 + 4} M${x0 - 4},${y0} H${x0 + 4} M${x0 - 1.5},${y0 - 2.5} L${x0},${y0 - 4} L${x0 + 1.5},${y0 - 2.5} M${x0 - 1.5},${y0 + 2.5} L${x0},${y0 + 4} L${x0 + 1.5},${y0 + 2.5} M${x0 - 2.5},${y0 - 1.5} L${x0 - 4},${y0} L${x0 - 2.5},${y0 + 1.5} M${x0 + 2.5},${y0 - 1.5} L${x0 + 4},${y0} L${x0 + 2.5},${y0 + 1.5}`}
-                  fill="none" stroke={tok('gold-dark')} strokeWidth={1} pointerEvents="none"><title>Drag the label: it snaps to the highlighted places</title></path>
-              )
-            })()}
-            {/* Selected chart: the rotation handle, top right of the plot;
-                dragged a quarter turn, columns become bars (and the profile, lines). */}
-            {api && pick?.tab === 'chart' && (api.hasBars || api.hasLines) && (() => {
-              const hx = scene.plot.right - 6, hy = scene.plot.top + 6
-              return (
-                <g data-wheel-anchor className="chart-engine-handle" onPointerDown={e => {
-                  const r0 = e.currentTarget.ownerSVGElement.getBoundingClientRect()
-                  const sx = e.clientX - r0.left, sy = e.clientY - r0.top
-                  let far = false
-                  drag(e, (mx, my) => { if (Math.hypot(mx - sx, my - sy) > 15) far = true }, () => {
-                    if (!far) return
-                    if (api.hasBars) api.setFmt('horizontal', true)
-                    else api.setFmt('profile', api.fmt.profile ? null : true)
-                    setPick(null)
-                  })
-                }}>
-                  <circle cx={hx} cy={hy} r={7} fill={tok('white')} stroke={tok('gold')} strokeWidth={1.5} />
-                  <path d={`M${hx - 3},${hy + 2} A3.5,3.5 0 1 1 ${hx + 2},${hy + 2.5}`} fill="none" stroke={tok('gold-dark')} strokeWidth={1.2} />
-                  <title>{api.hasBars ? 'Drag to rotate to horizontal bars' : 'Drag to rotate to a profile chart'}</title>
-                </g>
-              )
-            })()}
-            {axisDrop && ['left', 'right'].map(sd => (
-              <line key={`ad-${sd}`} x1={sd === 'left' ? scene.plot.left : scene.plot.right} x2={sd === 'left' ? scene.plot.left : scene.plot.right} y1={scene.plot.top} y2={scene.plot.bottom}
-                stroke={tok('gold')} strokeWidth={axisDrop.target === sd ? 3 : 1} strokeDasharray={axisDrop.target === sd ? undefined : '3 3'} pointerEvents="none" />
-            ))}
-            {/* Handle dragged back to the automatic scale. */}
-            {dragHint?.text && (
-              <text x={dragHint.x} y={dragHint.y} textAnchor={dragHint.side === 'left' ? 'start' : 'end'} dominantBaseline="central" fill={tok('gold-dark')} fontWeight={600}
-                stroke={tok('surface')} strokeWidth={3} paintOrder="stroke" pointerEvents="none" style={{ fontSize: 10.5 }}>{dragHint.text}</text>
-            )}
-            {/* Shift + hover: the range a Shift + click would select. */}
-            {shiftOn && col && pick?.tab === 'series' && pick.key && (() => {
-              const ks = scene.columns.map(c => c.key)
-              const [i0, i1] = [ks.indexOf(pick.key), ks.indexOf(col.key)].sort((a, b) => a - b)
-              if (i0 < 0) return null
-              return scene.bars.filter(b => b.seriesId === pick.seriesId && ks.indexOf(b.key) >= i0 && ks.indexOf(b.key) <= i1).map(b => (
-                <rect key={`sh-${b.key}`} x={b.x - 2} y={b.y - 2} width={b.width + 4} height={b.height + 4} rx={3} fill="none" stroke={tok('gold')} strokeWidth={1} strokeDasharray="3 2" pointerEvents="none" />
-              ))
-            })()}
-            {/* Table columns (categories moved out of the plot): click the header to bring it back to the chart. */}
-            {(scene.tableCols ?? []).map(t => (
-              <g key={`tc-${t.key}`}>
-                <line x1={t.x0} x2={t.x0} y1={scene.plot.top} y2={scene.plot.bottom} stroke={tok('gray-200')} strokeWidth={1} shapeRendering="crispEdges" pointerEvents="none" />
-                {t.items.map(it => (
-                  <text key={it.seriesId} x={t.x} y={it.y} textAnchor="middle" dominantBaseline="central" fill={tok(it.color)} fontWeight={600} pointerEvents="none"
-                    style={{ fontSize: 10, fontFamily: 'var(--font-mono)' }}>{it.text}</text>
-                ))}
-                <text x={t.x} y={scene.axes.x.y + 15 * scene.fontScale} textAnchor="middle" fill={tok('gray-700')} style={{ fontSize: 11 * scene.fontScale }}
-                  className={api ? 'chart-engine-clickable' : undefined} pointerEvents={api ? undefined : 'none'}
-                  onClick={api ? e => open(e, { tab: 'xaxis', key: t.key, keyLabel: t.header }) : undefined}
-                  onContextMenu={api ? e => open(e, { tab: 'xaxis', key: t.key, keyLabel: t.header }) : undefined}>{t.header}</text>
-              </g>
-            ))}
-            {/* Selected category axis: a handle on the baseline before each category; dragged
-                to the right, it opens a gap of one to four column widths (category gap). */}
-            {api && pick?.tab === 'xaxis' && scene.columns.filter(c => !String(c.key).startsWith('_')).length > 1 && (() => {
-              const real = scene.columns.filter(c => !String(c.key).startsWith('_'))
-              const step = real[1].cx - real[0].cx
-              return real.slice(1).filter(c => !api.gapBefore?.(c.key)).map(c => {
-                const gaps = api.fmt.catGaps ?? []
-                const n0 = gaps.includes(c.key) ? Math.max(1, Math.min(4, Math.round(Number(api.fmt.catGapSize?.[c.key]) || 1))) : 0
-                const prev = scene.columns[scene.columns.indexOf(c) - 1]
-                const hx = n0 ? c.x0 : (prev.cx + c.cx) / 2
-                return (
-                  <path key={`gh-${c.key}`} data-wheel-anchor d={`M${hx},${scene.axes.x.y + 3} l4,5 l-4,5 l-4,-5 Z`} fill={tok('white')} stroke={tok('gold')} strokeWidth={1.25}
-                    className="chart-engine-handle"
-                    onPointerDown={e => {
-                      const sx = e.clientX
-                      drag(e, (mx, my, ev) => {
-                        const n = Math.max(0, Math.min(4, n0 + Math.round((ev.clientX - sx) / Math.max(8, step))))
-                        const rest = (api.fmt.catGaps ?? []).filter(k => k !== c.key)
-                        const sizes = { ...(api.fmt.catGapSize ?? {}) }
-                        delete sizes[c.key]
-                        if (n > 1) sizes[c.key] = n
-                        api.setFmt('catGaps', n ? [...rest, c.key] : rest.length ? rest : null)
-                        api.setFmt('catGapSize', Object.keys(sizes).length ? sizes : null)
-                      })
-                    }}>
-                    <title>{`Drag right to open a gap before ${c.label} (${n0 ? `${n0} column${n0 > 1 ? 's' : ''}` : 'none'})`}</title>
-                  </path>
-                )
-              })
-            })()}
-
-            {/* Axes: a click (left or right) opens their tab. */}
-            <g className="chart-engine-axis" style={{ fontSize: 11 * scene.fontScale }}>
-              {['left', 'right'].map(side => {
-                const ax = scene.axes[side]
-                if (!ax) return null
-                const x0 = side === 'left' ? 0 : ax.x
-                const w = side === 'left' ? ax.x : scene.width - ax.x
-                const h = e => {
-                  if (axisMoved.current) { axisMoved.current = false; return }
-                  // The break is placed where the user clicked ("Add Break" at the pointer): one step wide.
-                  const my = e.clientY - e.currentTarget.ownerSVGElement.getBoundingClientRect().top
-                  const v = valueNear(side, my), [lo, hi] = ax.domain ?? []
-                  const half = (ax.step || 0) / 2
-                  const atBreak = !ax.log && v != null && half > 0 && v - half > lo && v + half < hi ? { from: Number((v - half).toFixed(10)), to: Number((v + half).toFixed(10)) } : null
-                  open(e, { tab: 'yaxis', side, atBreak })
-                }
-                // Selected axis: drag it to the other side of the plot (highlighted positions).
-                const dragAxis = e => {
-                  if (e.button !== 0 || !isAxisSel(side)) return
-                  const svgEl = e.currentTarget.ownerSVGElement
-                  const sx = e.clientX - svgEl.getBoundingClientRect().left
-                  axisMoved.current = false
-                  let target = null
-                  drag(e, mx => {
-                    if (!axisMoved.current && Math.abs(mx - sx) < 6) return
-                    axisMoved.current = true
-                    const mid = (scene.plot.left + scene.plot.right) / 2
-                    target = (side === 'left' ? mx > mid : mx < mid) ? (side === 'left' ? 'right' : 'left') : null
-                    setAxisDrop({ side, target })
-                  }, () => {
-                    setAxisDrop(null)
-                    if (target) api.series.filter(x => api.axisOf(x.value) === side).forEach(x => api.setSeries(x.value, { axis: target }))
-                  })
-                }
-                return (
-                  <g key={side}>
-                    {api && <rect x={x0} y={Math.min(...ax.allTicks.map(t => t.y)) - 8} width={Math.max(8, w)}
-                      height={Math.max(...ax.allTicks.map(t => t.y)) - Math.min(...ax.allTicks.map(t => t.y)) + 16} fill="transparent"
-                      className={`chart-engine-clickable${isAxisSel(side) ? ' is-selected' : ''}`} onClick={h} onContextMenu={h} onPointerDown={dragAxis}
-                      tabIndex={0} role="button" aria-label={`${side === 'left' ? 'Left' : 'Right'} value axis`} onKeyDown={e => onObjKey(e, { tab: 'yaxis', side })} />}
-                    {ax.tickMarks && ax.allTicks.map(t => (
-                      <line key={`tm${t.value}`} x1={side === 'left' ? ax.x - 4 : ax.x} x2={side === 'left' ? ax.x : ax.x + 4} y1={t.y} y2={t.y}
-                        stroke={tok('gray-400')} strokeWidth={1} shapeRendering="crispEdges" pointerEvents="none" />
-                    ))}
-                    {/* Selected axis: its scale handles, max at the top, min at the bottom. */}
-                    {pick?.tab === 'yaxis' && (pick.side ?? 'left') === side && !ax.log && ax.allTicks.length > 1 && (() => {
-                      const [t0, t1] = [ax.allTicks[0], ax.allTicks.at(-1)]
-                      const yOf = v => t0.y + ((v - t0.value) * (t1.y - t0.y)) / (t1.value - t0.value)
-                      const ends = [['max', ax.domain[1]], ['min', ax.domain[0]]]
-                      // Middle handle (tick mark spacing): on the 2nd tick,
-                      // drag it to set the step, rounded to 1 / 2 / 2.5 / 5 × 10ⁿ.
-                      const s0 = ax.allTicks[0], s1 = ax.allTicks[1]
-                      const niceStep = d => { const e = 10 ** Math.floor(Math.log10(d)); const m = d / e; return (m < 1.5 ? 1 : m < 2.25 ? 2 : m < 3.5 ? 2.5 : m < 7.5 ? 5 : 10) * e }
-                      const stepHandle = s1 && (
-                        <circle key="step" data-wheel-anchor cx={side === 'left' ? ax.x + 8 : ax.x - 8} cy={s1.y} r={4.5} fill={tok('white')} stroke={tok('gold')} strokeWidth={1.5}
-                          className="chart-engine-handle--y" aria-label="Drag to set the tick spacing"
-                          onPointerDown={e => drag(e, (_, my, ev) => {
-                            const nv = valueNear(side, my)
-                            if (nv == null || !(Math.abs(nv - s0.value) > 0)) return
-                            const st = niceStep(Math.abs(nv - s0.value))
-                            // Automatic step reached: the setting is cleared ("Automatic").
-                            // Alt + drag keeps the manual setting.
-                            const auto = !ev?.altKey && ax.autoStep != null && Math.abs(st - ax.autoStep) < ax.autoStep * 1e-6
-                            api.setFmt(`yAxis.${side}.step`, auto ? null : st)
-                            setDragHint({ x: side === 'left' ? ax.x + 16 : ax.x - 16, y: my, side, text: auto ? 'Automatic' : null })
-                          }, () => setDragHint(null))}
-                          onDoubleClick={() => api.setFmt(`yAxis.${side}.step`, null)}><title>Drag to set the tick spacing (double-click: automatic)</title></circle>
-                      )
-                      return [stepHandle, ...ends.map(([k, v]) => (
-                        <rect key={k} data-wheel-anchor x={side === 'left' ? ax.x + 3 : ax.x - 13} y={yOf(v) - 5} width={10} height={10} rx={2} fill={tok('white')} stroke={tok('gold')} strokeWidth={1.5}
-                          className="chart-engine-handle--y" aria-label={`Drag to set the axis ${k}`}
-                          title={`Drag to set the axis ${k}`}
-                          onPointerDown={e => drag(e, (_, my, ev) => {
-                            // Dragged to the automatic bound (within 6 px), the handle snaps back to it: "Automatic".
-                            const av = ax.autoDomain?.[k === 'max' ? 1 : 0]
-                            const auto = !ev?.altKey && Number.isFinite(av) && Math.abs(my - yOf(av)) < 6
-                            // The bound snaps to the tick step (Alt + drag: to a tenth of a step).
-                            const fine = valueNear(side, my)
-                            const st = ax.step > 0 && !ev?.altKey ? ax.step : null
-                            const nv = auto || fine == null ? null : st ? Number((Math.round(fine / st) * st).toFixed(10)) : fine
-                            if (auto || nv != null) api.setFmt(`yAxis.${side}.${k}`, nv)
-                            // Value tooltip while dragging, "Automatic" on the automatic bound.
-                            setDragHint({ x: side === 'left' ? ax.x + 16 : ax.x - 16, y: my, side, text: auto ? 'Automatic' : nv != null ? formatters.axis(nv, ax.unit) : null })
-                          }, () => setDragHint(null))} />
-                      ))]
-                    })()}
-                    {(ax.line || isAxisSel(side)) && <line x1={ax.x} x2={ax.x} y1={scene.plot.top} y2={scene.plot.bottom}
-                      stroke={tok(isAxisSel(side) ? 'gold' : 'gray-400')} strokeWidth={isAxisSel(side) ? 2 : 1} shapeRendering="crispEdges" pointerEvents="none" />}
-                    {ax.ticks.map(t => (
-                      <text key={`${side}${t.value}`} x={(side === 'left') !== !!ax.labelsInside ? ax.x - 6 : ax.x + 6} y={ax.labelsInside ? t.y - 7 : t.y} textAnchor={(side === 'left') !== !!ax.labelsInside ? 'end' : 'start'}
-                        dominantBaseline="central" pointerEvents="none" style={isAxisSel(side) ? { fill: 'var(--gold-dark)', fontWeight: 600 } : undefined}>{t.label}</text>
-                    ))}
-                    {/* Axis title: can be dragged along the axis. */}
-                    {ax.title && (() => {
-                      const ty = (scene.plot.top + scene.plot.bottom) / 2 + (ax.titleOffset ?? 0)
-                      return (
-                        <text x={ax.titleX} y={ty} textAnchor="middle" dominantBaseline="central"
-                          transform={`rotate(${side === 'left' ? -90 : 90} ${ax.titleX} ${ty})`}
-                          className={api ? 'chart-engine-handle--y' : undefined} pointerEvents={api ? undefined : 'none'}
-                          onPointerDown={api ? e => { if (e.button !== 0) return; const base = ty - (ax.titleOffset ?? 0); drag(e, (_, my) => api.setFmt(`yAxis.${side}.titleOffset`, Math.round(Math.max(scene.plot.top, Math.min(scene.plot.bottom, my)) - base))) } : undefined}
-                          onDoubleClick={api ? () => api.setFmt(`yAxis.${side}.titleOffset`, null) : undefined}
-                          style={{ fontSize: 10.5 * scene.fontScale }}>{ax.title}</text>
-                      )
-                    })()}
-                  </g>
-                )
-              })}
-              {api && <rect x={scene.plot.left} y={scene.axes.x.y} width={scene.plot.width} height={Math.min(36, Math.max(10, scene.height - scene.axes.x.y - (scene.legendY ? scene.height - scene.legendY : 0)))}
-                fill="transparent" className={`chart-engine-clickable${pick?.tab === 'xaxis' ? ' is-selected' : ''}`}
-                onClick={e => open(e, xAxisObj(e))} onContextMenu={e => open(e, xAxisObj(e))}
-                tabIndex={0} role="button" aria-label="Category axis" onKeyDown={e => onObjKey(e, { tab: 'xaxis' })} />}
-              {scene.axes.x.tickMarks && scene.columns.slice(1).map(c => (
-                <line key={`xt${c.key}`} x1={c.x0} x2={c.x0} y1={scene.axes.x.y} y2={scene.axes.x.y + 4} stroke={tok('gray-400')} strokeWidth={1} shapeRendering="crispEdges" pointerEvents="none" />
-              ))}
-              {(scene.axes.x.line || pick?.tab === 'xaxis') && <line x1={scene.plot.left} x2={scene.plot.right} y1={scene.axes.x.y} y2={scene.axes.x.y}
-                stroke={tok(pick?.tab === 'xaxis' ? 'gold' : 'gray-400')} strokeWidth={pick?.tab === 'xaxis' ? 2 : 1} shapeRendering="crispEdges" pointerEvents="none" />}
-              {/* Data table "styled as a table": banded fill, rules. */}
-              {!scene.axes.x.rotate && (scene.axes.x.tableFill ?? []).map(r => (
-                <rect key={`ts-${r.key}`} x={8} y={r.y} width={scene.plot.right - 8} height={r.h} fill={tok(r.fill)} pointerEvents="none" />
-              ))}
-              {!scene.axes.x.rotate && (scene.axes.x.tableLines ?? []).map(l => (
-                <line key={l.key} x1={8} x2={scene.plot.right} y1={l.y} y2={l.y} stroke={tok('gray-300')} strokeWidth={1} shapeRendering="crispEdges" pointerEvents="none" />
-              ))}
-              {scene.axes.x.ticks.filter(t => !t.muted).map(t => (
-                <g key={t.key} pointerEvents="none" style={pick?.tab === 'xaxis' ? { fill: 'var(--gold-dark)', fontWeight: 600 } : undefined}>
-                  {scene.axes.x.rotate
-                    ? <text x={t.x} y={scene.axes.x.y + 10} textAnchor="end" dominantBaseline="central"
-                        transform={`rotate(${-scene.axes.x.rotate} ${t.x} ${scene.axes.x.y + 10})`}>{t.label}</text>
-                    : <text x={t.lx ?? t.x} y={scene.axes.x.y + 15 * scene.fontScale} textAnchor="middle">{String(t.label).split('\n').map((l, j) => <tspan key={j} x={t.lx ?? t.x} dy={j ? 13 * scene.fontScale : 0}>{l}</tspan>)}</text>}
-                  {/* Second label (margin, growth, yearly totals), data table rows. */}
-                  {!scene.axes.x.rotate && t.sub?.map((l, i) => (
-                    <text key={i} x={t.x} y={scene.axes.x.y + (scene.axes.x.sub0 ?? 28) + (String(t.label).split('\n').length - 1) * 13 + i * (scene.axes.x.subLineH ?? 13)} textAnchor="middle" fill={l.tone ? tok(l.tone) : undefined}
-                      fontWeight={l.strong ? 600 : undefined} style={{ fontSize: scene.axes.x.subFont ?? 10, fontFamily: 'var(--font-mono)' }}>{l.text}</text>
-                  ))}
-                </g>
-              ))}
-              {(scene.axes.x.gaps ?? []).map(gx => (
-                <path key={`xg${gx}`} d={`M${gx - 6},${scene.axes.x.y + 5} L${gx - 2},${scene.axes.x.y - 5} M${gx + 2},${scene.axes.x.y + 5} L${gx + 6},${scene.axes.x.y - 5}`} stroke={tok('gray-500')} strokeWidth={1.25} pointerEvents="none" />
-              ))}
-              {scene.axes.x.title && (
-                <text x={scene.axes.x.title.x} y={scene.axes.x.title.y} textAnchor="middle" fill={tok('gray-700')}
-                  className={api ? 'chart-engine-handle' : undefined} pointerEvents={api ? undefined : 'none'}
-                  onPointerDown={api ? e => { if (e.button !== 0) return; const mid = (scene.plot.left + scene.plot.right) / 2; drag(e, mx => api.setFmt('xAxis.titleOffset', Math.round(Math.max(scene.plot.left, Math.min(scene.plot.right, mx)) - mid))) } : undefined}
-                  onDoubleClick={api ? () => api.setFmt('xAxis.titleOffset', null) : undefined}
-                  style={{ fontSize: 10.5 * scene.fontScale }}>{scene.axes.x.title.text}</text>
-              )}
-              {/* Data table row headers (a series moved under the axis). */}
-              {!scene.axes.x.rotate && (scene.axes.x.tableHeads ?? []).map(h => (
-                <text key={`th-${h.kpi ?? h.seriesId}`} x={scene.plot.left - 8} y={h.y ?? scene.axes.x.y + 28 + h.line * 13} textAnchor="end" fill={tok('gray-600')}
-                  className={api ? 'chart-engine-clickable' : undefined} pointerEvents={api ? undefined : 'none'}
-                  onClick={api ? e => open(e, { tab: 'series', seriesId: h.seriesId }) : undefined}
-                  style={{ fontSize: scene.axes.x.subFont ?? 10, fontWeight: 600 }}>{h.text}</text>
-              ))}
-            </g>
-          </svg>
+            onDoubleClick={api ? () => { setPick(null); api.setSheetOpen(true) } : undefined} />
         )}
         {wheel}
         {col && !pick && !sel && (

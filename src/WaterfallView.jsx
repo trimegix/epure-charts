@@ -19,6 +19,7 @@ import { useCharts } from './useCharts'
 import ChartHeader from './ChartHeader'
 import { validateSpec } from './spec'
 import { buildWaterfallScene } from './waterfallScene'
+import WaterfallFigure from './WaterfallFigure.jsx'
 import { BridgeBar, BridgeBarButton } from './BridgeBar'
 import { makeFormatter } from './numberStyle'
 import { cardGeometry } from './cardGeometry'
@@ -31,22 +32,29 @@ import { bridgeSheet } from './sheetAdapters.js'
 import { tok, labelTextStyle, labelPrefs } from './customStyle.js'
 
 
-function useWidth(ref) {
-  const [width, setWidth] = useState(0)
+// The drawing width: the `width` prop when given (no measuring: server rendering,
+// static pages), else the box's width, followed with a ResizeObserver.
+function useWidth(ref, fixed) {
+  const [width, setWidth] = useState(fixed ?? 0)
   useLayoutEffect(() => {
     const el = ref.current
-    if (!el) return undefined
+    if (!el || fixed != null) return undefined
     setWidth(Math.round(el.getBoundingClientRect().width))
     const ro = new ResizeObserver(([entry]) => setWidth(Math.round(entry.contentRect.width)))
     ro.observe(el)
     return () => ro.disconnect()
-  }, [ref])
-  return width
+  }, [ref, fixed])
+  return fixed ?? width
 }
 
-export default function WaterfallView({ bridge: providedBridge, spec, currentId, scope, context, selectedStep, onSelectStep, bare = false, headerSlot, height: fixedHeight, api, floatMenu = false }) {
+// width: fixed drawing width (no measuring; also the first width on hydration).
+// readOnly: the figure only: no header, format bar, menus, data sheet nor sheet edits.
+// responsive: the SVG scales to its container (width="100%", ratio kept).
+// dataTable: the figure's numbers as a visually hidden table next to the SVG.
+export default function WaterfallView({ bridge: providedBridge, spec, currentId, scope, context, selectedStep, onSelectStep, bare = false, headerSlot, height: fixedHeight, api: apiIn, floatMenu = false, width: widthProp, readOnly = false, responsive = false, dataTable = false }) {
   const boxRef = useRef(null)
-  const width = useWidth(boxRef)
+  const width = useWidth(boxRef, widthProp)
+  const api = readOnly ? undefined : apiIn
   const [hover, setHover] = useState(null)
   const [linkDrag, setLinkDrag] = useState(null) // { to, src } while dragging a connector
   const [vlDrag, setVlDrag] = useState(null) // the value line while dragging
@@ -63,9 +71,9 @@ export default function WaterfallView({ bridge: providedBridge, spec, currentId,
   // backwards; in a downward bridge, a positive movement is subtracted (sheetAdapters).
   const sheetBase = useMemo(() => bridgeSheet.toBase(raw, { backCalc: !!spec.backCalc }), [raw, spec.backCalc])
   const sheetApi = useSheet(`bridge-${spec.id}`, sheetBase, sh => ({ ...bridgeSheet.validate(sh), ...bridgeSheet.closing(sh, raw, { netLines: spec.netLines }) }))
-  const fromSheet = bridgeSheet.fromSheet(sheetApi.sheet, raw, { direction: spec.direction, netLines: spec.netLines })
+  const fromSheet = readOnly ? raw : bridgeSheet.fromSheet(sheetApi.sheet, raw, { direction: spec.direction, netLines: spec.netLines })
   const sheetKey = JSON.stringify(sheetApi.edits)
-  const bridge = useMemo(() => applyBridgeEdits(fromSheet, spec), [raw, spec, sheetKey]) // eslint-disable-line react-hooks/exhaustive-deps
+  const bridge = useMemo(() => applyBridgeEdits(fromSheet, spec), [raw, spec, sheetKey, readOnly]) // eslint-disable-line react-hooks/exhaustive-deps
   // The sheet can ask for the computed start ("e" typed on the first row).
   const sceneSpec = useMemo(() => {
     let sp = bridge.backCalc && !spec.backCalc ? { ...spec, backCalc: true } : spec
@@ -165,6 +173,122 @@ export default function WaterfallView({ bridge: providedBridge, spec, currentId,
     window.addEventListener('pointermove', move); window.addEventListener('pointerup', up)
   }
 
+  // ── Editing layer, drawn through the figure (part: props on a mark; slot: nodes at a depth) ──
+  const dimmed = key => (selectedStep && selectedStep !== key ? 0.35 : 1)
+  const stepObjOf = b => ({ obj: 'step', stepKey: b.key, part: b.part ?? null, color: b.color, onDetail: onSelectStep ? () => select(b.key) : null })
+  const clickable = !!(onSelectStep || api)
+  const part = (kind, it) => {
+    if (kind === 'legend') return { className: `chart-engine-legend${api ? ' chart-engine-clickable' : ''}`, onClick: api ? e => open(e, { obj: 'bridge' }) : undefined }
+    if (kind === 'connector') return it.distorted ? null : { stroke: tok(linkDrag?.to === it.to ? 'gold' : it.linked ? 'gray-600' : 'gray-400'), strokeWidth: linkDrag?.to === it.to ? 1.5 : 1 }
+    if (kind === 'bar') {
+      // A click keeps its business action if there is one; otherwise it opens the bar's format bar.
+      // A right-click always opens its action menu. A step's detail (in the host): double-click or menu entry.
+      const b = it
+      const stepObj = stepObjOf(b)
+      const editing = pick?.obj === 'step' && pick.stepKey === b.key
+      return {
+        opacity: dimmed(b.key),
+        className: clickable ? `chart-engine-clickable${editing ? ' is-selected' : ''}` : undefined,
+        onClick: api ? e => open(e, stepObjOf(b)) : onSelectStep ? () => select(b.key) : undefined,
+        onDoubleClick: api && onSelectStep ? e => { e.stopPropagation(); setPick(null); select(b.key) } : undefined,
+        onContextMenu: api ? e => open(e, stepObjOf(b)) : undefined,
+        tabIndex: clickable ? 0 : undefined, role: clickable ? 'button' : undefined,
+        'aria-pressed': onSelectStep ? selectedStep === b.key : undefined,
+        'aria-label': clickable ? `${stepOf(b.key)?.label}: ${scene.columns.find(c => c.key === b.key)?.text}` : undefined,
+        onKeyDown: clickable ? e => {
+          if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); if (onSelectStep) select(b.key); else open(e, stepObj) }
+          if (api && (e.key === 'ContextMenu' || (e.key === 'F10' && e.shiftKey))) open({ ...e, type: 'contextmenu', preventDefault: () => e.preventDefault(), stopPropagation: () => e.stopPropagation(), clientX: e.currentTarget.getBoundingClientRect().left, clientY: e.currentTarget.getBoundingClientRect().top }, stepObj)
+        } : undefined,
+      }
+    }
+    if (kind === 'netLine') {
+      const obj = { obj: 'step', stepKey: it.stepKey, part: it.part, net: true, color: it.color }
+      return {
+        className: api ? `chart-engine-clickable${pick?.obj === 'step' && pick.stepKey === it.stepKey && pick.part === it.part ? ' is-selected' : ''}` : undefined,
+        onClick: api ? e => open(e, obj) : undefined, onContextMenu: api ? e => open(e, obj) : undefined,
+      }
+    }
+    if (kind === 'values') return { pointerEvents: api ? undefined : 'none' }
+    if (kind === 'label') return {
+      className: api ? `chart-engine-clickable${pick?.obj === 'values' ? ' is-selected' : ''}` : undefined,
+      onClick: api ? e => open(e, { obj: 'values' }) : undefined, onContextMenu: api ? e => open(e, { obj: 'values' }) : undefined,
+      opacity: dimmed(it.key),
+    }
+    if (kind === 'axis') return {
+      className: `chart-engine-axis${api ? ` chart-engine-clickable${pick?.obj === 'axis' ? ' is-selected' : ''}` : ''}`,
+      onClick: api ? e => open(e, { obj: 'axis' }) : undefined, onContextMenu: api ? e => open(e, { obj: 'axis' }) : undefined,
+    }
+    if (kind === 'xaxis') return { className: `chart-engine-axis${api ? ' chart-engine-clickable' : ''}`, onClick: api ? e => open(e, { obj: 'bridge' }) : undefined }
+    if (kind === 'valueLine') return {
+      className: api ? 'chart-engine-clickable chart-engine-handle--y' : undefined, onPointerDown: dragValueLine,
+      onDoubleClick: api ? e => { e.stopPropagation(); api.setPref('valueLine', true) } : undefined,
+    }
+    if (kind === 'table') return {
+      className: `chart-engine-axis${api ? ' chart-engine-clickable' : ''}`,
+      onClick: api ? e => open(e, { obj: 'values' }) : undefined, onContextMenu: api ? e => open(e, { obj: 'values' }) : undefined,
+    }
+    if (kind === 'tableCell') return { opacity: dimmed(it.stepKey) }
+    return null
+  }
+  const slot = (kind, it) => {
+    if (kind === 'backdrop') return col ? <rect x={col.x0} y={scene.plot.top} width={col.x1 - col.x0} height={scene.plot.height} fill={tok('gray-100')} /> : null
+    if (kind === 'connector') {
+      const c = it
+      return (
+        <>
+          {/* Selected connector: in gold, with a handle at each end. */}
+          {pick?.obj === 'connector' && pick.connTo === c.to && (
+            <g pointerEvents="none">
+              <line x1={c.x1} x2={c.x2} y1={c.y} y2={c.distorted ? c.y2 : c.y} stroke={tok('gold')} strokeWidth={1.5} />
+              {[[c.x1, c.y], [c.x2, c.distorted ? c.y2 : c.y]].map(([hx, hy], k) => (
+                <rect key={k} x={hx - 3} y={hy - 3} width={6} height={6} rx={1} fill={tok('white')} stroke={tok('gold')} strokeWidth={1.25} />
+              ))}
+            </g>
+          )}
+          {/* Draggable: the start lands on an earlier column. */}
+          {api?.setLink && (
+            <line x1={c.x1} x2={c.x2} y1={c.y} y2={c.y} stroke="transparent" strokeWidth={8} className="chart-engine-handle" data-wheel-anchor
+              onPointerDown={e => dragConnector(e, c)} onDoubleClick={e => { e.stopPropagation(); if (c.linked) api.setLink(c.to, null) }}
+              onContextMenu={e => { const r = e.currentTarget.ownerSVGElement.getBoundingClientRect(); open(e, { obj: 'connector', stepKey: c.from, connTo: c.to, mark: { x: r.left + c.x1, y: r.top + c.y - 6, w: c.x2 - c.x1, h: 12, weight: 1000, el: e.currentTarget } }) }}>
+              <title>{c.linked ? 'Click to format, drag to reconnect (double-click: back to the previous bar)' : 'Click to format, drag onto an earlier bar to start this bar from its level'}</title>
+            </line>
+          )}
+        </>
+      )
+    }
+    if (kind === 'bar') {
+      const b = it
+      return (
+        <>
+          {selectedStep === b.key && <rect x={b.x - 2} y={b.y - 2} width={b.width + 4} height={b.height + 4} rx={3}
+            fill="none" stroke={tok(b.color)} strokeWidth={2} strokeOpacity={0.5} />}
+          {pick?.obj === 'step' && pick.stepKey === b.key && <rect x={b.x - 2} y={b.y - 2} width={b.width + 4} height={b.height + 4} rx={3}
+            fill="none" stroke={tok('gold')} strokeWidth={1.5} pointerEvents="none" />}
+        </>
+      )
+    }
+    if (kind === 'netLine') return <line x1={it.x1} x2={it.x2} y1={it.y} y2={it.y} stroke="transparent" strokeWidth={10} />
+    if (kind === 'axis') return api ? <rect x={0} y={scene.plot.top} width={Math.max(8, scene.axes.left.x - 2)} height={scene.plot.height} fill="transparent" /> : null
+    if (kind === 'valueLine') return (
+      <>
+        <line x1={it.x1} x2={it.x2} y1={it.y} y2={it.y} stroke="transparent" strokeWidth={10} />
+        {api && <title>{`Value line · ${it.text} · drag to move, double-click: start level`}</title>}
+      </>
+    )
+    return null
+  }
+
+  if (readOnly) {
+    return (
+      <div className="chart-engine">
+        <div ref={boxRef} className="chart-engine-box">
+          {scene?.empty && <div className="chart-engine-empty">No data for this bridge yet.</div>}
+          <WaterfallFigure scene={scene} interactive={!readOnly} label={spec.title} responsive={responsive} dataTable={dataTable} />
+        </div>
+      </div>
+    )
+  }
+
   return (
     // A right-click anywhere in the bridge opens our menu, never the browser's.
     <div className="chart-engine" onContextMenu={api ? e => { if (!e.defaultPrevented) open(e, { obj: 'bridge' }) } : undefined}>
@@ -179,180 +303,12 @@ export default function WaterfallView({ bridge: providedBridge, spec, currentId,
         {bare && floatMenu && api && <div className="chart-engine-float-menu"><BridgeBarButton api={barApi} /></div>}
         {scene?.empty && <div className="chart-engine-empty">No data for this bridge yet.</div>}
         {scene && !scene.empty && (
-          <svg width={scene.width} height={scene.height} role="img" aria-label={spec.title}
+          <WaterfallFigure scene={scene} interactive={!readOnly} label={spec.title} responsive={responsive} dataTable={dataTable}
+            labelStyle={labelTextStyle(api?.prefs)} part={part} slot={slot}
             onMouseMove={onMove} onMouseLeave={() => setHover(null)}
             onDoubleClick={api ? () => api.setSheetOpen(true) : undefined}
             // Right-click on the background: the bridge menu.
-            onContextMenu={api ? e => open(e, { obj: 'bridge' }) : undefined}>
-            {/* Legend */}
-            <g className={`chart-engine-legend${api ? ' chart-engine-clickable' : ''}`} onClick={api ? e => open(e, { obj: 'bridge' }) : undefined}>
-              {scene.legend.map(it => (
-                <g key={it.key} transform={`translate(${it.x},0)`}>
-                  {it.kind === 'whisker'
-                    ? <g stroke={tok(it.color)} strokeWidth={1.5}>
-                        <line x1={5} x2={5} y1={it.y + 5} y2={it.y - 4} strokeDasharray="3 2" />
-                        <line x1={1} x2={9} y1={it.y - 4} y2={it.y - 4} />
-                      </g>
-                    : it.kind === 'net'
-                      ? <line x1={0} x2={10} y1={it.y} y2={it.y} stroke={tok(it.color)} strokeWidth={2.5} />
-                    : it.kind === 'outline'
-                      ? <rect x={0.75} y={it.y - 4.25} width={8.5} height={8.5} rx={2} fill="none" stroke={tok(it.color)} strokeWidth={1.5} strokeDasharray="3 2" />
-                      : <rect x={0} y={it.y - 5} width={10} height={10} rx={2} fill={tok(it.color)} />}
-                  <text x={16} y={it.y} dominantBaseline="central">{it.label}</text>
-                </g>
-              ))}
-            </g>
-
-            {col && <rect x={col.x0} y={scene.plot.top} width={col.x1 - col.x0} height={scene.plot.height} fill={tok('gray-100')} />}
-
-            {scene.gridlines.map((g, i) => (
-              <line key={i} x1={g.x1} x2={g.x2} y1={g.y} y2={g.y}
-                stroke={tok(g.strong ? 'gray-800' : g.zero ? 'gray-400' : 'gray-200')} strokeWidth={1} shapeRendering="crispEdges" />
-            ))}
-
-            {/* Connectors, under the bars; draggable (the start lands on an earlier column) */}
-            <g>
-              {scene.connectors.map(c => (
-                <g key={`${c.from}-${c.to}`}>
-                  {c.distorted
-                    // Distorted connector: the anchor does not continue the running total, the conflict is visible.
-                    ? <line x1={c.x1} x2={c.x2} y1={c.y} y2={c.y2} stroke={tok('red')} strokeWidth={1.25} strokeDasharray="3 2"><title>{`Connector conflict: ${c.text}`}</title></line>
-                    : <line x1={c.x1} x2={c.x2} y1={c.y} y2={c.y} stroke={tok(linkDrag?.to === c.to ? 'gold' : c.linked ? 'gray-600' : 'gray-400')} strokeWidth={linkDrag?.to === c.to ? 1.5 : 1} strokeDasharray="2 2" pointerEvents="none" />}
-                  {/* Selected connector: in gold, with a handle at each end. */}
-                  {pick?.obj === 'connector' && pick.connTo === c.to && (
-                    <g pointerEvents="none">
-                      <line x1={c.x1} x2={c.x2} y1={c.y} y2={c.distorted ? c.y2 : c.y} stroke={tok('gold')} strokeWidth={1.5} />
-                      {[[c.x1, c.y], [c.x2, c.distorted ? c.y2 : c.y]].map(([hx, hy], k) => (
-                        <rect key={k} x={hx - 3} y={hy - 3} width={6} height={6} rx={1} fill={tok('white')} stroke={tok('gold')} strokeWidth={1.25} />
-                      ))}
-                    </g>
-                  )}
-                  {api?.setLink && (
-                    <line x1={c.x1} x2={c.x2} y1={c.y} y2={c.y} stroke="transparent" strokeWidth={8} className="chart-engine-handle" data-wheel-anchor
-                      onPointerDown={e => dragConnector(e, c)} onDoubleClick={e => { e.stopPropagation(); if (c.linked) api.setLink(c.to, null) }}
-                      onContextMenu={e => { const r = e.currentTarget.ownerSVGElement.getBoundingClientRect(); open(e, { obj: 'connector', stepKey: c.from, connTo: c.to, mark: { x: r.left + c.x1, y: r.top + c.y - 6, w: c.x2 - c.x1, h: 12, weight: 1000, el: e.currentTarget } }) }}>
-                      <title>{c.linked ? 'Click to format, drag to reconnect (double-click: back to the previous bar)' : 'Click to format, drag onto an earlier bar to start this bar from its level'}</title>
-                    </line>
-                  )}
-                </g>
-              ))}
-            </g>
-
-            {/* Bars */}
-            {scene.bars.map(b => {
-              const on = selectedStep === b.key
-              const dim = selectedStep && !on ? 0.35 : 1
-              // A click keeps its business action if there is one; otherwise it opens the bar's format bar.
-              // A right-click always opens its action menu.
-              // A step's detail (in the host): double-click or menu entry; a click formats.
-              const stepObj = { obj: 'step', stepKey: b.key, part: b.part ?? null, color: b.color, onDetail: onSelectStep ? () => select(b.key) : null }
-              const clickable = onSelectStep || api
-              const editing = pick?.obj === 'step' && pick.stepKey === b.key
-              return (
-                <g key={b.part ? `${b.key}|${b.part}` : b.key} opacity={dim}
-                  className={clickable ? `chart-engine-clickable${editing ? ' is-selected' : ''}` : undefined}
-                  onClick={api ? e => open(e, stepObj) : onSelectStep ? () => select(b.key) : undefined}
-                  onDoubleClick={api && onSelectStep ? e => { e.stopPropagation(); setPick(null); select(b.key) } : undefined}
-                  onContextMenu={api ? e => open(e, stepObj) : undefined}
-                  tabIndex={clickable ? 0 : undefined} role={clickable ? 'button' : undefined}
-                  aria-pressed={onSelectStep ? on : undefined}
-                  aria-label={clickable ? `${stepOf(b.key)?.label}: ${scene.columns.find(c => c.key === b.key)?.text}` : undefined}
-                  onKeyDown={clickable ? e => {
-                    if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); if (onSelectStep) select(b.key); else open(e, stepObj) }
-                    if (api && (e.key === 'ContextMenu' || (e.key === 'F10' && e.shiftKey))) open({ ...e, type: 'contextmenu', preventDefault: () => e.preventDefault(), stopPropagation: () => e.stopPropagation(), clientX: e.currentTarget.getBoundingClientRect().left, clientY: e.currentTarget.getBoundingClientRect().top }, stepObj)
-                  } : undefined}>
-                  {b.hypothesis
-                    // Assumption (working mark): no fill, dotted gold outline.
-                    ? <rect x={b.x + 0.75} y={b.y + 0.75} width={Math.max(b.width - 1.5, 1)} height={Math.max(b.height - 1.5, 1)} rx={2}
-                        fill="none" stroke={tok(b.color)} strokeWidth={1.5} strokeDasharray="4 3" />
-                    : <rect x={b.x} y={b.y} width={b.width} height={b.height} rx={2} fill={tok(b.color)} />}
-                  {on && <rect x={b.x - 2} y={b.y - 2} width={b.width + 4} height={b.height + 4} rx={3}
-                    fill="none" stroke={tok(b.color)} strokeWidth={2} strokeOpacity={0.5} />}
-                  {editing && <rect x={b.x - 2} y={b.y - 2} width={b.width + 4} height={b.height + 4} rx={3}
-                    fill="none" stroke={tok('gold')} strokeWidth={1.5} pointerEvents="none" />}
-                </g>
-              )
-            })}
-
-            {/* Upside scenario whiskers */}
-            {scene.whiskers.map(w => (
-              <g key={w.key} stroke={tok(w.color)} strokeWidth={1.5} pointerEvents="none">
-                <line x1={w.x} x2={w.x} y1={w.y1} y2={w.y2} strokeDasharray="3 2" />
-                <line x1={w.x - w.cap / 2} x2={w.x + w.cap / 2} y1={w.y2} y2={w.y2} />
-              </g>
-            ))}
-
-            {/* Net lines: a series outside the stack, one stroke at its level (click: its format bar). */}
-            {(scene.netLines ?? []).map(n => (
-              <g key={`net-${n.key}`} className={api ? `chart-engine-clickable${pick?.obj === 'step' && pick.stepKey === n.stepKey && pick.part === n.part ? ' is-selected' : ''}` : undefined}
-                onClick={api ? e => open(e, { obj: 'step', stepKey: n.stepKey, part: n.part, net: true, color: n.color }) : undefined}
-                onContextMenu={api ? e => open(e, { obj: 'step', stepKey: n.stepKey, part: n.part, net: true, color: n.color }) : undefined}>
-                <line x1={n.x1} x2={n.x2} y1={n.y} y2={n.y} stroke={tok(n.color)} strokeWidth={2.5} />
-                <line x1={n.x1} x2={n.x2} y1={n.y} y2={n.y} stroke="transparent" strokeWidth={10} />
-                <title>{`${n.label}: ${n.text}`}</title>
-              </g>
-            ))}
-
-            {/* Value labels */}
-            <g className="chart-engine-values" pointerEvents={api ? undefined : 'none'}>
-              {scene.labels.map(l => (
-                <text key={l.key} x={l.x} y={l.y} textAnchor={l.anchor} style={{ fontSize: l.size, fontFamily: 'var(--font-mono)', ...labelTextStyle(api?.prefs) }} fontWeight={600} fill={tok(l.color)}
-                  className={api ? `chart-engine-clickable${pick?.obj === 'values' ? ' is-selected' : ''}` : undefined}
-                  onClick={api ? e => open(e, { obj: 'values' }) : undefined} onContextMenu={api ? e => open(e, { obj: 'values' }) : undefined}
-                  opacity={selectedStep && selectedStep !== l.key ? 0.35 : 1}>{l.text}</text>
-              ))}
-            </g>
-
-            {/* Difference arrows */}
-            {scene.annotations.map(a => (
-              <g key={`${a.from}-${a.to}`} className="chart-engine-diff" pointerEvents="none">
-                <path d={`M${a.xa},${a.ya} V${a.yTop} H${a.xb} V${a.yb - 5}`} fill="none" stroke={tok('gray-500')} strokeWidth={1} />
-                <path d={`M${a.xb - 3.5},${a.yb - 6} L${a.xb},${a.yb} L${a.xb + 3.5},${a.yb - 6} Z`} fill={tok('gray-500')} />
-                <rect x={(a.xa + a.xb) / 2 - a.pillW / 2} y={a.yTop - 9} width={a.pillW} height={18} rx={9}
-                  fill={tok('surface')} stroke={tok('gray-300')} />
-                <text x={(a.xa + a.xb) / 2} y={a.yTop} dominantBaseline="central" textAnchor="middle"
-                  style={{ fontSize: 10.5, fontFamily: 'var(--font-mono)' }} fontWeight={600} fill={tok('black')}>{a.text}</text>
-              </g>
-            ))}
-
-            {/* Value axis: a separate object (scale, ticks, format) */}
-            <g className={`chart-engine-axis${api ? ` chart-engine-clickable${pick?.obj === 'axis' ? ' is-selected' : ''}` : ''}`}
-              onClick={api ? e => open(e, { obj: 'axis' }) : undefined} onContextMenu={api ? e => open(e, { obj: 'axis' }) : undefined}>
-              {api && <rect x={0} y={scene.plot.top} width={Math.max(8, scene.axes.left.x - 2)} height={scene.plot.height} fill="transparent" />}
-              {scene.axes.left.ticks.map(t => (
-                <text key={t.value} x={scene.axes.left.x - 6} y={t.y} textAnchor="end" dominantBaseline="central" style={{ fontFamily: 'var(--font-mono)' }}>{t.label}</text>
-              ))}
-            </g>
-            <g className={`chart-engine-axis${api ? ' chart-engine-clickable' : ''}`} onClick={api ? e => open(e, { obj: 'bridge' }) : undefined}>
-              {scene.axes.x.ticks.map(t => (
-                <text key={t.key} x={t.x} y={scene.axes.x.y + 15} textAnchor="middle" style={{ fontSize: scene.axes.x.font }}>
-                  {t.lines.map((line, i) => <tspan key={i} x={t.x} dy={i ? 13 : 0}>{line}</tspan>)}
-                </text>
-              ))}
-            </g>
-
-            {/* Value line, draggable */}
-            {scene.valueLine && (
-              <g className={api ? 'chart-engine-clickable chart-engine-handle--y' : undefined} onPointerDown={dragValueLine}
-                onDoubleClick={api ? e => { e.stopPropagation(); api.setPref('valueLine', true) } : undefined}>
-                <line x1={scene.valueLine.x1} x2={scene.valueLine.x2} y1={scene.valueLine.y} y2={scene.valueLine.y} stroke={tok('black')} strokeWidth={1.25} strokeDasharray="5 3" />
-                <line x1={scene.valueLine.x1} x2={scene.valueLine.x2} y1={scene.valueLine.y} y2={scene.valueLine.y} stroke="transparent" strokeWidth={10} />
-                <text x={scene.valueLine.x2 - 2} y={scene.valueLine.y - 4} textAnchor="end" fill={tok('black')} fontWeight={600} stroke={tok('surface')} strokeWidth={3} paintOrder="stroke" style={{ fontSize: 10.5, fontFamily: 'var(--font-mono)' }}>{scene.valueLine.text}</text>
-                <title>{`Value line · ${scene.valueLine.text} · drag to move, double-click: start level`}</title>
-              </g>
-            )}
-
-            {/* Data table under the axis: one cell per column */}
-            {scene.table && (
-              <g className={`chart-engine-axis${api ? ' chart-engine-clickable' : ''}`} onClick={api ? e => open(e, { obj: 'values' }) : undefined} onContextMenu={api ? e => open(e, { obj: 'values' }) : undefined}>
-                {scene.table.heads.map(h => <text key={h.key} x={h.x} y={h.y} textAnchor="end" style={{ fontSize: 10 }}>{h.text}</text>)}
-                {scene.table.rows.map(r => (
-                  <text key={r.key} x={r.x} y={r.y} textAnchor="middle" fill={tok(r.color)} fontWeight={r.row === 'value' ? 600 : 400} style={{ fontSize: 10, fontFamily: 'var(--font-mono)' }}
-                    opacity={selectedStep && selectedStep !== r.stepKey ? 0.35 : 1}>{r.text}{r.text !== r.full && <title>{r.full}</title>}</text>
-                ))}
-              </g>
-            )}
-          </svg>
+            onContextMenu={api ? e => open(e, { obj: 'bridge' }) : undefined} />
         )}
         {pick && api && (
           <BridgeBar key={`${pick.mode}|${pick.obj}|${pick.stepKey}|${pick.part ?? ''}|${pick.net ? 1 : 0}`} api={barApi} pick={pick} anchor={pick.anchor} onClose={() => setPick(null)}

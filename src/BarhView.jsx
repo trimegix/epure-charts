@@ -9,6 +9,7 @@
 import { useId, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { buildBarhScene } from './barhScene'
+import BarhFigure from './BarhFigure.jsx'
 import { useBarhPrefs } from './useBarhPrefs'
 import { BarhBar, BarhBarButton } from './BarhBar'
 import { makeFormatter } from './numberStyle'
@@ -17,32 +18,38 @@ import { targetMark, domMarks } from './useWheelPlacement'
 import DataSheet, { EditedNote } from './DataSheet.jsx'
 import { useSheet } from './useSheet.js'
 import { barhSheet } from './sheetAdapters.js'
-import PatternDefs from './patterns.jsx'
 
 // A color is a palette token, or a user-picked hex (custom style).
-import { tok, colorId, labelTextStyle, labelPrefs } from './customStyle.js'
+import { tok, labelTextStyle, labelPrefs } from './customStyle.js'
 // A real number for the format preview: the first value, not a total.
 const sampleOf = r => (!r ? null : r.range ? r.range[1] : Object.values(r.values ?? {}).find(Number.isFinite) ?? null)
 const rowTotalOf = r => (!r ? null : r.range ? r.range[1] : Object.values(r.values ?? {}).reduce((a, v) => a + (Number.isFinite(v) ? v : 0), 0))
 
-function useWidth(ref) {
-  const [width, setWidth] = useState(0)
+// The drawing width: the `width` prop when given (no measuring: server rendering,
+// static pages), else the box's width, followed with a ResizeObserver.
+function useWidth(ref, fixed) {
+  const [width, setWidth] = useState(fixed ?? 0)
   useLayoutEffect(() => {
     const el = ref.current
-    if (!el) return undefined
+    if (!el || fixed != null) return undefined
     setWidth(Math.round(el.getBoundingClientRect().width))
     const ro = new ResizeObserver(([entry]) => setWidth(Math.round(entry.contentRect.width)))
     ro.observe(el)
     return () => ro.disconnect()
-  }, [ref])
-  return width
+  }, [ref, fixed])
+  return fixed ?? width
 }
 
 // `onRotate`: the selected chart shows the rotation handle; dragged a quarter turn,
 // the bars turn back into columns (rotated view of a column chart).
-export default function BarhView({ spec: specIn, rows: rowsIn, format: baseFormat, onSelectRow, selectedKey, label = 'Bar chart', id, unit, reading = true, chartActions = [], muted = false, menuSlot = null, onRotate = null }) {
+// width: fixed drawing width (no measuring; also the first width on hydration).
+// readOnly: the figure only: no format bar, menus, data sheet or per-browser preferences.
+// responsive: the SVG scales to its container (width="100%", ratio kept); dataTable: a
+// visually hidden table of the numbers next to the SVG.
+export default function BarhView({ spec: specIn, rows: rowsIn, format: baseFormat, onSelectRow, selectedKey, label = 'Bar chart', id, unit, reading: readingIn = true, chartActions = [], muted = false, menuSlot = null, onRotate = null, width: widthProp, readOnly = false, responsive = false, dataTable = false }) {
   const boxRef = useRef(null)
-  const width = useWidth(boxRef)
+  const width = useWidth(boxRef, widthProp)
+  const reading = readingIn && !readOnly
   const [hover, setHover] = useState(null)
   // The sheet drives the chart (except in the rotated view of a column chart, which has its own).
   const sheetBase = useMemo(() => barhSheet.toBase(rowsIn ?? [], specIn?.series ?? [{ id: 'value', label: 'Value' }]), [rowsIn, specIn?.series])
@@ -77,7 +84,49 @@ export default function BarhView({ spec: specIn, rows: rowsIn, format: baseForma
   const rowObj = r => ({ obj: 'row', rowKey: r.key, rowLabel: r.full, rowValue: rowTotalOf(rowOf(r.key)), color: rowOf(r.key)?.color ?? spec.series?.[0]?.color })
   const hovered = hover != null ? scene?.rows.find(r => r.key === hover) : null
   const hoveredRow = hovered ? rowOf(hovered.key) : null
+  // A range as drawn (a row with points spans their extent).
+  const hoveredRange = hoveredRow ? hoveredRow.range ?? scene?.bars.find(b => b.key === hovered.key)?.range ?? null : null
   const series = spec?.series ?? []
+
+  // The editing layer, passed to the figure: hover and selection, clicks and menus.
+  const stackPick = api && spec.stacked
+  const part = (kind, it) => {
+    if (kind === 'band') return {
+      fill: hover === it.key || selectedKey === it.key ? tok('gray-100') : 'transparent',
+      onMouseEnter: () => setHover(it.key),
+      className: onSelectRow || api ? 'chart-engine-clickable' : undefined,
+      onClick: onSelectRow ? () => onSelectRow(it.key) : api ? e => open(e, rowObj(it)) : undefined,
+      onContextMenu: api ? e => open(e, rowObj(it)) : undefined,
+    }
+    // A stacked bar is formatted segment by segment (the clicked series); otherwise the whole row.
+    if (kind === 'bars') return { pointerEvents: stackPick && !onSelectRow ? undefined : 'none' }
+    if (kind === 'bar') {
+      const on = pick?.obj === 'row' && pick.rowKey === it.key && (!pick.seriesId || pick.seriesId === it.seriesId)
+      const segObj = { ...rowObj({ key: it.key, full: rowOf(it.key)?.label }), seriesId: it.seriesId, rowLabel: spec.series?.find(s => s.id === it.seriesId)?.label }
+      return {
+        opacity: selectedKey && selectedKey !== it.key ? 0.35 : 1,
+        className: stackPick ? 'chart-engine-clickable' : undefined,
+        onClick: stackPick ? e => open(e, segObj) : undefined, onContextMenu: stackPick ? e => open(e, segObj) : undefined,
+        ...(on ? { stroke: tok('gold'), strokeWidth: 1.5 } : {}),
+      }
+    }
+    if (kind === 'marker') return { opacity: selectedKey && selectedKey !== it.key ? 0.35 : 1 }
+    if (kind === 'rowLabel') return onSelectRow ? {
+      tabIndex: 0, role: 'button', 'aria-label': it.full, className: 'chart-engine-clickable',
+      onClick: () => onSelectRow(it.key),
+      onKeyDown: e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onSelectRow(it.key) } },
+    } : null
+    if (kind === 'values') return { pointerEvents: api ? undefined : 'none' }
+    if (kind === 'value') return api ? {
+      className: `chart-engine-clickable${pick?.obj === 'values' ? ' is-selected' : ''}`,
+      onClick: e => open(e, { obj: 'values' }), onContextMenu: e => open(e, { obj: 'values' }),
+    } : null
+    if (kind === 'axis') return api ? {
+      className: 'chart-engine-axis chart-engine-clickable', pointerEvents: undefined,
+      onClick: e => open(e, { obj: 'axis' }), onContextMenu: e => open(e, { obj: 'axis' }),
+    } : null
+    return null
+  }
 
   return (
     // A right-click anywhere in the chart opens our menu, never the browser's.
@@ -94,89 +143,9 @@ export default function BarhView({ spec: specIn, rows: rowsIn, format: baseForma
       ))}
       {scene?.empty && <div className="chart-engine-empty">No data for this chart yet.</div>}
       {scene && !scene.empty && (
-        <svg width={scene.width} height={scene.height} role="img" aria-label={label} onMouseLeave={() => setHover(null)}>
-          <defs><PatternDefs scope={patScope} items={[...scene.bars, ...(scene.legend ?? [])]} /></defs>
-          <g className="chart-engine-legend">
-            {scene.legend.map(it => (
-              it.anchor === 'end' || it.anchor === 'start'
-                // Butterfly: each series name above its side.
-                ? <text key={it.key} x={it.x} y={it.y} textAnchor={it.anchor} dominantBaseline="central" fill={tok(it.color)} fontWeight={600}>{it.label}</text>
-                : <g key={it.key} transform={`translate(${it.x},0)`}>
-                {it.line ? <line x1={0} x2={11} y1={it.y} y2={it.y} stroke={tok(it.color)} strokeWidth={2} /> : <rect x={0} y={it.y - 5} width={10} height={10} rx={2} fill={it.pattern ? `url(#${patScope}-pt-${it.pattern}-${colorId(it.color)})` : tok(it.color)} stroke={it.pattern ? tok(it.color) : undefined} strokeWidth={it.pattern ? 0.75 : undefined} />}
-                <text x={16} y={it.y} dominantBaseline="central">{it.label}</text>
-                  </g>
-            ))}
-          </g>
-
-          {scene.rows.map(r => (
-            <rect key={`h-${r.key}`} x={0} y={r.y0} width={scene.width} height={r.y1 - r.y0}
-              fill={hover === r.key || selectedKey === r.key ? tok('gray-100') : 'transparent'}
-              onMouseEnter={() => setHover(r.key)}
-              className={onSelectRow || api ? 'chart-engine-clickable' : undefined}
-              onClick={onSelectRow ? () => onSelectRow(r.key) : api ? e => open(e, rowObj(r)) : undefined}
-              onContextMenu={api ? e => open(e, rowObj(r)) : undefined} />
-          ))}
-
-          {scene.gridlines.map((g, i) => (
-            <line key={i} x1={g.x} x2={g.x} y1={g.y1} y2={g.y2} stroke={tok(g.zero ? 'gray-400' : 'gray-200')}
-              strokeWidth={1} strokeDasharray={g.dash ? '3 3' : undefined} shapeRendering="crispEdges" pointerEvents="none" />
-          ))}
-
-          {/* A stacked bar is formatted segment by segment (the clicked series); otherwise the whole row. */}
-          <g pointerEvents={api && spec.stacked && !onSelectRow ? undefined : 'none'}>
-            {scene.bars.map(b => {
-              const on = pick?.obj === 'row' && pick.rowKey === b.key && (!pick.seriesId || pick.seriesId === b.seriesId)
-              const segObj = { ...rowObj({ key: b.key, full: rowOf(b.key)?.label }), seriesId: b.seriesId, rowLabel: spec.series?.find(s => s.id === b.seriesId)?.label }
-              return (
-                <rect key={`${b.key}|${b.seriesId}`} x={b.x} y={b.y} width={b.width} height={b.height} rx={2}
-                  fill={b.pattern ? `url(#${patScope}-pt-${b.pattern}-${colorId(b.color)})` : tok(b.color)} opacity={selectedKey && selectedKey !== b.key ? 0.35 : 1}
-                  className={api && spec.stacked ? 'chart-engine-clickable' : undefined}
-                  onClick={api && spec.stacked ? e => open(e, segObj) : undefined} onContextMenu={api && spec.stacked ? e => open(e, segObj) : undefined}
-                  stroke={on ? tok('gold') : b.pattern ? tok(b.color) : undefined} strokeWidth={on ? 1.5 : b.pattern ? 1 : undefined} />
-              )
-            })}
-            {/* Profile (and combo lines, over the bars): one line per series, row to row, with its points. */}
-            {(scene.profiles ?? []).map(pr => (
-              <g key={`pf-${pr.seriesId}`} pointerEvents="none">
-                <path d={pr.d} fill="none" stroke={tok(pr.color)} strokeWidth={2} strokeDasharray={pr.dash ?? undefined} />
-                {pr.points.map(p => <circle key={p.key} cx={p.x} cy={p.y} r={4} fill={tok(pr.color)} stroke={tok('surface')} strokeWidth={1.5} />)}
-              </g>
-            ))}
-          </g>
-
-          {/* Row labels, left-aligned; keyboard-clickable when the row is */}
-          <g className="chart-engine-axis">
-            {scene.rows.map(r => (
-              <text key={`l-${r.key}`} x={r.center ? scene.plot.center : 0} y={r.y + 4} textAnchor={r.center ? 'middle' : 'start'}
-                style={{ fontSize: 11, fontWeight: r.emphasis ? 600 : 400, fill: r.emphasis ? 'var(--black)' : undefined }}
-                tabIndex={onSelectRow ? 0 : undefined} role={onSelectRow ? 'button' : undefined}
-                aria-label={onSelectRow ? r.full : undefined}
-                className={onSelectRow ? 'chart-engine-clickable' : undefined}
-                onClick={onSelectRow ? () => onSelectRow(r.key) : undefined}
-                onKeyDown={onSelectRow ? e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onSelectRow(r.key) } } : undefined}>
-                <title>{r.full}</title>{r.label}
-              </text>
-            ))}
-          </g>
-
-          <g pointerEvents={api ? undefined : 'none'}>
-            {scene.labels.map(l => (
-              <text key={l.key} x={l.x} y={l.y} textAnchor={l.anchor} fill={tok(l.color ?? 'gray-700')} fontWeight={600}
-                // A number written INSIDE a segment leaves the click to the segment.
-                pointerEvents={l.color === 'white' ? 'none' : undefined}
-                className={api ? `chart-engine-clickable${pick?.obj === 'values' ? ' is-selected' : ''}` : undefined}
-                onClick={api ? e => open(e, { obj: 'values' }) : undefined} onContextMenu={api ? e => open(e, { obj: 'values' }) : undefined}
-                style={{ fontSize: 10.5, fontFamily: 'var(--font-mono)', ...labelTextStyle(P) }}>{l.text}</text>
-            ))}
-            {scene.annotations.map((a, i) => (
-              <g key={`a${i}`}>
-                <line x1={a.x} x2={a.x} y1={a.y1} y2={a.y2} stroke={tok(a.color)} strokeWidth={1.25} strokeDasharray={a.dash} />
-                {a.text && <text x={a.tx} y={a.y1 - 4} textAnchor={a.anchor} fill={tok(a.color)} style={{ fontSize: 10.5 }}>{a.text}</text>}
-              </g>
-            ))}
-          </g>
-
-          {onRotate && (() => {
+        <BarhFigure scene={scene} interactive={!readOnly} label={label} responsive={responsive} dataTable={dataTable} labelStyle={labelTextStyle(P)} part={readOnly ? undefined : part} patternScope={patScope}
+          onMouseLeave={() => setHover(null)}>
+          {onRotate && !readOnly && (() => {
             const hx = scene.plot.right - 6, hy = Math.max(8, scene.plot.top - 2)
             const rotate = e => {
               if (e.button !== 0) return
@@ -195,29 +164,24 @@ export default function BarhView({ spec: specIn, rows: rowsIn, format: baseForma
               </g>
             )
           })()}
-
-          {scene.axis && (
-            <g className={`chart-engine-axis${api ? ' chart-engine-clickable' : ''}`} pointerEvents={api ? undefined : 'none'}
-              onClick={api ? e => open(e, { obj: 'axis' }) : undefined} onContextMenu={api ? e => open(e, { obj: 'axis' }) : undefined}>
-              {scene.axis.ticks.map(t => (
-                <text key={t.value} x={t.x} y={scene.axis.y} textAnchor="middle" style={{ fontFamily: 'var(--font-mono)' }}>{t.label}</text>
-              ))}
-            </g>
-          )}
-        </svg>
+        </BarhFigure>
       )}
       {pick && api && (
         <BarhBar key={`${pick.mode}|${pick.obj}|${pick.rowKey}`} api={api} pick={pick} anchor={pick.anchor} onClose={() => setPick(null)}
           format={format} money={money} sample={sampleOf(baseRows[0])} chartActions={allActions} />
       )}
       {/* No hover tooltip while an object is selected (its format bar handles it). */}
-      {hovered && hoveredRow && !muted && !pick && (
+      {hovered && hoveredRow && !muted && !pick && !readOnly && (
         <div className="chart-engine-tip"
           style={{ left: scene.plot.left + scene.plot.width * 0.5, top: hovered.y1 + 2 }}>
           <div className="chart-engine-tip-head">{hovered.full}</div>
-          {hoveredRow.range
+          {hovered.marker && (
+            <div className="chart-engine-tip-row"><span className="chart-engine-tip-label">{{ median: 'Median', mean: 'Mean' }[spec?.rangeMarker] ?? 'Marker'}</span>
+              <span className="chart-engine-tip-value">{format(hovered.marker.value)}</span></div>
+          )}
+          {hoveredRange
             ? <div className="chart-engine-tip-row"><span className="chart-engine-tip-label">Range</span>
-                <span className="chart-engine-tip-value">{format(hoveredRow.range[0])} → {format(hoveredRow.range[1])}</span></div>
+                <span className="chart-engine-tip-value">{format(hoveredRange[0])} → {format(hoveredRange[1])}</span></div>
             : series.filter(s => Number.isFinite(hoveredRow.values?.[s.id])).map(s => (
               <div key={s.id} className="chart-engine-tip-row">
                 <svg width={10} height={10} aria-hidden="true"><rect width={10} height={10} rx={2} fill={tok(hoveredRow.color ?? s.color)} /></svg>

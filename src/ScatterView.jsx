@@ -9,6 +9,7 @@
 // Shift+click on a point: its whole group (color, order, labels).
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { IconPalette, IconChartScatter, IconChartBubble, IconTag, IconArrowsHorizontal, IconArrowsVertical, IconLayoutList, IconTrendingUp, IconLine, IconSquare } from '@tabler/icons-react'
+import ScatterFigure from './ScatterFigure.jsx'
 import { buildScatterScene, normPartitions, constrainAngle, bubbleScaleFromDrag, snapEndpoint, snapValue, sizeLegendFromDrag } from './scatterScene.js'
 import { Seg, Check, Line, Swatches, Field } from './ChartWheel'
 import FormatBar from './FormatBar'
@@ -35,25 +36,19 @@ const TREND_NAME = Object.fromEntries(TRENDS)
 const CONTENT = [['name', 'Name'], ['x', 'X'], ['y', 'Y'], ['size', 'Size']]
 const newKey = () => `p${Math.random().toString(36).slice(2, 7)}`
 
-function useWidth(ref) {
-  const [w, setW] = useState(0)
+// The drawing width: the `width` prop when given (no measuring: server rendering,
+// static pages), else the box's width, followed with a ResizeObserver.
+function useWidth(ref, fixed) {
+  const [w, setW] = useState(fixed ?? 0)
   useLayoutEffect(() => {
     const el = ref.current
-    if (!el) return undefined
+    if (!el || fixed != null) return undefined
     setW(Math.round(el.getBoundingClientRect().width))
     const ro = new ResizeObserver(([e]) => setW(Math.round(e.contentRect.width)))
     ro.observe(el)
     return () => ro.disconnect()
-  }, [ref])
-  return w
-}
-
-function Marker({ shape, x, y, r, fill, stroke, sw }) {
-  if (shape === 'none') return <circle cx={x} cy={y} r={Math.max(r, 6)} fill="transparent" />
-  if (shape === 'square') return <rect x={x - r} y={y - r} width={2 * r} height={2 * r} fill={fill} stroke={stroke} strokeWidth={sw} />
-  if (shape === 'diamond') return <path d={`M${x},${y - r * 1.3} L${x + r * 1.3},${y} L${x},${y + r * 1.3} L${x - r * 1.3},${y} Z`} fill={fill} stroke={stroke} strokeWidth={sw} />
-  if (shape === 'triangle') return <path d={`M${x},${y - r * 1.2} L${x + r * 1.2},${y + r} L${x - r * 1.2},${y + r} Z`} fill={fill} stroke={stroke} strokeWidth={sw} />
-  return <circle cx={x} cy={y} r={r} fill={fill} stroke={stroke} strokeWidth={sw} />
+  }, [ref, fixed])
+  return fixed ?? w
 }
 
 /** Follows the pointer until release; onMove(x, y, ev) in SVG coordinates. */
@@ -65,17 +60,24 @@ function track(e, onMove) {
   window.addEventListener('pointermove', move); window.addEventListener('pointerup', up)
 }
 
-export default function ScatterView({ id = 'scatter', spec: baseSpec = {}, points: pointsIn = [], format, formatX: formatXIn, formatSize, height = 320, label = 'Scatter chart' }) {
+// width: fixed drawing width (no measuring; also the first width on hydration).
+// readOnly: the figure only: no format bar, menus, data sheet or per-browser preferences;
+//   it reads a shared scale but never publishes its own extent.
+// responsive: the SVG scales to its container (width="100%", ratio kept).
+// dataTable: the points as a visually hidden table next to the SVG.
+export default function ScatterView({ id = 'scatter', spec: baseSpec = {}, points: pointsIn = [], format, formatX: formatXIn, formatSize, height = 320, label = 'Scatter chart', width: widthProp, readOnly = false, responsive = false, dataTable = false }) {
   const boxRef = useRef(null)
   const movedRef = useRef(false)
-  const width = useWidth(boxRef)
-  const { prefs: P, set, update, reset, undo, canUndo } = useViewPrefs(`epure-chart-scatter-${id}`, DEFAULTS)
+  const width = useWidth(boxRef, widthProp)
+  const prefsApi = useViewPrefs(`epure-chart-scatter-${id}`, DEFAULTS)
+  const { set, update, reset, undo, canUndo } = prefsApi
+  const P = readOnly ? DEFAULTS : prefsApi.prefs
   // The sheet drives the chart: the drawn points are the ones it returns (source + edits).
   const sheetBase = useMemo(() => scatterSheet.toBase(pointsIn, baseSpec), [pointsIn, baseSpec])
   const sheetApi = useSheet(`scatter-${id}`, sheetBase, scatterSheet.validate)
-  const points = scatterSheet.fromSheet(sheetApi.sheet, pointsIn)
+  const points = readOnly ? pointsIn : scatterSheet.fromSheet(sheetApi.sheet, pointsIn)
   // Dates typed in X: the X axis becomes a date axis (month-formatted ticks).
-  const dateX = sheetApi.sheet.rows.some(r => /^\s*\d{4}-\d{2}-\d{2}\s*$/.test(r.cells[0]?.raw ?? ''))
+  const dateX = !readOnly && sheetApi.sheet.rows.some(r => /^\s*\d{4}-\d{2}-\d{2}\s*$/.test(r.cells[0]?.raw ?? ''))
   const formatX = dateX ? v => new Date(v * 864e5).toLocaleDateString('en-GB', { month: 'short', year: 'numeric', timeZone: 'UTC' }) : formatXIn
   const hasSize = points.some(p => Number.isFinite(p.size))
   const hasColors = points.some(p => p.color)
@@ -96,11 +98,11 @@ export default function ScatterView({ id = 'scatter', spec: baseSpec = {}, point
       const g = spec[ax]?.same
       const d = natural?.domains?.[ax]
       const manualAx = Number.isFinite(P[ax]?.min) || Number.isFinite(P[ax]?.max)
-      if (!g || !d || manualAx) withdrawDomain(`${id}|${ax}`)
+      if (readOnly || !g || !d || manualAx) withdrawDomain(`${id}|${ax}`)
       else publishDomain(`${id}|${ax}`, `scatter-${ax}|${g === true ? '*' : g}`, d[0], d[1])
     }
     return () => { withdrawDomain(`${id}|x`); withdrawDomain(`${id}|y`) }
-  }, [domKey, specKey, id]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [domKey, specKey, id, readOnly]) // eslint-disable-line react-hooks/exhaustive-deps
   const scene = useMemo(() => {
     if (!natural || !(spec.x?.same || spec.y?.same)) return natural
     const forced = { ...spec }
@@ -500,6 +502,59 @@ export default function ScatterView({ id = 'scatter', spec: baseSpec = {}, point
   const go = (o, extra = {}) => e => { if (e.type === 'click' && movedRef.current) { movedRef.current = false; return } setObj(null); open(e, { obj: o, ...extra }) }
   const clipId = `scatter-clip-${id}`
   const selPart = key => pick?.obj === 'partition' && pick.key === key
+  // Labels hidden one by one are left out of the drawn scene.
+  const shown = scene && !scene.empty && hidden.size ? { ...scene, labels: scene.labels.filter(l => !hidden.has(l.key)) } : scene
+  const goPoint = p => e => (e.shiftKey && p.group != null ? go('group', { key: p.group }) : go('point', { key: p.key }))(e)
+  const isOn = p => (pick?.obj === 'point' && pick.key === p.key) || grpKeys.includes(p.key)
+  const partProps = readOnly ? undefined : (kind, it) => {
+    switch (kind) {
+      case 'legend': return { className: 'chart-engine-legend chart-engine-clickable', onClick: go('legend'), onContextMenu: go('legend') }
+      case 'zone': {
+        const on = pick?.obj === 'zone' && pick.key === it.key
+        return { stroke: on ? tok('gold') : 'none', strokeWidth: on ? 1.5 : 0, className: 'chart-engine-clickable', onClick: go('zone', { key: it.key }), onContextMenu: go('zone', { key: it.key }), children: <title>{zoneName(it.key)}</title> }
+      }
+      case 'partition': return { stroke: tok(selPart(it.key) ? 'gold' : 'gray-500') }
+      case 'partitionHit': return {
+        className: it.axis === 'x' ? 'chart-engine-handle' : it.axis === 'y' ? 'chart-engine-handle--y' : 'chart-engine-handle--move',
+        onPointerDown: e => dragPart(e, it), onClick: go('partition', { key: it.key }), onContextMenu: go('partition', { key: it.key }),
+        children: <title>Drag to move the partition (Ctrl+drag to copy)</title>,
+      }
+      case 'partitionEnd': return {
+        className: `chart-engine-knob${selPart(it.key) ? ' is-on' : ''}`, onPointerDown: e => dragEnd(e, it, it.end),
+        children: <title>Drag to rotate (Shift snaps to 15°)</title>,
+      }
+      case 'trend': return { className: `chart-engine-clickable${it.type === 'linear' ? ' chart-engine-handle--move' : ''}`, onClick: go('trend'), onContextMenu: go('trend'), onPointerDown: dragTrend }
+      case 'trendLine': return { stroke: tok(cur === 'trend' && pick ? 'gold' : it.color ?? 'gray-600') }
+      case 'trendHit': return it.type === 'linear' ? { children: <title>Drag to turn the trend line into a partition</title> } : {}
+      case 'point': return {
+        className: `chart-engine-clickable${isOn(it) ? ' is-selected' : ''}`, onClick: goPoint(it), onContextMenu: goPoint(it),
+        tabIndex: 0, role: 'button', 'aria-label': `${it.label}: ${it.vx}, ${it.vy}`,
+      }
+      case 'marker': return isOn(it) ? { stroke: tok('gold'), sw: 2 } : null
+      case 'label': return {
+        className: `chart-engine-clickable chart-engine-draglabel${cur === 'labels' && pick ? ' is-selected' : ''}`,
+        onPointerDown: e => dragLabel(e, it), onClick: go('labels'), onContextMenu: go('labels'),
+      }
+      case 'xaxis': return { className: 'chart-engine-axis chart-engine-clickable', onClick: go('xaxis'), onContextMenu: go('xaxis') }
+      case 'yaxis': return { className: 'chart-engine-axis chart-engine-clickable', onClick: go('yaxis'), onContextMenu: go('yaxis') }
+      case 'axisHit': return {}
+      case 'sizeHandle': return {
+        className: `chart-engine-knob chart-engine-handle${spec.sizeLegend ? ' is-on' : ''}`,
+        onPointerDown: e => dragLegendSize(e, it), onDoubleClick: e => { e.stopPropagation(); set('sizeLegend', null) },
+        children: <title>Drag to change the reference bubble (double-click: largest bubble)</title>,
+      }
+      default: return null
+    }
+  }
+
+  if (readOnly) {
+    return (
+      <div ref={boxRef} className="chart-engine chart-engine-box">
+        {scene?.empty && <div className="chart-engine-empty">No data for this chart yet.</div>}
+        <ScatterFigure scene={scene} interactive={!readOnly} label={label} responsive={responsive} dataTable={dataTable} clipId={clipId} />
+      </div>
+    )
+  }
 
   return (
     <div ref={boxRef} className="chart-engine chart-engine-box" onContextMenu={e => { if (!e.defaultPrevented) open(e, { obj: 'chart' }) }} onDoubleClick={e => { if (!e.target.closest?.('.chart-datasheet, .chart-wheel, .chart-pop')) { close(); setObj(null); sheetApi.setSheetOpen(true) } }}>
@@ -510,116 +565,19 @@ export default function ScatterView({ id = 'scatter', spec: baseSpec = {}, point
       </div>
       {scene?.empty && <div className="chart-engine-empty">No data for this chart yet.</div>}
       {scene && !scene.empty && (
-        <svg width={scene.width} height={scene.height} role="img" aria-label={label} className="chart-scatter">
-          <defs><clipPath id={clipId}><rect x={scene.plot.left} y={scene.plot.top} width={scene.plot.width} height={scene.plot.height} /></clipPath></defs>
-          <g className="chart-engine-legend chart-engine-clickable" onClick={go('legend')} onContextMenu={go('legend')}>
-            {scene.legend.map(it => (
-              <g key={it.key} transform={`translate(${it.x},0)`}>
-                <Marker shape={it.shape} x={5} y={it.y} r={4.5} fill={tok(it.color)} />
-                <text x={16} y={it.y} dominantBaseline="central" style={{ fontSize: 11 }}>{it.label}</text>
-              </g>
-            ))}
-          </g>
-          {scene.zones.map(z => {
-            const on = pick?.obj === 'zone' && pick.key === z.key
-            return (
-              <path key={z.key} d={z.d} fill={z.fill ? tok(z.fill) : 'transparent'} fillOpacity={z.fill ? 0.14 : 0} stroke={on ? tok('gold') : 'none'} strokeWidth={on ? 1.5 : 0}
-                className="chart-engine-clickable" onClick={go('zone', { key: z.key })} onContextMenu={go('zone', { key: z.key })}><title>{zoneName(z.key)}</title></path>
-            )
-          })}
-          {scene.gridlines.map((g, i) => <line key={i} x1={g.x1} x2={g.x2} y1={g.y1} y2={g.y2} stroke={tok('gray-200')} strokeWidth={1} shapeRendering="crispEdges" pointerEvents="none" />)}
-          {scene.zones.filter(z => z.label).map(z => (
-            <text key={`zl-${z.key}`} x={z.label.x} y={z.label.y} textAnchor={z.label.anchor} fill={tok(z.fill ?? 'gray-500')} fontWeight={600} pointerEvents="none"
-              style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.04em' }}>{z.label.text}</text>
-          ))}
-          {scene.trend?.fill && <path d={scene.trend.fill.d} fill={tok(scene.trend.fill.color)} fillOpacity={0.12} clipPath={`url(#${clipId})`} pointerEvents="none" />}
-          {scene.partitions.map(p => (
-            <g key={p.key}>
-              <line x1={p.x1} x2={p.x2} y1={p.y1} y2={p.y2} stroke={tok(selPart(p.key) ? 'gold' : 'gray-500')} strokeWidth={1.25} strokeDasharray="5 3" pointerEvents="none" />
-              <line x1={p.x1} x2={p.x2} y1={p.y1} y2={p.y2} stroke="transparent" strokeWidth={10}
-                className={p.axis === 'x' ? 'chart-engine-handle' : p.axis === 'y' ? 'chart-engine-handle--y' : 'chart-engine-handle--move'}
-                onPointerDown={e => dragPart(e, p)} onClick={go('partition', { key: p.key })} onContextMenu={go('partition', { key: p.key })}>
-                <title>Drag to move the partition (Ctrl+drag to copy)</title>
-              </line>
-              {p.axis === 'line' && [['from', p.h1], ['to', p.h2]].map(([end, h]) => (
-                <circle key={end} cx={h.x} cy={h.y} r={4.5} className={`chart-engine-knob${selPart(p.key) ? ' is-on' : ''}`} onPointerDown={e => dragEnd(e, p, end)}>
-                  <title>Drag to rotate (Shift snaps to 15°)</title>
-                </circle>
-              ))}
-            </g>
-          ))}
-          {scene.trend && (
-            <g className={`chart-engine-clickable${scene.trend.type === 'linear' ? ' chart-engine-handle--move' : ''}`} onClick={go('trend')} onContextMenu={go('trend')} onPointerDown={dragTrend}>
-              <path d={scene.trend.d} fill="none" stroke={tok(cur === 'trend' && pick ? 'gold' : scene.trend.color ?? 'gray-600')} strokeWidth={1.5} strokeDasharray="6 4" clipPath={`url(#${clipId})`} />
-              <path d={scene.trend.d} fill="none" stroke="transparent" strokeWidth={10} clipPath={`url(#${clipId})`}>
-                {scene.trend.type === 'linear' && <title>Drag to turn the trend line into a partition</title>}
-              </path>
-              {scene.trend.label && <text x={scene.trend.label.x} y={scene.trend.label.y} textAnchor="end" fill={tok('gray-600')} style={{ fontSize: 10.5, fontFamily: 'var(--font-mono)' }}>{(scene.trend.label.lines ?? [scene.trend.label.text]).map((l, i) => <tspan key={i} x={scene.trend.label.x} dy={i ? scene.trend.label.lineH : 0}>{l}</tspan>)}</text>}
-            </g>
-          )}
-          {scene.points.map(p => {
-            const on = (pick?.obj === 'point' && pick.key === p.key) || grpKeys.includes(p.key)
-            return (
-              <g key={p.key} className={`chart-engine-clickable${on ? ' is-selected' : ''}`}
-                onClick={e => (e.shiftKey && p.group != null ? go('group', { key: p.group }) : go('point', { key: p.key }))(e)}
-                onContextMenu={e => (e.shiftKey && p.group != null ? go('group', { key: p.group }) : go('point', { key: p.key }))(e)}
-                tabIndex={0} role="button" aria-label={`${p.label}: ${p.vx}, ${p.vy}`}>
-                <Marker shape={p.shape} x={p.x} y={p.y} r={p.r} fill={tok(p.color)} stroke={on ? tok('gold') : tok('surface')} sw={on ? 2 : 1} />
-                <title>{`${p.label} · x ${p.vx} · y ${p.vy}${p.size != null ? ` · size ${p.size}` : ''}`}</title>
-              </g>
-            )
-          })}
+        <ScatterFigure scene={shown} interactive={!readOnly} label={label} responsive={responsive} dataTable={dataTable} labelStyle={labelTextStyle(P)} part={partProps} clipId={clipId}>
           {bubble && pt && pick?.obj === 'point' && (
             <circle cx={pt.x + pt.r} cy={pt.y} r={4} className="chart-engine-knob is-on chart-engine-handle" onPointerDown={e => dragSize(e, pt)}>
               <title>Drag to resize all bubbles</title>
             </circle>
           )}
-          <g>
-            {scene.labels.filter(l => !hidden.has(l.key)).map(l => (
-              <g key={l.key}>
-                {l.leader && <line x1={l.leader.x1} y1={l.leader.y1} x2={l.leader.x2} y2={l.leader.y2} stroke={tok('gray-400')} strokeWidth={1} pointerEvents="none" />}
-                <text x={l.x} y={l.y} textAnchor="middle" fill={tok('gray-700')} className={`chart-engine-clickable chart-engine-draglabel${cur === 'labels' && pick ? ' is-selected' : ''}`}
-                  onPointerDown={e => dragLabel(e, l)} onClick={go('labels')} onContextMenu={go('labels')} style={{ fontSize: 11, ...labelTextStyle(P), ...(labelTextStyle(P).fontSize && l.size ? { fontSize: l.size } : {}) }}>
-                  {l.lines.map((t, i) => <tspan key={i} x={l.x} dy={i ? l.lineH ?? 12 : 0} fill={i ? tok('gray-500') : undefined}>{t}</tspan>)}
-                </text>
-              </g>
-            ))}
-          </g>
-          <g className="chart-engine-axis chart-engine-clickable" onClick={go('xaxis')} onContextMenu={go('xaxis')}>
-            {scene.axes.x.ticks.map(t => <text key={t.value} x={t.x} y={scene.axes.x.y + 15} textAnchor="middle" style={{ fontFamily: 'var(--font-mono)' }}>{t.label}</text>)}
-            {/* Shared scale: a discreet marker at the end of the linked axis. */}
-            {spec.x?.same && <text x={scene.plot.right - 2} y={scene.plot.bottom - 4} textAnchor="end" fill={tok('gray-400')} style={{ fontSize: 9 }}>shared scale</text>}
-            {spec.y?.same && <text x={scene.plot.left + 4} y={scene.plot.top + 9} fill={tok('gray-400')} style={{ fontSize: 9 }}>shared scale</text>}
-            {scene.axes.x.title && <text x={(scene.plot.left + scene.plot.right) / 2} y={scene.height - 4} textAnchor="middle">{scene.axes.x.title}</text>}
-            <rect x={scene.plot.left} y={scene.plot.bottom} width={scene.plot.width} height={scene.height - scene.plot.bottom} fill="transparent" />
-          </g>
-          <g className="chart-engine-axis chart-engine-clickable" onClick={go('yaxis')} onContextMenu={go('yaxis')}>
-            {scene.axes.y.ticks.map(t => <text key={t.value} x={scene.axes.y.x - 6} y={t.y} textAnchor="end" dominantBaseline="central" style={{ fontFamily: 'var(--font-mono)' }}>{t.label}</text>)}
-            {scene.axes.y.title && <text x={10} y={(scene.plot.top + scene.plot.bottom) / 2} textAnchor="middle" transform={`rotate(-90 10 ${(scene.plot.top + scene.plot.bottom) / 2})`}>{scene.axes.y.title}</text>}
-            <rect x={0} y={scene.plot.top} width={scene.plot.left} height={scene.plot.height} fill="transparent" />
-          </g>
           {snapTip && (
             <g pointerEvents="none">
               <circle cx={snapTip.x} cy={snapTip.y} r={snapTip.r + 3} fill="none" stroke={tok('gold')} strokeWidth={1.5} />
               <text x={snapTip.x + snapTip.r + 6} y={snapTip.y - snapTip.r - 4} fill={tok('black')} fontWeight={600} stroke={tok('surface')} strokeWidth={3} paintOrder="stroke" style={{ fontSize: 10.5 }}>{snapTip.text}</text>
             </g>
           )}
-          {scene.sizeLegend.length > 0 && (
-            <g className="chart-scatter__sizelegend">
-              {scene.sizeLegend.map((s, i) => (
-                <g key={i} pointerEvents="none">
-                  <circle cx={s.x} cy={s.y} r={s.r} fill="none" stroke={tok('gray-400')} />
-                  <text x={s.x + s.r + 4} y={s.y + 3.5} fill={tok('gray-500')} style={{ fontSize: 9.5 }}>{s.text}</text>
-                </g>
-              ))}
-              {/* Reference bubble handle: drag its left edge to change its value. */}
-              <circle cx={scene.sizeLegend[0].x - scene.sizeLegend[0].r} cy={scene.sizeLegend[0].y} r={3.5} className={`chart-engine-knob chart-engine-handle${spec.sizeLegend ? ' is-on' : ''}`}
-                onPointerDown={e => dragLegendSize(e, scene.sizeLegend[0])} onDoubleClick={e => { e.stopPropagation(); set('sizeLegend', null) }}>
-                <title>Drag to change the reference bubble (double-click: largest bubble)</title>
-              </circle>
-            </g>
-          )}
-        </svg>
+        </ScatterFigure>
       )}
       {pick && (
         <FormatBar onOpenSheet={() => sheetApi.setSheetOpen(true)} key={`${pick.mode}|${pick.obj}|${pick.key}`} mode={pick.mode} anchor={pick.anchor} objects={objects} object={cur}

@@ -8,13 +8,20 @@ const NAMES = {
 }
 
 /** 'cat-1' → 'teal'; 'gray-400' → 'gray'; a role or an unknown token → itself, hyphens as spaces. */
+// Semantic tokens: named by what they mean.
+const CHART_NAMES = {
+  'chart-pos': 'positive', 'chart-neg': 'negative', 'chart-hypothesis': 'hypothesis', 'chart-hypothesis-text': 'hypothesis',
+  'chart-anchor': 'anchor', 'chart-upside': 'upside', 'chart-gap': 'gap', 'chart-actual': 'actual', 'chart-plan': 'plan',
+  'chart-ic': 'investment case', 'chart-budget': 'budget', 'chart-forecast': 'forecast',
+}
+
 export function colorName(token) {
   if (token == null || token === '') return 'auto'
   const t = String(token)
   if (NAMES[t]) return NAMES[t]
   if (t === 'chart-accent') return 'accent'
   if (t === 'chart-neutral' || t === 'chart-neutral-ink') return 'neutral'
-  if (/^chart-/.test(t)) return t.slice(6).replace(/-/g, ' ')
+  if (CHART_NAMES[t]) return CHART_NAMES[t]
   if (/^gray-/.test(t)) return Number(t.slice(5)) >= 600 ? 'dark gray' : 'gray'
   if (/-bg$/.test(t)) return `light ${t.replace(/-bg$/, '')}`
   return t.replace(/-/g, ' ')

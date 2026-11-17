@@ -100,8 +100,8 @@ test('forecast: actual bar in light gray, separate line segment', () => {
     { ...res('L', []), points: [...pts([['2023-Q1', 10], ['2023-Q2', 11]]), ...pts([['2023-Q3', 12]], 'forecast')] },
   ], OPTS)
   assert.equal(sc.bars[1].forecast, true)
-  assert.equal(sc.bars[1].color, 'gray-300')
-  assert.equal(sc.bars[0].color, 'gray-700')
+  assert.equal(sc.bars[1].color, 'chart-forecast')
+  assert.equal(sc.bars[0].color, 'chart-actual')
   assert.ok(sc.lines[0].d && sc.lines[0].dForecast)
 })
 

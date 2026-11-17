@@ -26,13 +26,16 @@ import { line as d3line, area as d3area, curveMonotoneX, curveLinear } from 'd3-
 import { resolveCollisions, leaderLine } from './labelLayout.js'
 import { dateAxisTicks, DATE_UNITS } from './dateTicks.js'
 import { roundToSum, formatDateCodes, consistentRound } from './numberStyle.js'
-import { isHex, isLightHex, isFont, isPt, sizePx, labelMetrics } from './customStyle.js'
+import { isHex, isLightHex, isFont, isPt, sizePx, labelMetrics, baseToken } from './customStyle.js'
+import { localeOf, localizedFormat, localizeNumber, t } from './locale.js'
+import { accentColor, accentInk, singleAccent, NEUTRAL } from './accent.js'
+import { stamp } from './figureMeta.js'
 
-// Role colors: actual in dark gray (forecast in light gray),
-// plan in gold, investment case in chart blue,
-// budget in mid gray.
-export const ROLE_TOKEN = { actual: 'gray-700', plan: 'gold', ic: 'blue-chart', budget: 'gray-600' }
-export const FORECAST_TOKEN = 'gray-300'
+// Role colors, as semantic tokens (themable as --chart-*): by default actual in
+// dark gray (forecast in light gray), plan in gold, investment case in chart blue,
+// budget in mid gray (customStyle.SEMANTIC_TOKENS holds the fallbacks).
+export const ROLE_TOKEN = { actual: 'chart-actual', plan: 'chart-plan', ic: 'chart-ic', budget: 'chart-budget' }
+export const FORECAST_TOKEN = 'chart-forecast'
 export const DASH_ARRAY = { solid: null, dash: '6 4', dot: '1.5 3' }
 // Bar fill patterns: drawn by the view as SVG <pattern>, strokes in the
 // bar's color (token) over the card background.
@@ -217,7 +220,7 @@ function domainOf(values, includeZero) {
   return [lo, hi]
 }
 
-function layoutLegend(items, width, scale = 1) {
+function layoutLegend(items, width, scale = 1, L = 'en') {
   const out = []
   const font = LEGEND_FONT * scale
   const rowH = LEGEND_ROW * Math.max(1, scale)
@@ -226,7 +229,7 @@ function layoutLegend(items, width, scale = 1) {
   for (const it of items) {
     // A series without data stays in the legend, labeled as such: its
     // absence is information.
-    const text = it.empty ? `${it.label} · no data` : it.label
+    const text = it.empty ? `${it.label} · ${t('no data', L)}` : it.label
     const w = SWATCH + 6 + estimateWidth(text, font)
     if (x > 0 && x + w > width) { x = 0; row++ }
     out.push({ ...it, text, x, y: row * rowH + rowH / 2, width: w })
@@ -280,16 +283,16 @@ export function snapDateLo(lo, hi, unit = null, weekStart = 0) {
 export function buildScene(spec, resolved = [], opts = {}) {
   const sc = buildSceneAt(spec, resolved, opts)
   const LO = spec?.format?.labels ?? {}
-  if (!isPt(LO.size) || sc.empty || spec?.format?.transpose) return sc
+  if (!isPt(LO.size) || sc.empty || spec?.format?.transpose) return stamp(sc, 'chart', spec)
   const ok = s => !s.labelsWanted || (s.labelsWanted - s.noRoom) * 2 >= s.labelsWanted
-  if (ok(sc)) return sc
+  if (ok(sc)) return stamp(sc, 'chart', spec)
   let best = sc
   for (let pt = Math.floor(LO.size * 0.85); pt >= 8; pt = Math.floor(pt * 0.85)) {
     const s2 = buildSceneAt({ ...spec, format: { ...spec.format, labels: { ...LO, size: pt } } }, resolved, opts)
     if (s2.noRoom < best.noRoom || best === sc) best = Object.assign(s2, { labelCap: { asked: LO.size, used: pt } })
     if (ok(s2)) break
   }
-  return best
+  return stamp(best, 'chart', spec)
 }
 
 function buildSceneAt(spec, resolved = [], opts = {}) {
@@ -311,7 +314,10 @@ function buildSceneAt(spec, resolved = [], opts = {}) {
   }
   const width = Math.max(160, Math.round(opts.width ?? 640))
   const height = Math.max(140, Math.round(opts.height ?? 260))
-  const format = opts.format ?? defaultFormat
+  // Language: the formatter's punctuation, the engine's own words and numbers.
+  const L = localeOf(spec)
+  const format = localizedFormat(opts.format ?? defaultFormat, L)
+  const loc = str => localizeNumber(str, L)
   const grain = spec?.x?.grain ?? 'quarter'
   const barsMode = spec?.bars ?? 'clustered'
   const stacked = barsMode === 'stacked' || barsMode === 'stacked100'
@@ -353,7 +359,8 @@ function buildSceneAt(spec, resolved = [], opts = {}) {
       smooth: !!s.style?.smooth,
       step: s.style?.step === 'lines' || s.style?.step === 'steps' ? s.style.step : null,
       // Point color: set (style.points), otherwise carried by the data (point.color).
-      pointColors: { ...Object.fromEntries((r.points ?? []).filter(p => p?.color).map(p => [String(p.x), p.color])), ...(s.style?.points ?? {}) },
+      // (single-accent mode: none, the series is neutral or the accent as a whole)
+      pointColors: singleAccent(spec) ? {} : { ...Object.fromEntries((r.points ?? []).filter(p => p?.color).map(p => [String(p.x), p.color])), ...(s.style?.points ?? {}) },
       // Stack group (stacked clustered): series with the same `stack` are stacked,
       // groups are placed side by side.
       stack: s.stack ?? null,
@@ -362,7 +369,7 @@ function buildSceneAt(spec, resolved = [], opts = {}) {
       forecastStyle: s.style?.forecast ?? null,
       // Fill pattern: hatched, crosshatch, dots, lines.
       pattern: PATTERNS.includes(F.patterns?.[s.id]) ? F.patterns[s.id] : null,
-      color: colorToken(s.style, r.role, ranks[i]),
+      color: accentColor(spec, s.id ?? `s${i}`, colorToken(s.style, r.role, ranks[i])),
       role: r.role ?? 'actual',
       label: r.label ?? s.id,
       unit: r.unit ?? 'M',
@@ -401,7 +408,8 @@ function buildSceneAt(spec, resolved = [], opts = {}) {
   const tableSeries = allSeries.filter(s => tableIds.has(s.id) && s.points.length)
   const series = allSeries.filter(s => !tableSeries.includes(s))
   // Color scheme order (stacked fill order): top to bottom.
-  if (F.colorOrder === 'reverse') {
+  // (single-accent mode: colors follow the emphasis, not the order)
+  if (F.colorOrder === 'reverse' && !singleAccent(spec)) {
     const bars = series.filter(s => s.mark === 'bar')
     const cols = bars.map(s => s.color).reverse()
     bars.forEach((s, i) => { s.color = cols[i] })
@@ -432,7 +440,7 @@ function buildSceneAt(spec, resolved = [], opts = {}) {
       series.push({
         id: '_other', index: series.length, mark: 'bar', axis: bs[0].axis, dash: 'solid', marker: false, stroke: null, weight: null,
         markerShape: null, smooth: false, step: null, pointColors: {}, stack: bs[0].stack, forecastStyle: null, pattern: null,
-        color: 'gray-300', role: 'actual', label: 'Other', unit: bs[0].unit, labels: bs.find(s => s.labels !== 'none')?.labels ?? 'none',
+        color: accentColor(spec, '_other', 'gray-300'), role: 'actual', label: t('Other', L), unit: bs[0].unit, labels: bs.find(s => s.labels !== 'none')?.labels ?? 'none',
         points: [...other.values()], maskedOut: false, other: true,
       })
     }
@@ -457,7 +465,7 @@ function buildSceneAt(spec, resolved = [], opts = {}) {
     const n = a && b && a !== b ? yearsBetween(a, b, grain) : 0
     if (!(n > 0 && a.y > 0 && b.y > 0)) return null
     const r = (b.y / a.y) ** (1 / n) - 1
-    return `${r >= 0 ? '+' : '−'}${Math.abs(r * 100).toFixed(1)}%`
+    return loc(`${r >= 0 ? '+' : '−'}${Math.abs(r * 100).toFixed(1)}%`)
   }
   // Legend order: the sheet, reversed, or a free order (list of ids).
   const legendOrdered = F.legendOrder === 'reverse' ? [...legendSeries].reverse()
@@ -467,9 +475,9 @@ function buildSceneAt(spec, resolved = [], opts = {}) {
     })
     : legendSeries
   const legend = opts.legend === false || legendPos === 'none' ? { items: [], height: 0 } : layoutLegend(legendOrdered.map(s => ({
-    seriesId: s.id, label: F.legendCagr && seriesCagr(s) ? `${s.label} · CAGR ${seriesCagr(s)}` : s.label, color: s.color, mark: s.mark, pattern: s.pattern,
+    seriesId: s.id, label: F.legendCagr && seriesCagr(s) ? `${s.label} · ${t('CAGR', L)} ${seriesCagr(s)}` : s.label, color: s.color, mark: s.mark, pattern: s.pattern,
     dash: DASH_ARRAY[s.dash], empty: s.points.length === 0,
-  })), Number.isFinite(F.legendWidth) ? Math.max(80, Math.min(width, F.legendWidth)) : width, legendScale)
+  })), Number.isFinite(F.legendWidth) ? Math.max(80, Math.min(width, F.legendWidth)) : width, legendScale, L)
   // Room for the end-of-line names, reserved right of the plot.
   const END_FONT = 11
   // Light fills: a white number would be unreadable.
@@ -524,7 +532,7 @@ function buildSceneAt(spec, resolved = [], opts = {}) {
       const pv = i > 0 ? at(a, kpiOrder[i - 1]) : null
       return Number.isFinite(pv) && pv !== 0 ? v / pv - 1 : null
     }
-    return { id: `kpi:${r.kind}:${a.id}${b ? `:${b.id}` : ''}`, of: a.id, label: b ? `${a.label} / ${b.label}` : `${a.label} growth`, value }
+    return { id: `kpi:${r.kind}:${a.id}${b ? `:${b.id}` : ''}`, of: a.id, label: b ? `${a.label} / ${b.label}` : `${a.label} ${t('growth', L)}`, value }
   }).filter(Boolean)
   // Second label below the key: a text, or several lines ([text | { text, tone, strong }]).
   const subOf = k => {
@@ -538,7 +546,7 @@ function buildSceneAt(spec, resolved = [], opts = {}) {
       const rowDec = userDecimals ?? (Math.max(...ts.points.map(q => Math.abs(q.y))) >= 10 ? 0 : 1)
       return { text: p ? format(p.y, ts.unit, rowDec) : '–', tone: 'gray-700', table: ts.id }
     })
-    const kpis = kpiRows.map(r => { const v = r.value(k); return { text: v == null ? '–' : defaultFormat(v, 'pct', userDecimals ?? 0), tone: 'gray-700', table: r.id } })
+    const kpis = kpiRows.map(r => { const v = r.value(k); return { text: v == null ? '–' : loc(defaultFormat(v, 'pct', userDecimals ?? 0)), tone: 'gray-700', table: r.id } })
     const all = [...own, ...rows, ...kpis]
     return all.length ? all : null
   }
@@ -570,7 +578,7 @@ function buildSceneAt(spec, resolved = [], opts = {}) {
   const averages = anns.filter(a => a?.type === 'average').map(a => {
     const s = series.find(x => x.id === a.series)
     const ys = (s?.points ?? []).map(p => p.y)
-    return ys.length ? { type: 'valueLine', value: ys.reduce((t, v) => t + v, 0) / ys.length, label: 'Avg', axis: s.axis, tone: 'gray-600', dash: 'dot', labelAt: 'left' } : null
+    return ys.length ? { type: 'valueLine', value: ys.reduce((t, v) => t + v, 0) / ys.length, label: t('Avg', L), axis: s.axis, tone: 'gray-600', dash: 'dot', labelAt: 'left' } : null
   }).filter(Boolean)
   // Several value lines: the spec's, then
   // those added by the reading layer (format.valueLines, each with its label, side, stroke).
@@ -809,7 +817,7 @@ function buildSceneAt(spec, resolved = [], opts = {}) {
         : (fromV + toV) / 2)
     }
     scale.domain = () => raw.domain()
-    const fmtAxis = opts.formatAxis ?? format
+    const fmtAxis = opts.formatAxis ? localizedFormat(opts.formatAxis, L) : format
     // One precision per axis (the step decides it): the shortest that tells all
     // ticks apart; zero is written "0".
     let axDec = dec
@@ -1236,12 +1244,12 @@ function buildSceneAt(spec, resolved = [], opts = {}) {
   }
   const shareText = (v, k, sid) => {
     const b100 = Number(F.base100?.[k])
-    if (Number.isFinite(b100) && b100 > 0) return `${LO.pctPlus && v > 0 ? '+' : ''}${((v / b100) * 100).toFixed(pctDec)}%`
+    if (Number.isFinite(b100) && b100 > 0) return loc(`${LO.pctPlus && v > 0 ? '+' : ''}${((v / b100) * 100).toFixed(pctDec)}%`)
     const t = colAbs(k)
     if (!t) return ''
     const r = sid != null ? sharesOf(k)[sid] : null
     const pv = r ?? (v / t) * 100
-    return `${LO.pctPlus && pv > 0 ? '+' : ''}${pv.toFixed(pctDec)}%`
+    return loc(`${LO.pctPlus && pv > 0 ? '+' : ''}${pv.toFixed(pctDec)}%`)
   }
   const contentOf = (s, v, k, fallback) => {
     switch (LO.content) {
@@ -1259,7 +1267,9 @@ function buildSceneAt(spec, resolved = [], opts = {}) {
   const keepAll = !!LO.keepAll
   // A free color (hex, "Style" control) overrides the series color.
   const labelTone = c => (isHex(LO.color) ? LO.color : LO.color === 'black' ? 'black' : LO.color === 'gray' ? 'gray-600' : LO.color === 'accent' ? 'gold-dark' : c)
-  const labelColor = c => (c === FORECAST_TOKEN ? 'gray-500' : c)
+  // Text in a mark's color: the forecast gray and the neutral of single-accent mode are
+  // too pale for a number; they read in their darker ink.
+  const labelColor = c => (c === FORECAST_TOKEN ? 'gray-500' : c === NEUTRAL ? 'chart-neutral-ink' : c)
   const lastKeyOf = s => s.points.at(-1)?.x
   // Keep priority of an optional number (labelLayout): the first category, then
   // the max and min of its series, then the rest (the last one is mandatory).
@@ -1284,17 +1294,17 @@ function buildSceneAt(spec, resolved = [], opts = {}) {
         const mid = b.x + b.width / 2
         // Inside the bar (label position), if it fits.
         if (!stacked && LO.position === 'inside' && b.height >= LABEL + 6 && estimateWidth(t, LABEL) + 4 <= b.width) {
-          inside.push({ key: `${s.id}|${b.key}`, x: mid, y: b.negative ? b.y + b.height - 5 : b.y + LABEL + 3, text: t, size: LABEL, color: 'white', anchor: 'middle', on: b.color })
+          inside.push({ key: `${s.id}|${b.key}`, x: mid, y: b.negative ? b.y + b.height - 5 : b.y + LABEL + 3, text: t, size: LABEL, color: accentInk(spec, b.color) ?? 'white', anchor: 'middle', on: b.color })
           continue
         }
         if (stacked && LO.position !== 'outside') {
           // In a stack, the number goes INSIDE its segment if it fits; otherwise nothing.
           const tw = estimateWidth(t, LABEL)
           if (b.height >= LABEL + 4 && tw + 4 <= b.width) {
-            inside.push({ key: `${s.id}|${b.key}`, x: mid, y: b.y + b.height / 2 + LABEL * 0.36, text: t, size: LABEL, color: 'white', anchor: 'middle', on: b.color })
+            inside.push({ key: `${s.id}|${b.key}`, x: mid, y: b.y + b.height / 2 + LABEL * 0.36, text: t, size: LABEL, color: accentInk(spec, b.color) ?? 'white', anchor: 'middle', on: b.color })
           } else if (b.height >= LABEL + 2) {
             // Wider than its segment: placed on a backdrop of the segment color.
-            inside.push({ key: `${s.id}|${b.key}`, x: mid, y: b.y + b.height / 2 + LABEL * 0.36, text: t, size: LABEL, color: 'white', anchor: 'middle', on: b.color, backdrop: b.color })
+            inside.push({ key: `${s.id}|${b.key}`, x: mid, y: b.y + b.height / 2 + LABEL * 0.36, text: t, size: LABEL, color: accentInk(spec, b.color) ?? 'white', anchor: 'middle', on: b.color, backdrop: b.color })
           } else if (b.key === lastKeyOf(s) && plot.right - (b.x + b.width) > tw + 12) {
             // Too thin: outside, right of the last column, linked by a leader line.
             outside.push({ key: `${s.id}|${b.key}`, x: b.x + b.width + 10, y: b.y + b.height / 2 + LABEL * 0.36, text: t, size: LABEL, color: labelTone(labelColor(b.color)), anchor: 'start', droppable: true, leader: { x1: b.x + b.width, y1: b.y + b.height / 2, x2: b.x + b.width + 8, y2: b.y + b.height / 2 } })
@@ -1312,7 +1322,7 @@ function buildSceneAt(spec, resolved = [], opts = {}) {
         outside.push({
           key: `${s.id}|${b.key}`, x: mid, y: b.negative ? b.y + b.height + LABEL + 3 : Math.min(b.y, eTop ?? Infinity) - 4, below: b.negative,
           // On collision, the number moves into the top of its bar rather than floating away.
-          alt: fitsIn ? { y: b.y + LABEL + 3, color: 'white', on: b.color } : null,
+          alt: fitsIn ? { y: b.y + LABEL + 3, color: accentInk(spec, b.color) ?? 'white', on: b.color } : null,
           text: t, size: LABEL, color: labelTone(labelColor(b.color)), anchor: 'middle', droppable: b.key !== lastKeyOf(s), rank: rankOf(s, b.key),
         })
       }
@@ -1322,7 +1332,7 @@ function buildSceneAt(spec, resolved = [], opts = {}) {
         if (!want(p.key)) continue
         outside.push({
           key: `${s.id}|${p.key}`, x: p.x, y: Math.min(p.y, errTopOf(s.id, p.key) ?? Infinity) - 7, text: contentOf(s, p.value, p.key, text(p.value, p.key)), size: LABEL,
-          color: labelTone(s.color), anchor: 'middle', droppable: p.key !== lastKeyOf(s), shiftable: true, rank: rankOf(s, p.key),
+          color: labelTone(labelInk(s.color)), anchor: 'middle', droppable: p.key !== lastKeyOf(s), shiftable: true, rank: rankOf(s, p.key),
         })
       }
     }
@@ -1350,7 +1360,7 @@ function buildSceneAt(spec, resolved = [], opts = {}) {
   if ((F.grandTotal || anns.some(a => a?.type === 'grandTotal')) && base.bars.length && !share) {
     const sum = base.bars.reduce((t, b) => t + b.value, 0)
     const unit = barSeries[0]?.unit ?? 'M'
-    outside.push({ key: 'grandTotal', x: plot.right, y: plot.top - 6, text: `Total ${format(sum, unit, userDecimals)}`, size: LABEL, color: 'black', anchor: 'end' })
+    outside.push({ key: 'grandTotal', x: plot.right, y: plot.top - 6, text: `${t('Total', L)} ${format(sum, unit, userDecimals)}`, size: LABEL, color: 'black', anchor: 'end' })
   }
   // Totals of a stacked area chart: at the top of the stack.
   if (areaMode === 'stacked' && anns.some(a => a?.type === 'totals')) {
@@ -1407,7 +1417,7 @@ function buildSceneAt(spec, resolved = [], opts = {}) {
       // On a bar, both min and max read at the top: below the bar, the
       // number would fall on the date axis.
       const py = bar ? bar.y : y(p.y)
-      return { kind, x: cx(p.x), y: py, onBar: !!bar, text: `${kind === 'max' ? 'Max' : 'Min'} ${format(p.y, s.unit, userDecimals)}` }
+      return { kind, x: cx(p.x), y: py, onBar: !!bar, text: `${t(kind === 'max' ? 'Max' : 'Min', L)} ${format(p.y, s.unit, userDecimals)}` }
     }
     const items = [at(hi, 'max'), ...(lo !== hi ? [at(lo, 'min')] : [])]
     base.annotations.push({ type: 'extremes', seriesId: s.id, items })
@@ -1484,9 +1494,9 @@ function buildSceneAt(spec, resolved = [], opts = {}) {
     const sgn = delta >= 0 ? '+' : '−'
     // Arrow modes (double-click on the arrow): amount, %, or both.
     const abs = `${sgn}${format(Math.abs(delta), unitA, userDecimals)}`
-    const pct = `${sgn}${Math.abs((delta / Math.abs(va)) * 100).toFixed(0)}%`
+    const pct = loc(`${sgn}${Math.abs((delta / Math.abs(va)) * 100).toFixed(0)}%`)
     // "% of end": the other relative mode (the difference over the end value).
-    const pctEnd = vb ? `${sgn}${Math.abs((delta / Math.abs(vb)) * 100).toFixed(0)}%` : pct
+    const pctEnd = vb ? loc(`${sgn}${Math.abs((delta / Math.abs(vb)) * 100).toFixed(0)}%`) : pct
     // A single measure by default (the absolute difference); "both" on request.
     return mode === 'both' ? `${abs} (${pct})` : mode === 'pct' ? pct : mode === 'pctEnd' ? pctEnd : abs
   }
@@ -1607,7 +1617,7 @@ function buildSceneAt(spec, resolved = [], opts = {}) {
     const mx = (xa + 2 * ctrlX + xb) / 4
     let my = (ya + 2 * ctrlY + yb) / 4
     const sgn = rate >= 0 ? '+' : '−'
-    const text = `${a.label ?? 'CAGR'} ${sgn}${Math.abs(rate * 100).toFixed(1)}%`
+    const text = `${a.label ?? t('CAGR', L)} ${loc(`${sgn}${Math.abs(rate * 100).toFixed(1)}%`)}`
     const pillW = estimateWidth(text, 10.5) + 16
     // Several CAGRs (over successive pairs): an arc that spans another,
     // or whose label would touch its own, moves up one tier.
@@ -1634,7 +1644,7 @@ function buildSceneAt(spec, resolved = [], opts = {}) {
     if (!p || !keys.includes(p.x)) continue
     const px = cx(p.x)
     const py = yScaleOf(s.axis)(p.y)
-    base.annotations.push({ type: 'callout', x: px, y: py, tone: a.tone ?? s.color })
+    base.annotations.push({ type: 'callout', x: px, y: py, tone: a.tone ?? labelInk(s.color) })
     if (a.above?.text) outside.push({ key: `callout-a|${a.key}`, x: px, y: py - 10, text: a.above.text, size: LABEL + 1, color: a.above.tone ?? 'gray-700', anchor: 'middle' })
     if (a.below?.text) outside.push({ key: `callout-b|${a.key}`, x: px, y: py + LABEL + 12, below: true, text: a.below.text, size: LABEL + 1, color: a.below.tone ?? 'gray-700', anchor: 'middle' })
   }
@@ -1649,7 +1659,7 @@ function buildSceneAt(spec, resolved = [], opts = {}) {
       .map(l => {
         const s = series.find(x => x.id === l.seriesId)
         const last = l.points.at(-1)
-        return { seriesId: l.seriesId, text: s.label, color: s.color, x: last.x + 8, y: last.y, anchorY: last.y }
+        return { seriesId: l.seriesId, text: s.label, color: labelInk(s.color), x: last.x + 8, y: last.y, anchorY: last.y }
       })
     // Bars: in the middle of their segment in the last column (stacked), or at the top.
     if (seriesOnChart) {
@@ -1658,7 +1668,7 @@ function buildSceneAt(spec, resolved = [], opts = {}) {
         const s = series.find(x => x.id === b.seriesId)
         if (!s || ends.some(e => e.seriesId === s.id)) continue
         const yy = stacked ? b.y + b.height / 2 : b.y
-        ends.push({ seriesId: s.id, text: s.label, color: s.color, x: b.x + b.width + 8, y: yy, anchorY: yy, fromX: b.x + b.width + 1 })
+        ends.push({ seriesId: s.id, text: s.label, color: labelInk(s.color), x: b.x + b.width + 8, y: yy, anchorY: yy, fromX: b.x + b.width + 1 })
       }
     }
     ends.sort((a, b) => a.y - b.y)
@@ -1754,7 +1764,7 @@ function buildSceneAt(spec, resolved = [], opts = {}) {
     // Its bar, or any other bar under its center: contrast is read on the actual fill.
     const b = base.bars.find(x => !x.hollow && cxl >= x.x && cxl <= x.x + x.width && cyl >= x.y && cyl <= x.y + x.height && x.height >= l.size + 2)
     if (!b) return l
-    return { ...l, inBar: true, color: 'white', on: b.color, backdrop: undefined }
+    return { ...l, inBar: true, color: accentInk(spec, b.color) ?? 'white', on: b.color, backdrop: undefined }
   }
   // A number stays attached to its bar even when a line crosses it: the view
   // outlines it (halo in the background color), so it reads without floating away from its
@@ -1818,7 +1828,8 @@ function buildSceneAt(spec, resolved = [], opts = {}) {
       return { ...l, text, overwritten: true }
     })
     // Automatic contrast: on a light segment, the number turns black.
-    .map(l => (l.color === 'white' && l.on && (LIGHT_FILLS.has(l.on) || isLightHex(l.on)) ? { ...l, color: 'black' } : l))
+    // (a semantic token reads as its palette fallback: the forecast gray is light).
+    .map(l => (l.color === 'white' && l.on && (LIGHT_FILLS.has(baseToken(l.on)) || isLightHex(l.on)) ? { ...l, color: 'black' } : l))
     // Label style (size, bold, color of ONE label); the chart's number font.
     .map(l => {
       const st = LO.styles?.[l.key]
@@ -1859,7 +1870,7 @@ function buildSceneAt(spec, resolved = [], opts = {}) {
   if (share && F.indicator100 !== false && F.indicator100) {
     const first = keys.find(k => base.bars.some(b => b.key === k))
     const col = base.bars.filter(b => b.key === first)
-    if (col.length) base.labels.push({ key: 'indicator100', x: col[0].x + col[0].width / 2, y: Math.min(...col.map(b => b.y)) - 4, text: '100%', size: LABEL, color: 'gray-700', anchor: 'middle', weight })
+    if (col.length) base.labels.push({ key: 'indicator100', x: col[0].x + col[0].width / 2, y: Math.min(...col.map(b => b.y)) - 4, text: loc('100%'), size: LABEL, color: 'gray-700', anchor: 'middle', weight })
   }
 
   // Free text fields: placed as fractions of the plot, they follow the chart size.
@@ -1875,8 +1886,11 @@ function buildSceneAt(spec, resolved = [], opts = {}) {
     const x1 = Math.max(...base.legend.map(it => it.x + (it.width ?? 60))) + 6
     const y0 = Math.min(...base.legend.map(it => it.y)) - 10
     const y1 = Math.max(...base.legend.map(it => it.y)) + 8
-    base.legendFrame = { x: x0, y: base.legendY + y0, width: x1 - x0, height: y1 - y0 }
+    base.legendFrame = { x: x0, y: base.legendY + y0, width: x1 - x0, height: y1 - y0, color: F.legendFrameColor ?? null, style: F.legendFrameStyle ?? null }
   }
+  // Legend moved by hand (dragged): an offset applied to the whole legend.
+  const lo = F.legendOffset
+  base.legendOffset = lo && Number.isFinite(lo.dx) && Number.isFinite(lo.dy) ? { dx: lo.dx, dy: lo.dy } : null
 
   // Values that cannot be shown on a log scale: placed on the base, marked "!".
   for (const s of series) {
@@ -1907,6 +1921,9 @@ function buildSceneAt(spec, resolved = [], opts = {}) {
   return base
 }
 
+// Text drawn in a series color: the single-accent neutral is too pale for text.
+const labelInk = c => (c === NEUTRAL ? 'chart-neutral-ink' : c)
+
 /**
  * Profile chart: lines rotated by 90°.
  * Categories read top to bottom on the left, values along the x axis; each
@@ -1916,8 +1933,9 @@ function buildSceneAt(spec, resolved = [], opts = {}) {
 export function buildProfileScene(spec, resolved = [], opts = {}) {
   const width = Math.max(160, Math.round(opts.width ?? 640))
   const height = Math.max(140, Math.round(opts.height ?? 260))
-  const format = opts.format ?? defaultFormat
-  const fmtAxis = opts.formatAxis ?? format
+  const L = localeOf(spec)
+  const format = localizedFormat(opts.format ?? defaultFormat, L)
+  const fmtAxis = opts.formatAxis ? localizedFormat(opts.formatAxis, L) : format
   const grain = spec?.x?.grain ?? 'quarter'
   const F = spec?.format ?? {}
   const userDecimals = spec?.numberFormat?.decimals ?? null
@@ -1926,7 +1944,7 @@ export function buildProfileScene(spec, resolved = [], opts = {}) {
   const series = (spec?.series ?? []).map((s, i) => {
     const r = resolved[i] ?? { points: [] }
     return {
-      id: s.id ?? `s${i}`, color: colorToken(s.style, r.role, ranks[i]), label: r.label ?? s.id, unit: r.unit ?? 'M',
+      id: s.id ?? `s${i}`, color: accentColor(spec, s.id ?? `s${i}`, colorToken(s.style, r.role, ranks[i])), label: r.label ?? s.id, unit: r.unit ?? 'M',
       dash: DASH_ARRAY[s.style?.dash ?? 'solid'] ?? null, weight: Number.isFinite(s.style?.weight) ? s.style.weight : 2,
       markerShape: s.style?.markerShape ?? 'circle', labels: s.labels ?? 'none', net: s.style?.step === 'lines',
       points: (r.points ?? []).filter(p => p && p.x != null && Number.isFinite(p.y) && !hidden.has(String(p.x))),
@@ -1939,7 +1957,7 @@ export function buildProfileScene(spec, resolved = [], opts = {}) {
   if (F.catOrder === 'reverse') keys.reverse()
   const fx = k => spec?.x?.names?.[k] ?? formatX(k, grain)
   const legend = opts.legend === false || F.legend === 'none' ? { items: [], height: 0 }
-    : layoutLegend(series.map(s => ({ seriesId: s.id, label: s.label, color: s.color, mark: 'line', dash: s.dash, empty: !s.points.length })), width)
+    : layoutLegend(series.map(s => ({ seriesId: s.id, label: s.label, color: s.color, mark: 'line', dash: s.dash, empty: !s.points.length })), width, 1, L)
   const vals = series.flatMap(s => s.points.map(p => p.y))
   const base = { profile: true, width, height, legend: legend.items, legendY: 0, lines: [], labels: [], gridlines: [], axes: { cat: [], value: [] }, empty: !keys.length || !vals.length }
   const catW = Math.min(width * 0.3, Math.max(0, ...keys.map(k => estimateWidth(fx(k)))) + 14)
@@ -1947,7 +1965,7 @@ export function buildProfileScene(spec, resolved = [], opts = {}) {
   plot.width = plot.right - plot.left
   plot.height = plot.bottom - plot.top
   base.plot = plot
-  if (base.empty) return base
+  if (base.empty) return stamp(base, 'chart', spec, { variant: 'profile' })
   const yo = F.yAxis?.left ?? {}
   let dom = domainOf(vals, false)
   if (Number.isFinite(yo.min) || Number.isFinite(yo.max)) {
@@ -1980,9 +1998,9 @@ export function buildProfileScene(spec, resolved = [], opts = {}) {
     for (const p of pts) {
       if (s.labels === 'last' && p.key !== last) continue
       if (s.labels === 'some' && !(F.labelKeys?.[s.id] ?? []).map(String).includes(p.key)) continue
-      outside.push({ key: `${s.id}|${p.key}`, x: p.x + 7, y: p.y + 3.5, text: format(p.value, s.unit, userDecimals), size: 10, color: s.color, anchor: 'start', droppable: p.key !== last })
+      outside.push({ key: `${s.id}|${p.key}`, x: p.x + 7, y: p.y + 3.5, text: format(p.value, s.unit, userDecimals), size: 10, color: labelInk(s.color), anchor: 'start', droppable: p.key !== last })
     }
   }
   base.labels = resolveCollisions(outside, estimateWidth)
-  return base
+  return stamp(base, 'chart', spec, { variant: 'profile' })
 }
