@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.3.0
+
+- **Publishable preferences.** `configurePrefs({ seed, local, onChange })` sets where the
+  formatting and the data sheet edits live: a published state (`seed`) that wins over the
+  browser's copy, `local: false` to leave `localStorage` alone, `onChange(key, prefs)` after
+  every change (undo and redo included) for the host to save it. `snapshotPrefs(prefix)`
+  returns the current state. Default behavior unchanged (per browser).
+- Views: `applyPrefs` with `readOnly` draws the stored settings and sheet edits, still without
+  any editing control (`ChartView`, `BarhView`, `TableView`).
+- `spec.subtitle` overrides the subtitle derived from the grain; `''` or `false` removes it.
+- Numbers drawn above an accent-colored bar or line read in black, like on a bridge (the
+  accent is a fill color, often too light for text).
+
 ## 0.2.0
 
 - **Static rendering.** Every view draws through a hook-free figure (`ChartFigure`,

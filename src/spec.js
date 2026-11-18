@@ -120,6 +120,7 @@ export function validateSpec(spec, opts = {}) {
   if (!isStr(spec.id)) err('id', 'required string')
   if (spec.version !== SPEC_VERSION) err('version', `must be ${SPEC_VERSION}`)
   if (spec.title != null && typeof spec.title !== 'string') err('title', 'must be a string')
+  if (spec.subtitle != null && spec.subtitle !== false && typeof spec.subtitle !== 'string') err('subtitle', 'must be a string or false')
 
   // Host metadata: optional, free values, only their type is checked.
   if (spec.scope != null && typeof spec.scope !== 'string') err('scope', 'must be a string')

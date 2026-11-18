@@ -1,6 +1,6 @@
 // ─── Chart display preferences: a small store, one key per chart ────────────
-// A VIEW preference, per browser (localStorage). It is never a fact about the
-// underlying data and never shared between users.
+// A VIEW preference, per browser (localStorage) by default. It is never a fact about
+// the underlying data. A host can publish it instead (configurePrefs: seed + onChange).
 import { useSyncExternalStore } from 'react'
 
 const listeners = new Set()
@@ -8,12 +8,42 @@ const cache = new Map()
 
 function subscribe(fn) { listeners.add(fn); return () => listeners.delete(fn) }
 
+// Where the preferences live. By default, in this browser (localStorage). A host that
+// publishes them (an author formats a chart, readers see that format) passes the
+// published state as `seed` and receives every change through `onChange`.
+let config = { seed: {}, local: true, onChange: null }
+
+/**
+ * Configures the preference store, for every chart of the page.
+ *   · seed: { [key]: prefs } — published state; wins over this browser's own copy;
+ *   · local: false — neither read nor write localStorage (readers of a published page);
+ *   · onChange(key, prefs) — called after each change (undo and redo included), to save it.
+ * Charts already drawn redraw with the new state. Returns the previous configuration.
+ */
+export function configurePrefs({ seed = {}, local = true, onChange = null } = {}) {
+  const prev = config
+  config = { seed: seed ?? {}, local: local !== false, onChange }
+  cache.clear()
+  undoStack.clear(); redoStack.clear(); lastKey = null
+  for (const fn of listeners) fn()
+  return prev
+}
+
+/** The current state of every preference whose key starts with `prefix` (what a host publishes). */
+export function snapshotPrefs(prefix = 'epure-chart-') {
+  const out = {}
+  for (const [k, v] of Object.entries(config.seed)) if (k.startsWith(prefix)) out[k] = v
+  for (const [k, v] of cache) if (k.startsWith(prefix)) out[k] = v
+  return out
+}
+
 function read(key, defaults) {
   if (!cache.has(key)) {
     let stored = {}
     // Server rendering (no window): the defaults, the browser reads its own on hydration.
-    if (typeof window !== 'undefined') try { stored = JSON.parse(window.localStorage.getItem(key) ?? '{}') ?? {} } catch { /* private mode */ }
-    cache.set(key, { ...defaults, ...stored })
+    if (config.local && typeof window !== 'undefined') try { stored = JSON.parse(window.localStorage.getItem(key) ?? '{}') ?? {} } catch { /* private mode */ }
+    const seeded = config.seed[key]
+    cache.set(key, { ...defaults, ...stored, ...(seeded && typeof seeded === 'object' ? seeded : {}) })
   }
   return cache.get(key)
 }
@@ -35,8 +65,9 @@ export function endStep() { gesture = null; lastPush = { key: null, at: 0 } }
 
 function persist(key, next) {
   cache.set(key, next)
-  if (typeof window !== 'undefined') try { window.localStorage.setItem(key, JSON.stringify(next)) } catch { /* quota / private mode */ }
+  if (config.local && typeof window !== 'undefined') try { window.localStorage.setItem(key, JSON.stringify(next)) } catch { /* quota / private mode */ }
   for (const fn of listeners) fn()
+  try { config.onChange?.(key, next) } catch { /* the host's saving never breaks the chart */ }
 }
 
 function write(key, next) {

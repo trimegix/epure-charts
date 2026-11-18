@@ -43,26 +43,29 @@ function useWidth(ref, fixed) {
 // `onRotate`: the selected chart shows the rotation handle; dragged a quarter turn,
 // the bars turn back into columns (rotated view of a column chart).
 // width: fixed drawing width (no measuring; also the first width on hydration).
-// readOnly: the figure only: no format bar, menus, data sheet or per-browser preferences.
+// readOnly: the figure only: no format bar, menus, data sheet or per-browser preferences
+// (with applyPrefs: the stored preferences and sheet edits drawn, still no control).
 // responsive: the SVG scales to its container (width="100%", ratio kept); dataTable: a
 // visually hidden table of the numbers next to the SVG.
-export default function BarhView({ spec: specIn, rows: rowsIn, format: baseFormat, onSelectRow, selectedKey, label = 'Bar chart', id, unit, reading: readingIn = true, chartActions = [], muted = false, menuSlot = null, onRotate = null, width: widthProp, readOnly = false, responsive = false, dataTable = false }) {
+export default function BarhView({ spec: specIn, rows: rowsIn, format: baseFormat, onSelectRow, selectedKey, label = 'Bar chart', id, unit, reading: readingIn = true, chartActions = [], muted = false, menuSlot = null, onRotate = null, width: widthProp, readOnly = false, responsive = false, dataTable = false, applyPrefs = false }) {
   const boxRef = useRef(null)
   const width = useWidth(boxRef, widthProp)
   const reading = readingIn && !readOnly
+  // readOnly + applyPrefs: stored settings and sheet edits drawn, no editing control.
+  const applied = reading || (readOnly && applyPrefs)
   const [hover, setHover] = useState(null)
   // The sheet drives the chart (except in the rotated view of a column chart, which has its own).
   const sheetBase = useMemo(() => barhSheet.toBase(rowsIn ?? [], specIn?.series ?? [{ id: 'value', label: 'Value' }]), [rowsIn, specIn?.series])
   const sheetApi = useSheet(`barh-${id ?? label}`, sheetBase)
-  const fromSheet = reading ? barhSheet.fromSheet(sheetApi.sheet, rowsIn ?? [], specIn?.series ?? [{ id: 'value', label: 'Value' }]) : null
+  const fromSheet = applied ? barhSheet.fromSheet(sheetApi.sheet, rowsIn ?? [], specIn?.series ?? [{ id: 'value', label: 'Value' }]) : null
   const baseRows = fromSheet ? fromSheet.rows : rowsIn
   const baseSpec = fromSheet && specIn?.series ? { ...specIn, series: fromSheet.series } : specIn
   const [effSpec, effRows, readApi] = useBarhPrefs(baseSpec, baseRows, id ?? label)
   const api = reading ? readApi : null
   const allActions = reading ? [{ label: 'Open data sheet', shortcut: 'Double-click', onSelect: () => sheetApi.setSheetOpen(true) }, ...(sheetApi.sheetEdited ? [{ label: 'Reset data to source', onSelect: () => sheetApi.resetSheet() }] : []), '-', ...chartActions] : chartActions
-  const spec = api ? effSpec : baseSpec
-  const rows = api ? effRows : baseRows
-  const P = api?.prefs
+  const spec = applied ? effSpec : baseSpec
+  const rows = applied ? effRows : baseRows
+  const P = applied ? readApi.prefs : undefined
   // The configured number format (decimals, magnitude, separators…), on top of the host's.
   const format = useMemo(() => {
     const f = baseFormat ?? (v => String(v))

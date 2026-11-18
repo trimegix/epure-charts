@@ -48,7 +48,7 @@ Bankers, consultants and investors spend their nights on charts: an EBITDA bridg
 npm install github:trimegix/epure-charts
 ```
 
-The package builds itself on install (`prepare`). Pin a release with `github:trimegix/epure-charts#v0.1.1`.
+The package builds itself on install (`prepare`). Pin a release with `github:trimegix/epure-charts#v0.3.0`.
 
 The pure engine (specs, scenes, number formats, data sheet model) is also available alone, with no React or CSS import, for Node scripts and tests:
 
@@ -180,6 +180,19 @@ Semantic tokens name what a color means (`--chart-pos`, `--chart-neg`, `--chart-
 ## Persistence
 
 Formatting choices and data sheet edits are stored per chart `id` in the browser (`localStorage`). The source data you pass in is never modified: edits are an overlay that the user can reset.
+
+To publish them instead (an author formats a chart, readers see that format), configure the store once, before the first render:
+
+```js
+import { configurePrefs } from 'epure-charts'
+
+// The author: the published state, every change sent to your backend.
+configurePrefs({ seed: published, local: false, onChange: (key, prefs) => save(key, prefs) })
+// Readers: the published state only.
+configurePrefs({ seed: published, local: false })
+```
+
+Readers then draw the views with `readOnly` and `applyPrefs`: the published settings and sheet edits, without any editing control. `snapshotPrefs()` returns the current state of every chart of the page.
 
 ## Development
 

@@ -28,7 +28,7 @@ import { dateAxisTicks, DATE_UNITS } from './dateTicks.js'
 import { roundToSum, formatDateCodes, consistentRound } from './numberStyle.js'
 import { isHex, isLightHex, isFont, isPt, sizePx, labelMetrics, baseToken } from './customStyle.js'
 import { localeOf, localizedFormat, localizeNumber, t } from './locale.js'
-import { accentColor, accentInk, singleAccent, NEUTRAL } from './accent.js'
+import { accentColor, accentInk, singleAccent, NEUTRAL, ACCENT } from './accent.js'
 import { stamp } from './figureMeta.js'
 
 // Role colors, as semantic tokens (themable as --chart-*): by default actual in
@@ -1268,8 +1268,9 @@ function buildSceneAt(spec, resolved = [], opts = {}) {
   // A free color (hex, "Style" control) overrides the series color.
   const labelTone = c => (isHex(LO.color) ? LO.color : LO.color === 'black' ? 'black' : LO.color === 'gray' ? 'gray-600' : LO.color === 'accent' ? 'gold-dark' : c)
   // Text in a mark's color: the forecast gray and the neutral of single-accent mode are
-  // too pale for a number; they read in their darker ink.
-  const labelColor = c => (c === FORECAST_TOKEN ? 'gray-500' : c === NEUTRAL ? 'chart-neutral-ink' : c)
+  // too pale for a number; they read in their darker ink. The accent is a fill color
+  // (often light: gold, a lime): its numbers read in black, as on a bridge.
+  const labelColor = c => (c === FORECAST_TOKEN ? 'gray-500' : c === NEUTRAL ? 'chart-neutral-ink' : c === ACCENT ? 'black' : c)
   const lastKeyOf = s => s.points.at(-1)?.x
   // Keep priority of an optional number (labelLayout): the first category, then
   // the max and min of its series, then the rest (the last one is mandatory).

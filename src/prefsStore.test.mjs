@@ -1,0 +1,81 @@
+// The preference store: published state (seed), local storage on or off, onChange.
+import { test } from 'node:test'
+import assert from 'node:assert/strict'
+import { createElement } from 'react'
+import { renderToString } from 'react-dom/server'
+
+const mem = new Map()
+globalThis.window = { localStorage: { getItem: k => (mem.has(k) ? mem.get(k) : null), setItem: (k, v) => mem.set(k, String(v)), removeItem: k => mem.delete(k) } }
+
+const { useChartPrefs, configurePrefs, snapshotPrefs, undoLast } = await import('./chartPrefs.js')
+
+/** Renders a component using the hook; returns what it read and its setter. */
+function probe(key, defaults) {
+  let out
+  const C = () => { const [prefs, setPref] = useChartPrefs(key, defaults); out = { prefs, setPref }; return null }
+  renderToString(createElement(C))
+  return out
+}
+
+test('by default: localStorage, no callback', () => {
+  configurePrefs()
+  probe('epure-chart-read-a', { labels: true }).setPref('labels', false)
+  assert.deepEqual(JSON.parse(mem.get('epure-chart-read-a')), { labels: false })
+  assert.equal(probe('epure-chart-read-a', { labels: true }).prefs.labels, false)
+})
+
+test('seed wins over this browser, local off neither reads nor writes', () => {
+  const seen = []
+  configurePrefs({ seed: { 'epure-chart-read-a': { labels: true, grid: 'none' } }, local: false, onChange: (k, v) => seen.push([k, v]) })
+  const p = probe('epure-chart-read-a', { labels: false, grid: 'major' })
+  assert.deepEqual(p.prefs, { labels: true, grid: 'none' })
+  mem.clear()
+  p.setPref('grid', 'major')
+  assert.equal(mem.size, 0)
+  assert.deepEqual(seen, [['epure-chart-read-a', { labels: true, grid: 'major' }]])
+  assert.deepEqual(snapshotPrefs(), { 'epure-chart-read-a': { labels: true, grid: 'major' } })
+})
+
+test('undo reaches the host too', async () => {
+  const seen = []
+  configurePrefs({ local: false, onChange: (k, v) => seen.push(v) })
+  const p = probe('epure-chart-read-b', { n: 0 })
+  p.setPref('n', 1)
+  await new Promise(r => setTimeout(r, 450)) // a separate undo step
+  p.setPref('n', 2)
+  assert.equal(undoLast(), true)
+  assert.deepEqual(seen.map(v => v.n), [1, 2, 1])
+})
+
+test('a failing host callback never breaks the chart', () => {
+  configurePrefs({ local: false, onChange: () => { throw new Error('offline') } })
+  const p = probe('epure-chart-read-c', { n: 0 })
+  assert.doesNotThrow(() => p.setPref('n', 3))
+  assert.equal(probe('epure-chart-read-c', { n: 0 }).prefs.n, 3)
+  configurePrefs()
+})
+
+test('readOnly + applyPrefs draws the published settings, without controls', async () => {
+  const { createElement: h } = await import('react')
+  const E = await import('./index.js')
+  const fmt = (v, _u, d) => v.toFixed(d ?? 0)
+  const chart = extra => h(E.ChartView, { width: 440, readOnly: true, ...extra, spec: { id: 'pub', x: { grain: 'category' }, series: [{ id: 'v', labels: 'all' }], format: { legend: 'none' } }, resolved: [{ label: 'v', points: [{ x: 'a', y: 1 }, { x: 'b', y: 3 }] }], format: fmt })
+  const barh = extra => h(E.BarhView, { id: 'pubh', width: 440, readOnly: true, ...extra, spec: { series: [{ id: 'v', label: 'v' }] }, rows: [{ key: 'a', label: 'A', values: { v: 3 } }], format: v => v.toFixed(0) })
+  configurePrefs({ local: false, seed: { 'epure-chart-read-pub': { decimals: 2 }, 'epure-chart-barh-pubh': { decimals: 2 } } })
+  const out = el => renderToString(h(E.ChartsProvider, { value: {} }, el))
+  assert.match(out(chart({ applyPrefs: true })), />3\.00</)
+  assert.doesNotMatch(out(chart({})), />3\.00</)
+  assert.doesNotMatch(out(chart({ applyPrefs: true })), /chart-opts-btn/)
+  assert.match(out(barh({ applyPrefs: true })), /3[.,]00/)
+  assert.doesNotMatch(out(barh({})), /3[.,]00/)
+  configurePrefs()
+})
+
+test('spec.subtitle overrides the grain subtitle', async () => {
+  const { createElement: h } = await import('react')
+  const E = await import('./index.js')
+  const view = subtitle => renderToString(h(E.ChartsProvider, { value: {} }, h(E.ChartView, { width: 400, spec: { id: 'sub', version: 1, kind: 'cartesian', x: { grain: 'category' }, ...(subtitle !== undefined ? { subtitle } : {}), series: [{ id: 'v', ref: { metric: 'v', source: 'd' } }] }, resolved: [{ label: 'v', points: [{ x: 'a', y: 1 }] }], format: v => String(v) })))
+  assert.match(view(undefined), /By company/)
+  assert.doesNotMatch(view(false), /By company/)
+  assert.match(view('Revenue by region'), /Revenue by region/)
+})

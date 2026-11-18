@@ -85,12 +85,15 @@ function useWidth(ref, fixed) {
 // (the spec and the series as given: no view settings, format bar, menus, data sheet
 // or per-browser preferences, no shared scale); `responsive` scales the SVG to its
 // container (ratio kept); `dataTable` adds the numbers as a visually hidden table.
+// `applyPrefs` (with readOnly): the figure as its stored view settings and sheet edits
+// draw it (a published format, see configurePrefs), still without any editing control.
 export default function ChartView({
   spec: baseSpec, currentId, onSelectSeries, selectedId, headerSlot, reading: readingIn = true,
   resolved: provided, format: formatProp, bare = false, height: fixedHeight, legend = true, menuSlot = null,
-  width: widthProp, readOnly = false, responsive = false, dataTable = false,
+  width: widthProp, readOnly = false, responsive = false, dataTable = false, applyPrefs = false,
 }) {
   const reading = readOnly ? false : readingIn
+  const applied = !!reading || (readOnly && applyPrefs)
   const boxRef = useRef(null)
   const width = useWidth(boxRef, widthProp)
   const [hover, setHover] = useState(null)
@@ -106,8 +109,8 @@ export default function ChartView({
   // View settings touch neither the series nor their references: `resolved` holds for both.
   const [readSpec, readingApi] = useReadingPrefs(baseSpec, resolved)
   const external = reading && typeof reading === 'object' ? reading : null
-  const spec = external ? external.spec : reading ? readSpec : baseSpec
-  const api = external ? external.api : reading ? readingApi : null
+  const spec = external ? external.spec : applied ? readSpec : baseSpec
+  const api = external ? external.api : applied ? readingApi : null
   const [pick, setPick] = useState(null)
   // A label drag must not open its format bar on release.
   const labelDragged = useRef(false)
@@ -228,7 +231,9 @@ export default function ChartView({
     })
   }, [hasApi, clipId])
   // The subtitle states the grain; a date axis (YYYY-MM-DD categories) gets none.
-  const subtitle = scene?.axes?.x?.kind === 'date' ? undefined : GRAIN_SUB[baseSpec.x?.grain ?? spec.x?.grain] || undefined
+  // `spec.subtitle` overrides the subtitle derived from the grain ('' or false: none).
+  const subtitle = baseSpec.subtitle !== undefined ? (baseSpec.subtitle || undefined)
+    : scene?.axes?.x?.kind === 'date' ? undefined : GRAIN_SUB[baseSpec.x?.grain ?? spec.x?.grain] || undefined
 
   // Profile chart: lines rotated by 90°, one row
   // per category (tall enough to read), lines only.
@@ -759,7 +764,7 @@ export default function ChartView({
         )}
         <div ref={boxRef} className="chart-engine-box">
           <ChartFigure scene={P} interactive={!readOnly} scope={clipId} label={spec.title} responsive={responsive} dataTable={dataTable} part={profilePart}
-            layers={{ under: api && <rect x={P.plot.left} y={P.plot.top} width={P.plot.width} height={P.plot.height} fill="transparent" onContextMenu={e => open(e, { tab: 'chart' })} /> }}
+            layers={{ under: api && !readOnly && <rect x={P.plot.left} y={P.plot.top} width={P.plot.width} height={P.plot.height} fill="transparent" onContextMenu={e => open(e, { tab: 'chart' })} /> }}
             onDoubleClick={api ? () => { setPick(null); api.setSheetOpen(true) } : undefined} />
           {wheel}
         </div>
@@ -791,7 +796,7 @@ export default function ChartView({
         )}
         {/* The measured box stays the same: the width follows, and switching back to columns is immediate. */}
         <div ref={boxRef} className="chart-engine-box chart-engine-clickable" onClickCapture={e => { e.stopPropagation(); open(e, { tab: 'chart' }) }}>
-        <BarhView id={`${spec.id}-h`} rows={rows} format={v => fmt(v, unitH, hDec)}
+        <BarhView id={`${spec.id}-h`} rows={rows} readOnly={readOnly} format={v => fmt(v, unitH, hDec)}
           reading={false} muted={!!pick}
           onRotate={pick?.tab === 'chart' ? () => { api.setFmt('horizontal', null); setPick(null) } : null}
           spec={{ series: sers.map(s => ({ id: s.id, mark: s.mark === 'line' ? 'line' : undefined, label: scene.legend.find(l => l.seriesId === s.id)?.label ?? scene.endLabels.find(l => l.seriesId === s.id)?.text ?? s.id, color: scene.bars.find(b => b.seriesId === s.id)?.color ?? scene.lines.find(l => l.seriesId === s.id)?.color, pattern: api.fmt.patterns?.[s.id] ?? null })), stacked: api.bars !== 'clustered', stacked100: api.bars === 'stacked100',

@@ -43,7 +43,7 @@ export { BarhBar, BarhBarButton } from './BarhBar.jsx'
 export { ChartMenu } from './chartMenu.jsx'
 
 // Reading preferences (per browser)
-export { useChartPrefs, check } from './chartPrefs.js'
+export { useChartPrefs, check, configurePrefs, snapshotPrefs } from './chartPrefs.js'
 export { useReadingPrefs, paletteFor } from './useReadingPrefs.js'
 export { useWaterfallPrefs } from './useWaterfallPrefs.js'
 export { useBarhPrefs } from './useBarhPrefs.js'

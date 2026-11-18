@@ -98,20 +98,21 @@ function track(e, onMove) {
 
 /** Table view: cells driven by their values (number, text, Harvey ball, checkbox, icon), with format bars and menus. */
 // width: fixed drawing width (no measuring; also the first width on hydration).
-// readOnly: the figure only: no format bar, menus, data sheet or per-browser preferences.
+// readOnly: the figure only: no format bar, menus, data sheet or per-browser preferences
+// (with applyPrefs: the stored preferences and sheet edits drawn, still no control).
 // responsive: the SVG scales to its container (width="100%", ratio kept).
 // dataTable: the table's content also as a visually hidden HTML table.
-export default function TableView({ id = 'table', spec: baseSpec = {}, columns: columnsIn = [], rows: rowsIn = [], format, label = 'Table', width: widthProp, readOnly = false, responsive = false, dataTable = false }) {
+export default function TableView({ id = 'table', spec: baseSpec = {}, columns: columnsIn = [], rows: rowsIn = [], format, label = 'Table', width: widthProp, readOnly = false, responsive = false, dataTable = false, applyPrefs = false }) {
   const boxRef = useRef(null)
   const width = useWidth(boxRef, widthProp)
   const prefsApi = useViewPrefs(`epure-chart-table-${id}`, DEFAULTS)
   const { set, update, reset, undo, canUndo } = prefsApi
-  const P = readOnly ? DEFAULTS : prefsApi.prefs
+  const P = readOnly && !applyPrefs ? DEFAULTS : prefsApi.prefs
   // The sheet drives the table: cells, rows and columns come from it (source + edits).
   const sheetBase = useMemo(() => tableSheet.toBase(columnsIn, rowsIn), [columnsIn, rowsIn])
   // Validation reads the effective Harvey scale (including a set preference), like the drawn table.
   const sheetApi = useSheet(`table-${id}`, sheetBase, sh => tableSheet.validate(sh, columnsIn, { ...baseSpec, harveyMax: { ...(baseSpec.harveyMax ?? {}), ...(P.harveyMax ?? {}) } }))
-  const { columns, rows } = readOnly ? { columns: columnsIn, rows: rowsIn } : tableSheet.fromSheet(sheetApi.sheet, columnsIn, rowsIn)
+  const { columns, rows } = readOnly && !applyPrefs ? { columns: columnsIn, rows: rowsIn } : tableSheet.fromSheet(sheetApi.sheet, columnsIn, rowsIn)
   // Effective spec: set preference > host spec; objects merged, lists replaced.
   const spec = { ...baseSpec }
   for (const [k, v] of Object.entries(P)) {
