@@ -23,7 +23,7 @@ import {
 // Data table "styled like a table": TableView's pale fills and size steps.
 const TABLE_FILLS = ['gray-50', 'gray-100', 'gray-200', 'green-bg', 'amber-bg', 'red-bg', 'blue-bg']
 const TABLE_SIZES = [['xsmall', 'XS'], ['small', 'S'], [null, 'M'], ['large', 'L'], ['xlarge', 'XL']]
-import { ROLE_TOKEN, formatDateKey } from './scene'
+import { ROLE_TOKEN, formatDateKey, yearOfKey } from './scene'
 import { SCHEMES, schemeColors } from './reading'
 import { cardGeometry } from './cardGeometry'
 import { useWheelPlacement } from './useWheelPlacement'
@@ -382,7 +382,7 @@ function ChartWheelInner({ api, pick = {}, anchor, onClose, onMode, extra = [], 
     else if (listDiff) api.setDiffAt(pick.ann.i, { [end]: { ...(listDiff[end] ?? {}), key: k } })
     else if (pick.ann?.kind === 'diff') api.setDiff(end === 'from' ? k : p.diffFrom, end === 'to' ? k : p.diffTo, p.diffSeries || undefined)
   }
-  const yearsOf = (a, b) => { const ya = parseInt(String(a), 10), yb = parseInt(String(b), 10); return Number.isFinite(ya) && Number.isFinite(yb) && ya > 1900 ? Math.abs(yb - ya) : null }
+  const yearsOf = (a, b) => { const n = Math.abs(yearOfKey(b) - yearOfKey(a)); return Number.isFinite(n) && n > 0 ? n : null }
   const endsLabel = arrowEnds.from && arrowEnds.to
     ? `${api.nameOf(arrowEnds.from)} → ${api.nameOf(arrowEnds.to)}${pick.ann?.kind === 'cagr' && yearsOf(arrowEnds.from, arrowEnds.to) ? ` (${yearsOf(arrowEnds.from, arrowEnds.to)} yrs)` : ''}`
     : 'From → to'

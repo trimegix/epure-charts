@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.3.1
+
+- **CAGR arrows on short year keys.** A category axis written `'22'`, `'FY24'`, `"'23"` or
+  `'24E'` now counts its years (`yearOfKey`, exported); before, the arrow was silently
+  dropped. Between columns that name no year at all (`'H1'`, `'Wave 2'`), an arrow asked for
+  counts one period per column instead of disappearing.
+- The data sheet's arrow ends show the same year count ("3 yrs") for these keys.
+
 ## 0.3.0
 
 - **Publishable preferences.** `configurePrefs({ seed, local, onChange })` sets where the

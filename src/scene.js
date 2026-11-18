@@ -134,9 +134,22 @@ export function yearsBetween(a, b, grain) {
   if (Number.isFinite(months)) return months / 12
   if (grain === 'quarter') return (qIndex(b.x) - qIndex(a.x)) / 4
   if (grain === 'month') return (monthIndex(b.x) - monthIndex(a.x)) / 12
-  // Year or category: the last year written in the key ('2018', 'Exit 2026').
-  const yr = k => { const m = String(k).match(/(\d{4})(?!.*\d{4})/); return m ? +m[1] : NaN }
-  return yr(b.x) - yr(a.x)
+  // Year or category: the last year written in the key ('2018', 'Exit 2026', 'FY24', '22').
+  return yearOfKey(b.x) - yearOfKey(a.x)
+}
+
+/**
+ * The year a category key names: its last four-digit year ('2018', 'Exit 2026', '2025E'),
+ * otherwise a two-digit year standing alone or after FY / an apostrophe, with an optional
+ * actual / estimate / budget / forecast letter ('22', 'FY24', "'23", '24E'). NaN otherwise.
+ */
+export function yearOfKey(k) {
+  const t = String(k ?? '').trim()
+  const four = t.match(/(\d{4})(?!.*\d{4})/)
+  if (four) return +four[1]
+  const two = t.match(/^(?:FY\s?|')?(\d{2})[AEBFP]?$/i)
+  if (two) { const y = +two[1]; return y < 70 ? 2000 + y : 1900 + y }
+  return NaN
 }
 
 function ellipsizeEnd(text, maxW, size) {
@@ -1574,6 +1587,9 @@ function buildSceneAt(spec, resolved = [], opts = {}) {
       first = at(a.from)
       last = at(a.to)
       periods = a.periods > 0 ? a.periods : first && last ? yearsBetween(first, last, grain) : 0
+      // Columns that name no year (a category axis of periods: 'H1', 'Wave 2'): one period per
+      // column between the two ends, rather than no arrow at all.
+      if (!(periods > 0) && grain === 'category' && first && last) periods = Math.abs(keys.indexOf(String(last.x)) - keys.indexOf(String(first.x)))
       sid = a.series ?? a.from.series
     } else {
       const s = series.find(x => x.id === a.series)
