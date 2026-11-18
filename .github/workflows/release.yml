@@ -1,0 +1,28 @@
+name: Release
+# On a version tag (vX.Y.Z): check, build, pack, and attach the ready-built package to a
+# GitHub release. Installing that archive runs no script and needs no git access
+# (npm 12 blocks both for git dependencies):
+#   npm install https://github.com/trimegix/epure-charts/releases/download/vX.Y.Z/epure-charts-X.Y.Z.tgz
+on:
+  push: { tags: ['v*'] }
+permissions: { contents: write }
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 22, cache: npm }
+      - run: npm ci
+      - run: npm run lint
+      - run: npm test
+      - run: npm run build
+      - run: npm run check:static
+      - name: The tag matches package.json
+        run: test "v$(node -p "require('./package.json').version")" = "$GITHUB_REF_NAME"
+      - run: npm pack --ignore-scripts
+      - name: Release notes from CHANGELOG.md
+        run: awk -v v="## ${GITHUB_REF_NAME#v}" '$0==v{on=1;next} /^## /{on=0} on' CHANGELOG.md > notes.md
+      - name: Publish the release
+        env: { GH_TOKEN: '${{ github.token }}' }
+        run: gh release create "$GITHUB_REF_NAME" "epure-charts-${GITHUB_REF_NAME#v}.tgz" --title "$GITHUB_REF_NAME" --notes-file notes.md

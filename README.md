@@ -45,10 +45,10 @@ Bankers, consultants and investors spend their nights on charts: an EBITDA bridg
 ## Quick start
 
 ```bash
-npm install github:trimegix/epure-charts
+npm install https://github.com/trimegix/epure-charts/releases/download/v0.3.0/epure-charts-0.3.0.tgz
 ```
 
-The package builds itself on install (`prepare`). Pin a release with `github:trimegix/epure-charts#v0.3.0`.
+Each release attaches the ready-built package: installing it runs no script and needs no git access (npm 12 blocks both for git dependencies). Installing from the repository (`github:trimegix/epure-charts#v0.3.0`) still works where git dependencies and their `prepare` script are allowed: the package then builds itself.
 
 The pure engine (specs, scenes, number formats, data sheet model) is also available alone, with no React or CSS import, for Node scripts and tests:
 

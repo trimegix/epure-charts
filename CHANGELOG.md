@@ -23,6 +23,9 @@
   (`withDataDefaults`, also exported), and gets no grain subtitle ("By company",
   "Annual"), which describes a catalog chart.
 - `spec.subtitle` overrides the subtitle derived from the grain; `''` or `false` removes it.
+- **Install from the release archive.** Each version tag attaches the ready-built package to
+  its GitHub release (`epure-charts-X.Y.Z.tgz`): no install script, no git access, so it
+  installs under npm 12, which blocks both for git dependencies.
 - Server rendering under React 18: no `useLayoutEffect` warning (layout effects run in the
   browser only).
 - Numbers drawn above an accent-colored bar or line read in black, like on a bridge (the
