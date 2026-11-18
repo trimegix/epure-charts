@@ -6,7 +6,8 @@
 // anywhere = action menu; click on a bar (when it has no business action), on
 // the values or the axis = format bar; settings button in the plot corner.
 // `id` names the preferences; `unit` ('M', 'x', '%'…) drives number formatting.
-import { useId, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { useId, useMemo, useRef, useState } from 'react'
+import { useIsoLayoutEffect } from './useIsoLayoutEffect.js'
 import { createPortal } from 'react-dom'
 import { buildBarhScene } from './barhScene'
 import BarhFigure from './BarhFigure.jsx'
@@ -29,7 +30,7 @@ const rowTotalOf = r => (!r ? null : r.range ? r.range[1] : Object.values(r.valu
 // static pages), else the box's width, followed with a ResizeObserver.
 function useWidth(ref, fixed) {
   const [width, setWidth] = useState(fixed ?? 0)
-  useLayoutEffect(() => {
+  useIsoLayoutEffect(() => {
     const el = ref.current
     if (!el || fixed != null) return undefined
     setWidth(Math.round(el.getBoundingClientRect().width))

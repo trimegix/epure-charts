@@ -48,8 +48,9 @@
     ".": "./dist/epure-charts.js",
     "./core": "./dist/core.js",
     "./static": "./dist/static.js",
-    "./styles.css": "./styles/charts.css",
-    "./theme.css": "./styles/tokens.css"
+    "./styles.css": "./dist/styles.css",
+    "./theme.css": "./styles/tokens.css",
+    "./theme-light.css": "./dist/theme-light.css"
   },
   "files": [
     "dist",
@@ -60,9 +61,9 @@
   ],
   "scripts": {
     "dev": "vite",
-    "build": "vite build --mode lib",
+    "build": "vite build --mode lib && node scripts/build-css.mjs",
     "build:demo": "vite build --mode demo",
-    "prepare": "vite build --mode lib",
+    "prepare": "vite build --mode lib && node scripts/build-css.mjs",
     "test": "node --import ./scripts/jsx-register.mjs --test 'src/*.test.mjs'",
     "lint": "eslint .",
     "check:words": "node scripts/forbidden-words.mjs",

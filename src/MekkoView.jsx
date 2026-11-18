@@ -5,7 +5,8 @@
 // (its label), the labels, the axis or the legend → its format bar; right-click → menu.
 // Decorations: value line (weighted mean, draggable), "100%" indicator, grand
 // total; a series can move into a data table below the axis (segment menu).
-import { useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { useMemo, useRef, useState } from 'react'
+import { useIsoLayoutEffect } from './useIsoLayoutEffect.js'
 import { IconPalette, IconLayoutBoard, IconChartBar, IconTag, IconArrowsVertical, IconLayoutList } from '@tabler/icons-react'
 import MekkoFigure from './MekkoFigure.jsx'
 import { buildMekkoScene, MEKKO_OTHER, mekkoHundredSideFromX, mekkoOtherFromY, mekkoValueFromY } from './mekkoScene.js'
@@ -29,7 +30,7 @@ const DEFAULTS = { netLines: null, mode: null, labels: null, totals: null, width
 // `fixed`: the `width` prop (no measuring: server rendering, static pages).
 function useBox(ref, fixed) {
   const [box, setBox] = useState({ width: fixed ?? 0, reserve: 0 })
-  useLayoutEffect(() => {
+  useIsoLayoutEffect(() => {
     const el = ref.current
     if (!el || fixed != null) return undefined
     const measure = () => {
@@ -53,7 +54,9 @@ const colorName = t => COLOR_NAME[t] ?? String(t ?? '').replace(/-\d+$/, '')
 // readOnly: the figure only: no format bar, menus, data sheet or per-browser preferences.
 // responsive: the SVG scales to its container (width="100%", ratio kept); dataTable: a
 // visually hidden table of the numbers next to the SVG.
-export default function MekkoView({ id = 'mekko', spec: specIn = {}, columns: columnsIn = [], format, height = 320, label = 'Mekko chart', width: widthProp, readOnly = false, responsive = false, dataTable = false }) {
+export default function MekkoView({ id = 'mekko', spec: specIn = {}, columns: columnsIn = [], format, height = 320, label = 'Mekko chart', width: widthProp, readOnly = false, responsive = false, dataTable = false, applyPrefs = false }) {
+  // readOnly + applyPrefs: the stored settings and sheet edits drawn, no editing control.
+  const plain = readOnly && !applyPrefs
   const boxRef = useRef(null)
   const { width, reserve } = useBox(boxRef, widthProp)
   const [drag, setDrag] = useState(null) // the "Other" threshold while dragging
@@ -61,11 +64,11 @@ export default function MekkoView({ id = 'mekko', spec: specIn = {}, columns: co
   const [vlDrag, setVlDrag] = useState(null) // the value line while dragging
   const prefsApi = useViewPrefs(`epure-chart-mekko-${id}`, DEFAULTS)
   const { set, update, reset, undo, canUndo } = prefsApi
-  const P = readOnly ? DEFAULTS : prefsApi.prefs
+  const P = plain ? DEFAULTS : prefsApi.prefs
   // The sheet drives the chart: columns, segments and widths come from it (source + edits).
   const sheetBase = useMemo(() => mekkoSheet.toBase(columnsIn, specIn.series ?? [], specIn), [columnsIn, specIn])
   const sheetApi = useSheet(`mekko-${id}`, sheetBase, mekkoSheet.validate)
-  const fromSheet = readOnly ? null : mekkoSheet.fromSheet(sheetApi.sheet, columnsIn, specIn.series ?? [])
+  const fromSheet = plain ? null : mekkoSheet.fromSheet(sheetApi.sheet, columnsIn, specIn.series ?? [])
   const columns = fromSheet ? fromSheet.columns : columnsIn
   const baseSpec = fromSheet ? { ...specIn, series: fromSheet.series } : specIn
   const spec = {

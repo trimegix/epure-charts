@@ -10,7 +10,8 @@
 //     first control switches objects: everything stays reachable without the gesture.
 // All entry points set the same view preferences (useReadingPrefs), per
 // browser: the figures never change.
-import { useEffect, useLayoutEffect, useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
+import { useIsoLayoutEffect } from './useIsoLayoutEffect.js'
 import { createPortal } from 'react-dom'
 import {
   IconPalette, IconChartBar, IconChartLine, IconChartArea, IconLayoutColumns, IconStack2,
@@ -148,7 +149,7 @@ export function Pop({ right, auditRight, children }) {
   const ref = useRef(null)
   const [fit, setFit] = useState({ dx: 0, maxH: null, up: false })
   const up = fit.up
-  useLayoutEffect(() => {
+  useIsoLayoutEffect(() => {
     const el = ref.current
     if (!el) return undefined
     const measure = () => {

@@ -17,7 +17,8 @@
 // brackets from the row menu, labels spanning several rows.
 // The drawing itself is GanttFigure (no hooks: server rendering); this view adds the editing
 // layer through its `part` and `children`.
-import { useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react'
+import { useIsoLayoutEffect } from './useIsoLayoutEffect.js'
 import { IconPalette, IconTimeline, IconChartBar, IconFlag, IconCalendarEvent, IconTag, IconBracketsContain, IconColumns, IconListTree } from '@tabler/icons-react'
 import GanttFigure from './GanttFigure.jsx'
 import { buildGanttScene, ganttLang, GANTT_UNITS, insertRow, duplicateRow, deleteRow, moveRow, moveRowTo, moveItem, indentRow, patchRow, patchItem, addItem, removeItem, addUnits, snapDate, unitsBetween, ganttNewKey, ganttSnapUnit, ganttNames, calendarWeeks, calendarMove, calendarRange, formatDate, parseDate } from './ganttScene.js'
@@ -70,7 +71,7 @@ const setMoved = v => { dragMoved.v = v }
 // measuring: server rendering, static pages).
 function useBox(ref, fixed) {
   const [box, setBox] = useState({ width: fixed ?? 0, reserve: 0 })
-  useLayoutEffect(() => {
+  useIsoLayoutEffect(() => {
     const el = ref.current
     if (!el || fixed != null) return undefined
     const measure = () => {
@@ -163,13 +164,15 @@ const EMPTY = []
 // readOnly: the figure only: no format bar, menus, data sheet or per-browser preferences.
 // responsive: the SVG scales to its container (width="100%", ratio kept).
 // dataTable: the dates as a visually hidden table next to the SVG.
-export default function GanttView({ id = 'gantt', spec: baseSpec = {}, rows = [], label = 'Gantt chart', width: widthProp, readOnly = false, responsive = false, dataTable = false }) {
+export default function GanttView({ id = 'gantt', spec: baseSpec = {}, rows = [], label = 'Gantt chart', width: widthProp, readOnly = false, responsive = false, dataTable = false, applyPrefs = false }) {
+  // readOnly + applyPrefs: the stored settings and sheet edits drawn, no editing control.
+  const plain = readOnly && !applyPrefs
   const boxRef = useRef(null)
   const arrowId = `gantt-arrow-${useId().replace(/:/g, '')}`
   const { width, reserve } = useBox(boxRef, widthProp)
   const prefsApi = useViewPrefs(`epure-chart-gantt-${id}`, DEFAULTS)
   const { set, update, reset, undo, canUndo } = prefsApi
-  const P = readOnly ? DEFAULTS : prefsApi.prefs
+  const P = plain ? DEFAULTS : prefsApi.prefs
   // The datasheet: the source (rows + key dates) as base, with the typed or dragged overlay
   // on top; the chart draws only what it returns.
   // The sheet follows the chart order (group bands when shown) and its status scale
@@ -199,7 +202,7 @@ export default function GanttView({ id = 'gantt', spec: baseSpec = {}, rows = []
   }, [])
   const sheetApi = useSheet(`gantt-${id}`, sheetBase, ganttValidate)
   // Read-only: the source as given (no sheet edits).
-  const fromSheet = readOnly ? { rows, events: srcEvents } : ganttSheet.fromSheet(sheetApi.sheet, rows, srcEvents, sheetOpts)
+  const fromSheet = plain ? { rows, events: srcEvents } : ganttSheet.fromSheet(sheetApi.sheet, rows, srcEvents, sheetOpts)
   // Drawn: without tasks whose typed date is in error, and without hidden rows.
   const drawn = ganttSheet.drawable(fromSheet)
   // The sheet row of a bar ("linked to sheet row n"), numbered like the grid.

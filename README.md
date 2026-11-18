@@ -59,18 +59,16 @@ import { validateSpec, buildWaterfallScene } from 'epure-charts/core'
 ```jsx
 import { ChartView } from 'epure-charts'
 import 'epure-charts/theme.css'   // default colors and fonts (skip it if you define your own)
-import 'epure-charts/styles.css'  // toolbar, menus and data sheet
+import 'epure-charts/styles.css'  // toolbar, menus and data sheet: the only stylesheet needed
 
 const spec = {
-  id: 'revenue',
-  version: 1,
-  kind: 'cartesian',
+  id: 'revenue',                  // stable: formatting and sheet edits are kept under it
   title: 'Revenue and EBITDA',
   x: { grain: 'year', range: 'all' },
   series: [
-    { id: 'rev', ref: { metric: 'revenue', source: 'actual' }, mark: 'bar', labels: 'all' },
-    { id: 'ebitda', ref: { metric: 'ebitda', source: 'actual' }, mark: 'bar' },
-    { id: 'plan', ref: { metric: 'revenue', source: 'plan' }, mark: 'line' },
+    { id: 'rev', mark: 'bar', labels: 'all' },
+    { id: 'ebitda', mark: 'bar' },
+    { id: 'plan', mark: 'line' },
   ],
 }
 
@@ -87,6 +85,8 @@ export default function App() {
 ```
 
 That chart is already fully interactive: click a bar, right-click it, double-click it.
+
+No bundler setting is needed, server rendering included (Astro, Next.js, Remix): the package imports no CSS from JavaScript, and the data sheet (its spreadsheet grid is the heaviest part) loads on its first opening, so a page of read-only charts never downloads it. A spec with series passed in (`resolved`) needs no `version`, `kind` or `ref`: those belong to a host catalog (`ChartsProvider`).
 
 ## Chart types
 
@@ -173,7 +173,7 @@ horizontal bars (`spec.rangeMarker: 'median' | 'mean'`, or `marker` per row), an
 
 ## Theming
 
-All colors and fonts are CSS custom properties (`--cat-1` … `--cat-7`, `--gray-*`, `--font`, `--font-mono`, …). Import `epure-charts/theme.css` for the defaults, or define the same variables in your own stylesheet: your values win. Light and dark themes are supported (`prefers-color-scheme` or `data-theme="dark"`).
+All colors and fonts are CSS custom properties (`--cat-1` … `--cat-7`, `--gray-*`, `--font`, `--font-mono`, …). Import `epure-charts/theme.css` for the defaults, or define the same variables in your own stylesheet: your values win. Light and dark themes are supported (`prefers-color-scheme` or `data-theme="dark"`). A page that stays light whatever the system theme imports `epure-charts/theme-light.css` instead.
 
 Semantic tokens name what a color means (`--chart-pos`, `--chart-neg`, `--chart-accent`, `--chart-neutral`, `--chart-actual`, `--chart-plan`, `--chart-hypothesis`…); each falls back on a palette color, so define only the ones you change. `--chart-fs` and `--chart-fs-note` scale the text the figures draw.
 

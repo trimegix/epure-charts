@@ -4,11 +4,12 @@
 // (selection, menus, handles, data sheet). NO layout computation here: a wrong
 // pixel is fixed in scene.js. Colors are tokens read as var(--…): the theme
 // follows without CSS recoloring.
-import { Fragment, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { Fragment, useEffect, useId, useMemo, useRef, useState } from 'react'
+import { useIsoLayoutEffect } from './useIsoLayoutEffect.js'
 import { createPortal } from 'react-dom'
 import { useCharts } from './useCharts'
 import ChartHeader from './ChartHeader'
-import { validateSpec } from './spec'
+import { validateSpec, withDataDefaults } from './spec'
 import { withDefaults } from './defaults'
 import { buildScene, buildProfileScene, formatX, ROLE_TOKEN, estimateWidth, snapDateLo } from './scene'
 import { useReadingPrefs } from './useReadingPrefs'
@@ -47,8 +48,7 @@ function useWidth(ref, fixed) {
   const obs = useRef({ el: null, ro: null })
   // No dependencies on purpose: the observed element can change between renders;
   // the guard (same element → nothing) prevents any loop.
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  useLayoutEffect(() => {
+  useIsoLayoutEffect(() => {
     if (fixed != null) return
     const el = ref.current
     if (el === obs.current.el) return
@@ -88,10 +88,12 @@ function useWidth(ref, fixed) {
 // `applyPrefs` (with readOnly): the figure as its stored view settings and sheet edits
 // draw it (a published format, see configurePrefs), still without any editing control.
 export default function ChartView({
-  spec: baseSpec, currentId, onSelectSeries, selectedId, headerSlot, reading: readingIn = true,
+  spec: specIn, currentId, onSelectSeries, selectedId, headerSlot, reading: readingIn = true,
   resolved: provided, format: formatProp, bare = false, height: fixedHeight, legend = true, menuSlot = null,
   width: widthProp, readOnly = false, responsive = false, dataTable = false, applyPrefs = false,
 }) {
+  // Series passed in: the spec needs no catalog fields (version, kind, refs).
+  const baseSpec = useMemo(() => (provided ? withDataDefaults(specIn) : specIn), [specIn, provided])
   const reading = readOnly ? false : readingIn
   const applied = !!reading || (readOnly && applyPrefs)
   const boxRef = useRef(null)
@@ -231,9 +233,10 @@ export default function ChartView({
     })
   }, [hasApi, clipId])
   // The subtitle states the grain; a date axis (YYYY-MM-DD categories) gets none.
-  // `spec.subtitle` overrides the subtitle derived from the grain ('' or false: none).
+  // `spec.subtitle` overrides the subtitle derived from the grain ('' or false: none). The
+  // grain subtitle describes a catalog chart; series passed in (`resolved`) get none.
   const subtitle = baseSpec.subtitle !== undefined ? (baseSpec.subtitle || undefined)
-    : scene?.axes?.x?.kind === 'date' ? undefined : GRAIN_SUB[baseSpec.x?.grain ?? spec.x?.grain] || undefined
+    : provided || scene?.axes?.x?.kind === 'date' ? undefined : GRAIN_SUB[baseSpec.x?.grain ?? spec.x?.grain] || undefined
 
   // Profile chart: lines rotated by 90°, one row
   // per category (tall enough to read), lines only.

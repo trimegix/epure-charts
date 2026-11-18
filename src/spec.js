@@ -110,6 +110,22 @@ const BOUND_RE = /^\d{4}(-Q[1-4]|-\d{2})?$/
  *   entries, merged over DEFAULT_SOURCE_ROLES.
  * @returns {string[]} errors as 'path: message'; empty when valid
  */
+/**
+ * A spec for a chart whose series are passed in (ChartView `resolved`): fills what only a
+ * catalog needs (version, kind, a `ref` per series, here the series itself). A spec that
+ * already carries them is returned unchanged.
+ */
+export function withDataDefaults(spec) {
+  if (!spec || typeof spec !== 'object') return spec
+  const series = Array.isArray(spec.series) ? spec.series : []
+  const needs = spec.version == null || spec.kind == null || series.some(s => s && typeof s === 'object' && s.ref == null)
+  if (!needs) return spec
+  return {
+    version: SPEC_VERSION, kind: 'cartesian', ...spec,
+    series: series.map(s => (s && typeof s === 'object' && s.ref == null ? { ...s, ref: { metric: String(s.id), source: 'data' } } : s)),
+  }
+}
+
 export function validateSpec(spec, opts = {}) {
   const errors = []
   const err = (path, msg) => errors.push(`${path}: ${msg}`)

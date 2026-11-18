@@ -7,7 +7,8 @@
 // a label (Reset in the labels menu), the edge of a bubble (size), the bubble
 // of the size legend (its value), a linear trend (it becomes a partition).
 // Shift+click on a point: its whole group (color, order, labels).
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
+import { useIsoLayoutEffect } from './useIsoLayoutEffect.js'
 import { IconPalette, IconChartScatter, IconChartBubble, IconTag, IconArrowsHorizontal, IconArrowsVertical, IconLayoutList, IconTrendingUp, IconLine, IconSquare } from '@tabler/icons-react'
 import ScatterFigure from './ScatterFigure.jsx'
 import { buildScatterScene, normPartitions, constrainAngle, bubbleScaleFromDrag, snapEndpoint, snapValue, sizeLegendFromDrag } from './scatterScene.js'
@@ -40,7 +41,7 @@ const newKey = () => `p${Math.random().toString(36).slice(2, 7)}`
 // static pages), else the box's width, followed with a ResizeObserver.
 function useWidth(ref, fixed) {
   const [w, setW] = useState(fixed ?? 0)
-  useLayoutEffect(() => {
+  useIsoLayoutEffect(() => {
     const el = ref.current
     if (!el || fixed != null) return undefined
     setW(Math.round(el.getBoundingClientRect().width))
@@ -65,17 +66,19 @@ function track(e, onMove) {
 //   it reads a shared scale but never publishes its own extent.
 // responsive: the SVG scales to its container (width="100%", ratio kept).
 // dataTable: the points as a visually hidden table next to the SVG.
-export default function ScatterView({ id = 'scatter', spec: baseSpec = {}, points: pointsIn = [], format, formatX: formatXIn, formatSize, height = 320, label = 'Scatter chart', width: widthProp, readOnly = false, responsive = false, dataTable = false }) {
+export default function ScatterView({ id = 'scatter', spec: baseSpec = {}, points: pointsIn = [], format, formatX: formatXIn, formatSize, height = 320, label = 'Scatter chart', width: widthProp, readOnly = false, responsive = false, dataTable = false, applyPrefs = false }) {
+  // readOnly + applyPrefs: the stored settings and sheet edits drawn, no editing control.
+  const plain = readOnly && !applyPrefs
   const boxRef = useRef(null)
   const movedRef = useRef(false)
   const width = useWidth(boxRef, widthProp)
   const prefsApi = useViewPrefs(`epure-chart-scatter-${id}`, DEFAULTS)
   const { set, update, reset, undo, canUndo } = prefsApi
-  const P = readOnly ? DEFAULTS : prefsApi.prefs
+  const P = plain ? DEFAULTS : prefsApi.prefs
   // The sheet drives the chart: the drawn points are the ones it returns (source + edits).
   const sheetBase = useMemo(() => scatterSheet.toBase(pointsIn, baseSpec), [pointsIn, baseSpec])
   const sheetApi = useSheet(`scatter-${id}`, sheetBase, scatterSheet.validate)
-  const points = readOnly ? pointsIn : scatterSheet.fromSheet(sheetApi.sheet, pointsIn)
+  const points = plain ? pointsIn : scatterSheet.fromSheet(sheetApi.sheet, pointsIn)
   // Dates typed in X: the X axis becomes a date axis (month-formatted ticks).
   const dateX = !readOnly && sheetApi.sheet.rows.some(r => /^\s*\d{4}-\d{2}-\d{2}\s*$/.test(r.cells[0]?.raw ?? ''))
   const formatX = dateX ? v => new Date(v * 864e5).toLocaleDateString('en-GB', { month: 'short', year: 'numeric', timeZone: 'UTC' }) : formatXIn

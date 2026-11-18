@@ -74,8 +74,21 @@ test('readOnly + applyPrefs draws the published settings, without controls', asy
 test('spec.subtitle overrides the grain subtitle', async () => {
   const { createElement: h } = await import('react')
   const E = await import('./index.js')
-  const view = subtitle => renderToString(h(E.ChartsProvider, { value: {} }, h(E.ChartView, { width: 400, spec: { id: 'sub', version: 1, kind: 'cartesian', x: { grain: 'category' }, ...(subtitle !== undefined ? { subtitle } : {}), series: [{ id: 'v', ref: { metric: 'v', source: 'd' } }] }, resolved: [{ label: 'v', points: [{ x: 'a', y: 1 }] }], format: v => String(v) })))
-  assert.match(view(undefined), /By company/)
-  assert.doesNotMatch(view(false), /By company/)
+  const series = [{ label: 'v', points: [{ x: 'a', y: 1 }] }]
+  const view = (subtitle, data = true) => renderToString(h(E.ChartsProvider, { value: { resolveSeries: () => series } }, h(E.ChartView, { width: 400, spec: { id: 'sub', version: 1, kind: 'cartesian', x: { grain: 'category' }, ...(subtitle !== undefined ? { subtitle } : {}), series: [{ id: 'v', ref: { metric: 'v', source: 'd' } }] }, ...(data ? { resolved: series } : {}), format: v => String(v) })))
+  assert.match(view(undefined, false), /By company/) // a catalog chart keeps its grain subtitle
+  assert.doesNotMatch(view(undefined), /By company/) // series passed in: none
+  assert.doesNotMatch(view(false, false), /By company/)
   assert.match(view('Revenue by region'), /Revenue by region/)
+})
+
+test('series passed in: a minimal spec is enough (no version, kind or ref)', async () => {
+  const { createElement: h } = await import('react')
+  const E = await import('./index.js')
+  const out = renderToString(h(E.ChartView, { width: 400, spec: { id: 'min', x: { grain: 'category' }, series: [{ id: 'v', labels: 'all' }] }, resolved: [{ label: 'v', points: [{ x: 'a', y: 7 }] }], format: v => String(v) }))
+  assert.doesNotMatch(out, /invalid/)
+  assert.match(out, />7</)
+  assert.deepEqual(E.withDataDefaults({ series: [{ id: 'v' }] }).series[0].ref, { metric: 'v', source: 'data' })
+  const full = { version: 1, kind: 'cartesian', series: [{ id: 'v', ref: { metric: 'm', source: 's' } }] }
+  assert.equal(E.withDataDefaults(full), full)
 })

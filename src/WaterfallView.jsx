@@ -13,7 +13,8 @@
 // business action via onSelectStep) = the object's format bar. Double-click =
 // steps table. Dragging a connector onto an earlier column: the bar restarts from
 // that level and the whole bridge is recomputed. Data table under the axis (spec.table).
-import { useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { useMemo, useRef, useState } from 'react'
+import { useIsoLayoutEffect } from './useIsoLayoutEffect.js'
 import { applyBridgeEdits } from './bridgeEdits'
 import { useCharts } from './useCharts'
 import ChartHeader from './ChartHeader'
@@ -36,7 +37,7 @@ import { tok, labelTextStyle, labelPrefs } from './customStyle.js'
 // static pages), else the box's width, followed with a ResizeObserver.
 function useWidth(ref, fixed) {
   const [width, setWidth] = useState(fixed ?? 0)
-  useLayoutEffect(() => {
+  useIsoLayoutEffect(() => {
     const el = ref.current
     if (!el || fixed != null) return undefined
     setWidth(Math.round(el.getBoundingClientRect().width))
@@ -48,13 +49,16 @@ function useWidth(ref, fixed) {
 }
 
 // width: fixed drawing width (no measuring; also the first width on hydration).
-// readOnly: the figure only: no header, format bar, menus, data sheet nor sheet edits.
+// readOnly: the figure only: no header, format bar, menus, data sheet nor sheet edits
+// (with applyPrefs: the host's settings and the sheet edits drawn, still no control).
 // responsive: the SVG scales to its container (width="100%", ratio kept).
 // dataTable: the figure's numbers as a visually hidden table next to the SVG.
-export default function WaterfallView({ bridge: providedBridge, spec, currentId, scope, context, selectedStep, onSelectStep, bare = false, headerSlot, height: fixedHeight, api: apiIn, floatMenu = false, width: widthProp, readOnly = false, responsive = false, dataTable = false }) {
+export default function WaterfallView({ bridge: providedBridge, spec, currentId, scope, context, selectedStep, onSelectStep, bare = false, headerSlot, height: fixedHeight, api: apiIn, floatMenu = false, width: widthProp, readOnly = false, responsive = false, dataTable = false, applyPrefs = false }) {
   const boxRef = useRef(null)
   const width = useWidth(boxRef, widthProp)
-  const api = readOnly ? undefined : apiIn
+  // readOnly + applyPrefs: the host's settings (api) and the sheet edits drawn, no control.
+  const plain = readOnly && !applyPrefs
+  const api = plain ? undefined : apiIn
   const [hover, setHover] = useState(null)
   const [linkDrag, setLinkDrag] = useState(null) // { to, src } while dragging a connector
   const [vlDrag, setVlDrag] = useState(null) // the value line while dragging
@@ -71,9 +75,9 @@ export default function WaterfallView({ bridge: providedBridge, spec, currentId,
   // backwards; in a downward bridge, a positive movement is subtracted (sheetAdapters).
   const sheetBase = useMemo(() => bridgeSheet.toBase(raw, { backCalc: !!spec.backCalc }), [raw, spec.backCalc])
   const sheetApi = useSheet(`bridge-${spec.id}`, sheetBase, sh => ({ ...bridgeSheet.validate(sh), ...bridgeSheet.closing(sh, raw, { netLines: spec.netLines }) }))
-  const fromSheet = readOnly ? raw : bridgeSheet.fromSheet(sheetApi.sheet, raw, { direction: spec.direction, netLines: spec.netLines })
+  const fromSheet = plain ? raw : bridgeSheet.fromSheet(sheetApi.sheet, raw, { direction: spec.direction, netLines: spec.netLines })
   const sheetKey = JSON.stringify(sheetApi.edits)
-  const bridge = useMemo(() => applyBridgeEdits(fromSheet, spec), [raw, spec, sheetKey, readOnly]) // eslint-disable-line react-hooks/exhaustive-deps
+  const bridge = useMemo(() => applyBridgeEdits(fromSheet, spec), [raw, spec, sheetKey, plain]) // eslint-disable-line react-hooks/exhaustive-deps
   // The sheet can ask for the computed start ("e" typed on the first row).
   const sceneSpec = useMemo(() => {
     let sp = bridge.backCalc && !spec.backCalc ? { ...spec, backCalc: true } : spec

@@ -13,7 +13,8 @@
 //   · after a manipulation (dragged handle, changed scale, edited series), the chart moves
 //     under the bar: on release (never during the drag), if it now covers a label, a tick
 //     or a line, it is re-placed from the marks read back from the SVG.
-import { useLayoutEffect, useState } from 'react'
+import { useState } from 'react'
+import { useIsoLayoutEffect } from './useIsoLayoutEffect.js'
 import { barSpot, coverOf, lineMarks } from './barPlacement.js'
 
 // A format bar never stretches across a whole large card: beyond that, its controls fold ("⋯").
@@ -28,7 +29,7 @@ export function useWheelPlacement(ref, anchor, mode) {
   const [pos, setPos] = useState(null)
   const { x: ax, y: ay, align } = anchor
   const box = anchor.box
-  useLayoutEffect(() => {
+  useIsoLayoutEffect(() => {
     const el = ref.current
     if (!el) return undefined
     // The tracked object: the clicked element (targetMark), otherwise what lies under the anchor point.

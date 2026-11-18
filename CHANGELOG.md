@@ -9,7 +9,22 @@
   returns the current state. Default behavior unchanged (per browser).
 - Views: `applyPrefs` with `readOnly` draws the stored settings and sheet edits, still without
   any editing control (`ChartView`, `BarhView`, `TableView`).
+- Views: `applyPrefs` on `PieView`, `ScatterView`, `MekkoView`, `GanttView` and
+  `WaterfallView` as well.
+- **Clean install, no bundler setting.** `epure-charts/styles.css` is now built
+  (`dist/styles.css`) and includes the data sheet grid styles (Jspreadsheet CE, jSuites):
+  the package no longer imports CSS from JavaScript, so server renderers (Astro, Next.js)
+  load it as is. Import `epure-charts/styles.css`, as before; nothing else.
+- The data sheet grid loads on its first opening (its own chunk): read-only pages never
+  download it. `DataSheet` keeps its props; it shows a short loading state.
+- `epure-charts/theme-light.css`: the default tokens, light only, for pages that do not
+  follow the system theme.
+- Series passed in (`ChartView` `resolved`): the spec needs no `version`, `kind` or `ref`
+  (`withDataDefaults`, also exported), and gets no grain subtitle ("By company",
+  "Annual"), which describes a catalog chart.
 - `spec.subtitle` overrides the subtitle derived from the grain; `''` or `false` removes it.
+- Server rendering under React 18: no `useLayoutEffect` warning (layout effects run in the
+  browser only).
 - Numbers drawn above an accent-colored bar or line read in black, like on a bridge (the
   accent is a fill color, often too light for text).
 

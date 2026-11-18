@@ -11,7 +11,8 @@
 // Ctrl+Alt+arrows duplicates the selected row or column next to it.
 // A cell can be unlinked from the sheet (free text, marked "overwritten"); "Text from
 // data sheet" or Reset links it again.
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
+import { useIsoLayoutEffect } from './useIsoLayoutEffect.js'
 import { IconPalette, IconTable, IconColumns, IconLayoutRows, IconSquare } from '@tabler/icons-react'
 import { buildTableScene, nextInsertKey, markEdit, resizeTableWidths, resizeTableRowHeight, LABEL_COL, TOTAL_ROW } from './tableScene.js'
 import { setCell } from './sheetModel.js'
@@ -76,7 +77,7 @@ const styleLabel = (font, pt, tier) => `Style: ${[font ? fontName(font) : tier &
 // static pages), else the box's width, followed with a ResizeObserver.
 function useWidth(ref, fixed) {
   const [w, setW] = useState(fixed ?? 0)
-  useLayoutEffect(() => {
+  useIsoLayoutEffect(() => {
     const el = ref.current
     if (!el || fixed != null) return undefined
     setW(Math.round(el.getBoundingClientRect().width))

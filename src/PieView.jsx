@@ -6,7 +6,8 @@
 // Handles (selected or hovered chart): rotation on the rim, hole size;
 // selected slice: four handles on its edges, each rotates the chart;
 // outside labels can be dragged (Reset in the labels menu).
-import { useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { useMemo, useRef, useState } from 'react'
+import { useIsoLayoutEffect } from './useIsoLayoutEffect.js'
 import { IconPalette, IconChartPie, IconChartDonut, IconTag, IconLayoutList } from '@tabler/icons-react'
 import PieFigure from './PieFigure.jsx'
 import { buildPieScene, pieStartFromPoint, pieStartFromHandle, pieHoleFromPoint } from './pieScene.js'
@@ -30,7 +31,7 @@ const DEFAULTS = { donut: null, sort: null, start: null, direction: null, center
 // static pages), else the box's width, followed with a ResizeObserver.
 function useWidth(ref, fixed) {
   const [w, setW] = useState(fixed ?? 0)
-  useLayoutEffect(() => {
+  useIsoLayoutEffect(() => {
     const el = ref.current
     if (!el || fixed != null) return undefined
     setW(Math.round(el.getBoundingClientRect().width))
@@ -53,13 +54,15 @@ function track(e, onMove, onEnd) {
 // width: fixed drawing width (no measuring; also the first width on hydration).
 // readOnly: the figure only: no format bar, menus, data sheet or per-browser preferences.
 // responsive: the SVG scales to its container (width="100%", ratio kept).
-export default function PieView({ id = 'pie', spec: baseSpec = {}, slices: slicesIn = [], format, height = 280, label = 'Pie chart', width: widthProp, readOnly = false, responsive = false, dataTable = false }) {
+export default function PieView({ id = 'pie', spec: baseSpec = {}, slices: slicesIn = [], format, height = 280, label = 'Pie chart', width: widthProp, readOnly = false, responsive = false, dataTable = false, applyPrefs = false }) {
+  // readOnly + applyPrefs: the stored settings and sheet edits drawn, no editing control.
+  const plain = readOnly && !applyPrefs
   const boxRef = useRef(null)
   const movedRef = useRef(false)
   const width = useWidth(boxRef, widthProp)
   const prefsApi = useViewPrefs(`epure-chart-pie-${id}`, DEFAULTS)
   const { set, update, reset, undo, canUndo } = prefsApi
-  const P = readOnly ? DEFAULTS : prefsApi.prefs
+  const P = plain ? DEFAULTS : prefsApi.prefs
   const spec = {
     ...baseSpec,
     ...Object.fromEntries(Object.entries(P).filter(([k, v]) => v != null && !['explode', 'colors'].includes(k))),
@@ -68,7 +71,7 @@ export default function PieView({ id = 'pie', spec: baseSpec = {}, slices: slice
   // The sheet drives the chart: the drawn slices are the ones it returns (source + edits).
   const sheetBase = useMemo(() => pieSheet.toBase(slicesIn), [slicesIn])
   const sheetApi = useSheet(`pie-${id}`, sheetBase, pieSheet.validate)
-  const slices = readOnly ? slicesIn : pieSheet.fromSheet(sheetApi.sheet, slicesIn)
+  const slices = plain ? slicesIn : pieSheet.fromSheet(sheetApi.sheet, slicesIn)
   const data = slices.map(s => (P.colors?.[s.key] ? { ...s, color: P.colors[s.key] } : s))
   const specKey = JSON.stringify(spec)
   const scene = useMemo(() => (width > 0 ? buildPieScene(spec, data, { width, height, format }) : null), [specKey, data, width, height, format]) // eslint-disable-line react-hooks/exhaustive-deps
