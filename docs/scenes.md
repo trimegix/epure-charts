@@ -66,8 +66,9 @@ asked for and did not draw, with the reason: a CAGR whose end has no value, whos
 not both positive, or a first-to-last CAGR on a category axis; a difference arrow whose start is
 zero. Nothing is hidden for lack of room. `ChartView` logs these warnings once in development
 (`process.env.NODE_ENV !== 'production'`), and also warns when stored or published settings hide
-an arrow the spec asks for, or when several charts share one settings key (the same `spec.id`
-with different specs: give each chart its own id).
+an arrow the spec asks for (settings saved whole by an earlier version), or when several charts
+share one settings key (the same `spec.id` with different specs: they share the user's changes;
+give each chart its own id).
 
 ## Empty scenes
 
