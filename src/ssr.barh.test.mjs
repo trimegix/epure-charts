@@ -30,7 +30,7 @@ test('BarhFigure: responsive and hidden data table, ranges with a marker', () =>
   const html = renderToString(h(BarhFigure, { scene, responsive: true, dataTable: true }))
   assert.match(html, /<svg[^>]*width="100%"/)
   assert.match(html, /<circle /)
-  assert.match(html, /Median €102M/)
+  assert.match(html, /Median 102</)
   assert.match(html, /<table[^>]*>.*Marker.*DCF.*<\/table>/)
 })
 

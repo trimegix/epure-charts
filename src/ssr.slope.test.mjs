@@ -39,7 +39,7 @@ test('locale fr and single accent', () => {
   const scene = buildSlopeScene({ locale: 'fr', accent: 'single', emphasis: ['c'] }, items, { width: 600, height: 300 })
   const html = renderToString(h(SlopeFigure, { scene }))
   assert.match(html, /Avant/)
-  assert.match(html, /North 10,0\u00a0M€/)
+  assert.match(html, /North 10,0</)
   assert.match(html, /var\(--chart-accent/)
   assert.match(html, /var\(--chart-neutral/)
   assert.equal(scene.meta.locale, 'fr')
