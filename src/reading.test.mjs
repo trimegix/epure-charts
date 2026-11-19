@@ -144,3 +144,24 @@ test('a spec difference arrow keeps its mode, level and series in the live view'
   // Moved bounds: a plain arrow, without the spec's level.
   assert.equal(applyReading(s, { ...d, diffFrom: '2019' }).annotations.find(x => x.type === 'diff').level, undefined)
 })
+
+test('CAGR arrows: every one is kept, each on the series of its ends', () => {
+  const B = YEARS.map(([x, y]) => [x, y * 2 + 10])
+  const on = (f, t, sid) => ({ type: 'cagr', from: { key: f, series: sid }, to: { key: t, series: sid } })
+  const s = spec({ annotations: [on('2017', '2019', 'b'), on('2019', '2021', 'b'), on('2020', '2022', 'b')] })
+  const d = readingDefaults(s)
+  assert.equal(d.cagrs.length, 3, 'no cap at two')
+  assert.deepEqual(d.cagrs[0], { from: '2017', to: '2019', fromSeries: 'b', toSeries: 'b' })
+  const r = [res('A', YEARS), res('B', B)]
+  const texts = sc => sc.annotations.filter(a => a.type === 'cagr').map(a => a.text)
+  const still = texts(buildScene(s, r, { width: 640, height: 300 }))
+  assert.equal(still.length, 3)
+  assert.deepEqual(texts(buildScene(applyReading(s, d), r, { width: 640, height: 300 })), still)
+  // The same settings published and applied to a spec that no longer carries the arrows:
+  // rebuilt on series b, not on the first series that has a number.
+  const bare = spec({ annotations: [] })
+  assert.deepEqual(texts(buildScene(applyReading(bare, { ...readingDefaults(bare), cagrs: d.cagrs }), r, { width: 640, height: 300 })), still)
+  // An `a.series` CAGR (both ends): its series is kept as well.
+  assert.deepEqual(readingDefaults(spec({ annotations: [{ type: 'cagr', series: 'b', from: { key: '2017' }, to: { key: '2022' } }] })).cagrs,
+    [{ from: '2017', to: '2022', fromSeries: 'b', toSeries: 'b' }])
+})
