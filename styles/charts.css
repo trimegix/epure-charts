@@ -789,8 +789,10 @@
 .chart-engine-box:hover .chart-mekko-other, .chart-mekko-other:focus-visible, .chart-mekko-other.is-on { opacity: 1; }
 
 /* A single row, always (never two lines that would cover the object): at reduced width,
-   values are truncated with "…"; the object picker, "+" and × keep their size. */
-.chart-bar > .chart-bar__slot { min-width: 0; flex-shrink: 1; }
+   values are truncated with "…"; the object picker, "+" and × keep their size. A control
+   never shrinks below a square button (its icon or swatch stays whole): the bar keeps a
+   minimum width (barRoom) and folds its controls behind "⋯" before that. */
+.chart-bar > .chart-bar__slot { min-width: 28px; flex-shrink: 1; }
 .chart-bar > .chart-bar__slot.is-object, .chart-bar > .chart-bar__slot:has(> .chart-bar__ctl.is-icon) { flex-shrink: 0; }
 .chart-bar > .chart-bar__slot > .chart-bar__ctl { max-width: 100%; overflow: hidden; }
 .chart-bar > :not(.chart-bar__slot) { flex-shrink: 0; }

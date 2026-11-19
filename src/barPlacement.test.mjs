@@ -84,3 +84,22 @@ test('compact level: a value drops its name only if it stands on its own', () =>
   // Full level: nothing changes.
   assert.equal(compactValue('Year: FY Apr', 0), 'Year: FY Apr')
 })
+
+test('barRoom: a format bar keeps a minimum width whatever the chart, inside the window', async () => {
+  const { barRoom, BAR_MIN, BAR_MAX } = await import('./barPlacement.js')
+  assert.equal(BAR_MIN, 360)
+  // A 200 px small multiple: the bar overhangs the card instead of crushing its buttons.
+  assert.equal(barRoom(200 - 16, 1280), 360)
+  assert.equal(barRoom(0, 1280), 360)
+  assert.equal(barRoom(600, 1280), 600, 'a wide card: its own room')
+  assert.equal(barRoom(2000, 2400), BAR_MAX)
+  assert.equal(barRoom(184, 320), 304, 'a phone: the window, minus its margins')
+})
+
+test('a 200 px chart: the bar is placed inside the window, not inside the card', () => {
+  const box = { left: 1000, right: 1200, top: 100, bottom: 270 }
+  const T = { x: 1100, y: 150, w: 20, h: 60, weight: 1000 }
+  const { left } = barSpot({ T, box, w: 360, h: 30, vw: 1280, vh: 800 })
+  assert.ok(left >= 8 && left + 360 <= 1280 - 8, `inside the window (${left})`)
+  assert.ok(left < T.x + T.w && left + 360 > T.x, 'still beside its object')
+})
