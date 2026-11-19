@@ -40,6 +40,8 @@ export function schemeColors(format) {
   return SCHEMES[format?.scheme] ?? null
 }
 
+const withoutKeys = (o, keys) => Object.fromEntries(Object.entries(o).filter(([k]) => !keys.includes(k)))
+
 const OWNED = new Set(['cagr', 'totals', 'average', 'diff'])
 const owned = a => OWNED.has(a?.type) || (a?.type === 'valueLine' && a.user)
 
@@ -63,6 +65,8 @@ export function readingDefaults(spec) {
     average: anns.find(a => a.type === 'average')?.series ?? '',
     diffFrom: diff ? String(diff.from) : '',
     diffTo: diff ? String(diff.to) : '',
+    // The arrow of ONE series (level difference), as the spec sets it.
+    diffSeries: diff?.series ?? '',
     hidden: [...(spec?.x?.hidden ?? [])].map(String),
     series: {},
     bars: '',
@@ -71,7 +75,9 @@ export function readingDefaults(spec) {
     // Magnitude of an amount: null (the host's), 'k', 'M', 'B'.
     magnitude: null,
     // Per-object formatting (axes, labels, legend, gridlines…): see scene.js `spec.format`.
-    format: {},
+    // The spec's difference arrow mode ('both', 'pct', 'pctEnd') is the chart's starting mode:
+    // the menu and the double-click change it from there.
+    format: diff?.mode && diff.mode !== 'abs' ? { diffMode: diff.mode } : {},
     // Label side of the value line set by the reading.
     valueLineSide: 'right',
     // The datasheet (sheetModel): typed edits, never the source data.
@@ -102,6 +108,10 @@ export function applyReading(spec, prefs) {
   const cagrs = (prefs.cagrs ?? []).filter(c => c?.from && c?.to && c.from !== c.to)
   // The spec's original CAGRs keep their target series when their bounds did not move.
   const origin = (spec.annotations ?? []).filter(a => a.type === 'cagr' && a.from && a.to)
+  // The spec's difference arrow keeps its own fields (level, label…) while its bounds do not move;
+  // its mode is the reading's (format.diffMode, seeded by readingDefaults).
+  const diffOrigin = (spec.annotations ?? []).find(a => a.type === 'diff'
+    && String(a.from) === prefs.diffFrom && String(a.to) === prefs.diffTo)
   return {
     ...spec,
     x: { ...spec.x, hidden: [...(prefs.hidden ?? [])], ...(!time && (prefs.sort === 'desc' || prefs.sort === 'asc') ? { sort: prefs.sort } : {}) },
@@ -136,7 +146,7 @@ export function applyReading(spec, prefs) {
       ...(prefs.totals && (BAR_MODES.includes(prefs.bars) ? prefs.bars : spec.bars) === 'stacked' ? [{ type: 'totals' }] : []),
       ...(ids.has(prefs.average) ? [{ type: 'average', series: prefs.average }] : []),
       ...(prefs.diffFrom && prefs.diffTo && prefs.diffFrom !== prefs.diffTo
-        ? [{ type: 'diff', from: prefs.diffFrom, to: prefs.diffTo, ...(ids.has(prefs.diffSeries) ? { series: prefs.diffSeries } : {}) }] : []),
+        ? [{ ...(diffOrigin ? withoutKeys(diffOrigin, ['mode', 'series']) : {}), type: 'diff', from: prefs.diffFrom, to: prefs.diffTo, ...(ids.has(prefs.diffSeries) ? { series: prefs.diffSeries } : {}) }] : []),
       ...(vl != null ? [{ type: 'valueLine', user: true, value: vl, labelAt: prefs.valueLineSide === 'left' ? 'left' : 'right', ...(prefs.valueLineLabel ? { label: prefs.valueLineLabel } : {}) }] : []),
     ],
   }

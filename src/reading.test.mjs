@@ -121,3 +121,26 @@ test('labels set on several series all survive the reading layer (stacked)', () 
   const mixed = { ...s, series: [{ ...s.series[0], labels: 'last' }, { ...s.series[1], labels: 'none' }, s.series[2]] }
   assert.deepEqual(applyReading(mixed, readingDefaults(mixed)).series.map(x => x.labels), ['last', 'none', 'all'])
 })
+
+test('a spec difference arrow keeps its mode, level and series in the live view', () => {
+  const d0 = { type: 'diff', from: '2018', to: '2022', mode: 'both', level: true, series: 'a' }
+  const s = spec({ annotations: [d0] })
+  const d = readingDefaults(s)
+  assert.equal(d.format.diffMode, 'both', 'the mode is the reading\'s starting mode')
+  assert.equal(d.diffSeries, 'a')
+  const out = applyReading(s, d)
+  const a = out.annotations.find(x => x.type === 'diff')
+  assert.equal(a.level, true)
+  assert.equal(a.series, 'a')
+  const r = [res('A', YEARS), res('B', YEARS)]
+  const live = buildScene(out, r, { width: 640, height: 300 }).annotations.find(x => x.type === 'diff')
+  const still = buildScene(s, r, { width: 640, height: 300 }).annotations.find(x => x.type === 'diff')
+  assert.match(live.text, /^\+\S+ \(\+23%\)$/, 'value and %')
+  assert.equal(live.text, still.text)
+  assert.equal(live.style, still.style, 'a level arrow stays a level arrow')
+  // The menu changes the mode from there ('Value' clears format.diffMode).
+  const abs = applyReading(s, { ...d, format: {} })
+  assert.doesNotMatch(buildScene(abs, r, { width: 640, height: 300 }).annotations.find(x => x.type === 'diff').text, /%/)
+  // Moved bounds: a plain arrow, without the spec's level.
+  assert.equal(applyReading(s, { ...d, diffFrom: '2019' }).annotations.find(x => x.type === 'diff').level, undefined)
+})
