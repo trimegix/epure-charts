@@ -1,7 +1,8 @@
 // ─── Chart display preferences: a small store, one key per chart ────────────
 // A VIEW preference, per browser (localStorage) by default. It is never a fact about
 // the underlying data. A host can publish it instead (configurePrefs: seed + onChange).
-import { useSyncExternalStore } from 'react'
+import { useEffect, useId, useSyncExternalStore } from 'react'
+import { devWarn, isDev } from './devWarn.js'
 
 const listeners = new Set()
 const cache = new Map()
@@ -121,8 +122,25 @@ if (typeof document !== 'undefined' && !globalThis.__epureChartsUndo) {
   })
 }
 
+// Development: two charts mounted on the same key with different defaults (two specs sharing an
+// id, small multiples built from one spec) read ONE set of preferences, the first one's.
+const owners = new Map() // key → Map(instance → defaults as JSON)
+function useSharedKeyCheck(key, defaults) {
+  const me = useId()
+  const sig = isDev() ? JSON.stringify(defaults) : null
+  useEffect(() => {
+    if (sig == null) return undefined
+    const mine = owners.get(key) ?? new Map()
+    owners.set(key, mine)
+    mine.set(me, sig)
+    if (new Set(mine.values()).size > 1) devWarn(`several charts share the settings key "${key}" with different specs: they all draw the first one's settings. Give each spec its own id.`)
+    return () => { mine.delete(me); if (!mine.size) owners.delete(key) }
+  }, [key, me, sig])
+}
+
 /** Returns `[prefs, setPref, reset, update, latest]`: prefs persisted under `key`, completed by `defaults`; `reset` restores the defaults; `update(name, fn)` writes from the most recent state. */
 export function useChartPrefs(key, defaults) {
+  useSharedKeyCheck(key, defaults)
   // The same snapshot on the server side (static rendering, tests): the store is process-local.
   const prefs = useSyncExternalStore(subscribe, () => read(key, defaults), () => read(key, defaults))
   const setPref = (name, value) => write(key, { ...read(key, defaults), [name]: value })

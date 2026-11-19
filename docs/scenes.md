@@ -59,6 +59,16 @@ The figure never draws the provenance: the page writes the title and the footer 
 a deck exporter the source line), so it travels with the data instead of being baked into
 the drawing.
 
+## Annotations left out
+
+A cartesian scene (`buildScene`) lists in `scene.warnings` (strings) every annotation it was
+asked for and did not draw, with the reason: a CAGR whose end has no value, whose values are
+not both positive, or a first-to-last CAGR on a category axis; a difference arrow whose start is
+zero. Nothing is hidden for lack of room. `ChartView` logs these warnings once in development
+(`process.env.NODE_ENV !== 'production'`), and also warns when stored or published settings hide
+an arrow the spec asks for, or when several charts share one settings key (the same `spec.id`
+with different specs: give each chart its own id).
+
 ## Empty scenes
 
 `scene.empty === true`: nothing to draw (no data). Figures render nothing; a page shows its
