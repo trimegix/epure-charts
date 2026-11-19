@@ -39,11 +39,16 @@ test('a series CAGR on a stacked chart starts at its own segment', () => {
   assert.equal(c.ya, seg.y - 4, 'at the top of its segment, not of the stack')
 })
 
-test('a CAGR without series measures the first bar series: drawn on its segment', () => {
+test('stacked: a CAGR that names no series measures the column total', () => {
   const c = cagrOf(scene(spec({ type: 'cagr', from: { key: '2022' }, to: { key: '2025' } })))
-  assert.equal(c.text, `CAGR ${pct((150 / 100) ** (1 / 3) - 1)}`, 'the rate is unchanged')
-  const sc = scene(spec({ type: 'cagr', from: { key: '2022' }, to: { key: '2025' } }))
-  assert.equal(c.ya, sc.bars.find(b => b.seriesId === 'a' && b.key === '2022').y - 4)
+  assert.equal(c.text, `CAGR ${pct(((150 + 80) / (100 + 50)) ** (1 / 3) - 1)}`)
+  assert.equal(c.of, 'total')
+  // Naming the series keeps the series' rate, on its segment.
+  const a = cagrOf(scene(spec({ type: 'cagr', from: { key: '2022', series: 'a' }, to: { key: '2025', series: 'a' } })))
+  assert.equal(a.text, `CAGR ${pct((150 / 100) ** (1 / 3) - 1)}`)
+  // Clustered bars: unchanged (the first bar series).
+  const cl = cagrOf(scene(spec({ type: 'cagr', from: { key: '2022' }, to: { key: '2025' } }, { bars: 'clustered' })))
+  assert.equal(cl.text, `CAGR ${pct((150 / 100) ** (1 / 3) - 1)}`)
 })
 
 test('of: total in the live view, and validation', () => {

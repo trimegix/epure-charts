@@ -117,7 +117,7 @@ Every chart has a data sheet (`DataSheet`) and the same interaction model.
 | Tab / Alt + arrows | Moves the selection to the next element of the same kind |
 | Ctrl + Z | Undo |
 
-**Annotations.** Difference arrows (between any two points, or to a value line), level differences, CAGR arrows that know the real number of years even when some are hidden (on a stacked chart, `{ type: 'cagr', of: 'total' }` measures the column total; a series' arrow starts at its own segment), value and average lines, totals, error bars, connectors.
+**Annotations.** Difference arrows (between any two points, or to a value line), level differences, CAGR arrows that know the real number of years even when some are hidden (on a stacked chart, a CAGR that names no series, or `{ type: 'cagr', of: 'total' }`, measures the column total; one that names a series measures it, from its own segment), value and average lines, totals, error bars, connectors.
 
 **Axes.** Drag the bounds, axis breaks, log scale, date axes in years, quarters, months or weeks, the same scale across several charts.
 

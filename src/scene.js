@@ -1585,7 +1585,10 @@ function buildSceneAt(spec, resolved = [], opts = {}) {
   }
   for (const a of cagrs) {
     let first, last, periods, sid
-    const ofTotal = a.of === 'total' && stacked
+    // On stacked columns, a CAGR that names no series measures the column total (where its arrow
+    // stands); naming a series (a.series, from.series, to.series) measures that series.
+    const noSeries = a.series == null && a.from?.series == null && a.to?.series == null
+    const ofTotal = stacked && (a.of === 'total' || (a.of == null && !share && explicitCagr(a) && noSeries))
     // The series each end measures (null: the column total, or a single-series end).
     let ends = [null, null]
     if (ofTotal) {
