@@ -160,7 +160,9 @@ function signed(v, unit, dec, format) {
 export function axisLabels(values, unit, format, gap = false, locale = 'en') {
   if (gap) return values.map(v => (v === 0 ? '0' : signed(v, unit, 0, format)))
   const step = values.length > 1 ? Math.abs(values[1] - values[0]) : 0
-  if (unit === 'M' && values.some(v => Math.abs(v) >= 1000)) {
+  // Only for a formatter that writes a currency or a magnitude (the default writes bare numbers:
+  // 1,000, 1,200…).
+  if (unit === 'M' && values.some(v => Math.abs(v) >= 1000) && /[€$£]|\dM/.test(format(1, unit, 0))) {
     const d = step > 0 ? Math.max(0, Math.min(2, -Math.floor(Math.log10(step / 1000) + 1e-9))) : 1
     return values.map(v => (v === 0 ? '0' : localizeNumber(`€${(v / 1000).toFixed(d)}B`, locale)))
   }

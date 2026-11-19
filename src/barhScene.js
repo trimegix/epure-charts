@@ -202,7 +202,11 @@ export function buildBarhScene(spec, rowsIn = [], opts = {}) {
     : x.ticks(Math.max(2, Math.min(6, Math.floor(plot.width / 80))))
   if (showAxis) base.axis = { y: plot.bottom + 14, ticks: ticks.map(v => ({ value: v, x: x(v), label: v === 0 ? '0' : format(v) })) }
   // Gridlines: solid (default), dotted, or none (zero stays).
-  base.gridlines = ticks.filter(v => spec?.grid !== 'none' || v === 0).map(v => ({ x: x(v), y1: plot.top, y2: plot.bottom, zero: v === 0, dash: spec?.grid === 'dash' && v !== 0 }))
+  // axis: false also removes the gridlines (a bare bar list), unless spec.grid asks for them;
+  // the zero line stays when bars go both ways.
+  const gridOn = spec?.grid != null ? spec.grid !== 'none' : showAxis
+  const twoWays = x.domain()[0] < 0 && x.domain()[1] > 0
+  base.gridlines = ticks.filter(v => (gridOn && spec?.grid !== 'none') || (v === 0 && (showAxis || twoWays))).map(v => ({ x: x(v), y1: plot.top, y2: plot.bottom, zero: v === 0, dash: spec?.grid === 'dash' && v !== 0 }))
 
   const prof = {}
   rows.forEach((r, i) => {
