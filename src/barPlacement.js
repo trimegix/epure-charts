@@ -9,6 +9,16 @@
 //   · compactValue: a control's value at a compact level (its name drops only if the value stands alone).
 
 const STEP = 12
+
+// A format bar's width: never under BAR_MIN whatever the chart's size (a 200 px chart gets a
+// readable bar that overhangs its card, kept inside the window), never over BAR_MAX.
+export const BAR_MIN = 360
+export const BAR_MAX = 760
+/** The width a format bar may take: the room the card leaves, within [BAR_MIN, BAR_MAX] and the window. */
+export function barRoom(cardRoom, vw = Infinity) {
+  const win = vw - 16
+  return Math.min(win, Math.max(BAR_MIN, Math.min(BAR_MAX, cardRoom)))
+}
 const SLIDES = 6
 
 /** Weighted area covered by the rectangle [l, t, w, h]. */
@@ -36,9 +46,11 @@ export function coverOf(l, t, w, h, marks = []) {
  */
 export function barSpot({ T, box, w, h, cap = Infinity, marks = [], vw = Infinity, vh = Infinity }) {
   const fw = Math.min(w, cap)
-  const L0 = box.left + 8
-  const R0 = box.right - 8
-  // Bounded by the card: never past its right edge; too wide, aligned left.
+  // Bounded by the card: never past its right edge. A bar wider than the card (a small chart,
+  // see barRoom) is bounded by the window instead, and stays beside its object.
+  const wide = fw > box.right - box.left - 16
+  const L0 = wide ? 8 : box.left + 8
+  const R0 = wide ? vw - 8 : box.right - 8
   const clampX = l => Math.max(L0, Math.min(l, R0 - fw))
   const onLeft = T.x + T.w / 2 < (box.left + box.right) / 2
   const xs = [...new Set((onLeft ? [T.x, T.x + T.w / 2 - fw / 2, T.x + T.w - fw] : [T.x + T.w - fw, T.x + T.w / 2 - fw / 2, T.x]).map(clampX))]
