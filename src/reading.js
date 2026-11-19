@@ -58,6 +58,8 @@ export function readingDefaults(spec) {
     cagr: cagrs.find(a => !a.from)?.series ?? '',
     cagrs: cagrs.filter(a => a.from && a.to).slice(0, 2).map(a => ({ from: String(a.from.key), to: String(a.to.key) })),
     totals: anns.some(a => a.type === 'totals'),
+    // A first-to-last CAGR of the stacked column total ({ type: 'cagr', of: 'total' }).
+    cagrTotal: cagrs.some(a => !a.from && a.of === 'total'),
     average: anns.find(a => a.type === 'average')?.series ?? '',
     diffFrom: diff ? String(diff.from) : '',
     diffTo: diff ? String(diff.to) : '',
@@ -131,6 +133,7 @@ export function applyReading(spec, prefs) {
         const o = origin.find(a => String(a.from.key) === c.from && String(a.to.key) === c.to)
         return o ?? { type: 'cagr', from: { key: c.from }, to: { key: c.to }, tone: i ? 'gray-700' : 'gray-500' }
       }),
+      ...(prefs.cagrTotal && time ? [{ type: 'cagr', of: 'total' }] : []),
       ...(prefs.totals && (BAR_MODES.includes(prefs.bars) ? prefs.bars : spec.bars) === 'stacked' ? [{ type: 'totals' }] : []),
       ...(ids.has(prefs.average) ? [{ type: 'average', series: prefs.average }] : []),
       ...(prefs.diffFrom && prefs.diffTo && prefs.diffFrom !== prefs.diffTo
