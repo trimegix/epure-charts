@@ -10,7 +10,7 @@
 //     of a single segment
 //   · bar layout (clustered / stacked / 100%), category sort, number decimals
 //   · value labels (none / last / all) on the chosen series
-//   · up to two CAGR arrows, between any two categories
+//   · CAGR arrows (as many as wanted), between any two categories, each on its series
 //   · a series average, a difference arrow between two columns
 //   · stack totals, a named value line
 //
@@ -42,6 +42,14 @@ export function schemeColors(format) {
 
 const withoutKeys = (o, keys) => Object.fromEntries(Object.entries(o).filter(([k]) => !keys.includes(k)))
 
+// A spec CAGR as a reading setting: its bounds, and the series of each end (a.series is both ends').
+const cagrPref = a => {
+  const fs = a.from.series ?? a.series
+  const ts = a.to.series ?? a.series
+  return { from: String(a.from.key), to: String(a.to.key), ...(fs ? { fromSeries: fs } : {}), ...(ts ? { toSeries: ts } : {}) }
+}
+const sameCagr = (a, c) => { const p = cagrPref(a); return p.from === c.from && p.to === c.to && (p.fromSeries ?? '') === (c.fromSeries ?? '') && (p.toSeries ?? '') === (c.toSeries ?? '') }
+
 const OWNED = new Set(['cagr', 'totals', 'average', 'diff'])
 const owned = a => OWNED.has(a?.type) || (a?.type === 'valueLine' && a.user)
 
@@ -60,7 +68,8 @@ export function readingDefaults(spec) {
     labelsBy: Object.fromEntries(series.filter(s => (s.labels ?? 'none') !== 'none').map(s => [s.id, s.labels])),
     // A series "first to last actual" CAGR (no bounds) is kept as is.
     cagr: cagrs.find(a => !a.from)?.series ?? '',
-    cagrs: cagrs.filter(a => a.from && a.to).slice(0, 2).map(a => ({ from: String(a.from.key), to: String(a.to.key) })),
+    // Every explicit CAGR, with the series of each end when the spec names one.
+    cagrs: cagrs.filter(a => a.from && a.to).map(cagrPref),
     totals: anns.some(a => a.type === 'totals'),
     average: anns.find(a => a.type === 'average')?.series ?? '',
     diffFrom: diff ? String(diff.from) : '',
@@ -140,8 +149,11 @@ export function applyReading(spec, prefs) {
       ...keep,
       ...(ids.has(prefs.cagr) && time ? [{ type: 'cagr', series: prefs.cagr }] : []),
       ...cagrs.map((c, i) => {
-        const o = origin.find(a => String(a.from.key) === c.from && String(a.to.key) === c.to)
-        return o ?? { type: 'cagr', from: { key: c.from }, to: { key: c.to }, tone: i ? 'gray-700' : 'gray-500' }
+        // Same bounds and series: the spec's own arrow (its duration, label, tone).
+        const o = origin.find(a => sameCagr(a, c)) ?? origin.find(a => String(a.from.key) === c.from && String(a.to.key) === c.to && !c.fromSeries && !c.toSeries)
+        if (o) return o
+        const end = (key, sid) => ({ key, ...(ids.has(sid) ? { series: sid } : {}) })
+        return { type: 'cagr', from: end(c.from, c.fromSeries), to: end(c.to, c.toSeries), tone: i ? 'gray-700' : 'gray-500' }
       }),
       ...(prefs.totals && (BAR_MODES.includes(prefs.bars) ? prefs.bars : spec.bars) === 'stacked' ? [{ type: 'totals' }] : []),
       ...(ids.has(prefs.average) ? [{ type: 'average', series: prefs.average }] : []),
