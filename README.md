@@ -169,6 +169,21 @@ whose `style.color` is a gray (`gray-300`, `gray-500`…) keeps it, so series st
 
 **Default number format.** Without `format`, values print as bare numbers with the locale's
 thousands separator (`8,617`, « 8 617 »): the page states the unit, or passes `format`.
+Decimals default to two significant digits (`0.6`, `7.4`, `117`).
+
+**`format`: an object, or a function.** The simplest is declarative: say what the number
+carries, the engine writes it in the chart's language with its own decimals.
+
+```jsx
+<WaterfallChart spec={{ locale: 'fr', labels: 'all' }} bridge={bridge} format={{ unit: 'M€' }} />
+// « 7,4 M€ », « +0,6 M€ »; in English '7.4 M€'
+// { prefix: '€', suffix: 'M' } → '€7.4M' / « 7,4 M€ »; { suffix: 'x', decimals: 1 } → '2.1x'
+```
+
+A function `format(value, unit, decimals)` stays supported: it must return the number in
+English punctuation (`'1,234.5'`, `'€7.4M'`) and honour `decimals` when given; the engine
+then rewrites it for the chart's language. Do not localise inside the function: pass an
+object instead.
 
 **More forms.** `buildSlopeScene` (before / after for N items), `buildFunnelScene`
 (selection funnel with named filters and pass rates), `spec.index: 100` on a waterfall (a
