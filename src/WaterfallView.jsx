@@ -18,7 +18,7 @@ import { useIsoLayoutEffect } from './useIsoLayoutEffect.js'
 import { applyBridgeEdits } from './bridgeEdits'
 import { useCharts } from './useCharts'
 import ChartHeader from './ChartHeader'
-import { validateSpec } from './spec'
+import { validateBridgeSpec } from './spec'
 import { buildWaterfallScene } from './waterfallScene'
 import WaterfallFigure from './WaterfallFigure.jsx'
 import { BridgeBar, BridgeBarButton } from './BridgeBar'
@@ -90,7 +90,7 @@ export default function WaterfallView({ bridge: providedBridge, spec, currentId,
     if (vlDrag != null) sp = { ...sp, valueLine: vlDrag }
     return sp
   }, [spec, bridge, linkDrag, vlDrag])
-  const errors = useMemo(() => validateSpec(spec), [spec])
+  const errors = useMemo(() => validateBridgeSpec(spec, { bridge: providedBridge }), [spec, providedBridge])
   const height = fixedHeight ?? Math.round(Math.min(300, Math.max(240, width * 0.34)))
   // The value axis number format (axis format bar), on top of the host's.
   const ax = api?.prefs

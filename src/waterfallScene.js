@@ -36,6 +36,7 @@ import { isLightHex, labelMetrics } from './customStyle.js'
 import { localeOf, localizedFormat, localizeNumber, t } from './locale.js'
 import { accentColor, singleAccent, ACCENT } from './accent.js'
 import { stamp } from './figureMeta.js'
+import { validateBridgeSpec } from './spec.js'
 
 // Semantic tokens (--chart-*), each falling back on the palette color it replaced.
 export const HYPOTHESIS_TOKEN = 'chart-hypothesis'
@@ -185,6 +186,20 @@ function layoutLegend(items, width) {
 // A net line: half the stroke thickness (2.5 px drawn) and free margin around it.
 const NET_HALF = 1.25
 const NET_GAP = 4
+/**
+ * Default decimals of a bridge: the fewest (0 to 2) that write none of its figures more than
+ * 5 % off (0.6 → '0.6' rather than '1', 7.4 → '7.4', 5 → '5', 130 → '130'). Figures under
+ * 1 % of the largest are ignored (a rounding residue does not set the chart's precision).
+ */
+export function autoDecimals(bridge) {
+  const vals = (bridge?.steps ?? []).flatMap(s => [s.value, ...(s.parts ?? []).map(p => p?.value)]).map(Math.abs).filter(v => Number.isFinite(v) && v > 0)
+  if (!vals.length) return 0
+  const max = Math.max(...vals)
+  const kept = vals.filter(v => v >= max * 0.01)
+  for (let d = 0; d < 2; d++) if (kept.every(v => Math.abs(Number(v.toFixed(d)) - v) <= v * 0.05 + 1e-12)) return d
+  return 2
+}
+
 export function buildWaterfallScene(spec, bridge, opts = {}) {
   const width = Math.max(200, Math.round(opts.width ?? 640))
   const height = Math.max(160, Math.round(opts.height ?? 260))
@@ -195,7 +210,7 @@ export function buildWaterfallScene(spec, bridge, opts = {}) {
   const measure = LM.base ? estimateWidth : (tx, sz) => LM.measure(tx, sz)
   const labelH = LM.base ? LABEL_H : LM.size + 4
   let unit = bridge?.unit ?? 'M'
-  const dec = spec?.numberFormat?.decimals ?? 0
+  const dec = Number.isInteger(spec?.numberFormat?.decimals) ? spec.numberFormat.decimals : autoDecimals(bridge)
   // Net lines (on a multi-series waterfall): the segments of these
   // series leave the stack and the step's sum; a horizontal line marks their level
   // (e.g. a budget reference on a waterfall). A step is recomputed on its stacked segments only.
@@ -239,6 +254,8 @@ export function buildWaterfallScene(spec, bridge, opts = {}) {
     connectors: [], whiskers: [], annotations: [], legend: [], columns: [], netLines: [], empty: steps.length === 0,
     indexed, ...(indexIgnored ? { indexIgnored: true } : {}),
   }
+  // The same validation as the live view: what it would refuse, said here too (never thrown).
+  base.errors = validateBridgeSpec(spec ?? {}, { bridge })
   if (base.empty) return stamp(base, 'waterfall', spec)
 
   // Dragged connectors: a movement can only restart from an earlier, non-adjacent column.
@@ -309,7 +326,10 @@ export function buildWaterfallScene(spec, bridge, opts = {}) {
   const innerBottom = plotBottom - footroom
   const tickCount = Math.max(2, Math.min(6, Math.floor((plotBottom - plotTop) / 42)))
   // Scale set by hand (axis mini toolbar): min, max, step; out of bounds, bars are clipped.
-  const ya = spec?.yAxis ?? {}
+  // Every bar carries its figure (labels: 'all', the default): the value axis and its gridlines
+  // repeat them, so neither is drawn unless yAxis.labels / yAxis.grid asks for it (zero stays).
+  const ya0 = spec?.yAxis ?? {}
+  const ya = { ...ya0, labels: ya0.labels ?? (showLabels ? false : undefined), grid: ya0.grid ?? (showLabels ? 'none' : undefined) }
   const yMin = Number.isFinite(ya.min) ? ya.min : null
   const yMax = Number.isFinite(ya.max) ? ya.max : null
   const manualScale = (yMin != null || yMax != null) && (yMax ?? hi) > (yMin ?? lo)

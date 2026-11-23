@@ -68,6 +68,21 @@ function validateWaterfall(spec, err) {
 }
 
 /**
+ * Validates the spec of a bridge (WaterfallView, WaterfallChart, buildWaterfallScene): one
+ * validation for the live and the static entries. `version` and `kind` may be left out (a
+ * bridge is kind 'waterfall'); with the bridge's data passed in (`bridge`), the spec needs no
+ * catalog reference (spec.bridge). Messages speak of a bridge, never of an x axis or series.
+ */
+export function validateBridgeSpec(spec, { bridge = null } = {}) {
+  if (!isObj(spec)) return ['spec: not an object']
+  if (spec.kind != null && spec.kind !== 'waterfall') return [`kind: a bridge is kind 'waterfall', not '${spec.kind}'`]
+  const full = { id: 'bridge', version: SPEC_VERSION, ...spec, kind: 'waterfall' }
+  if (bridge != null && full.bridge == null) full.bridge = { id: 'data' }
+  const errors = validateSpec(full)
+  return bridge == null ? errors.map(e => (e.startsWith('bridge:') ? "bridge: pass the bridge's data (bridge prop), or spec.bridge.id for the host's catalog" : e)) : errors
+}
+
+/**
  * Returns the visual role of a series reference, looked up from its source.
  * @param {{ source?: string }} ref
  * @param {Record<string, string>} [sourceRoles] source → role table (defaults to DEFAULT_SOURCE_ROLES)
