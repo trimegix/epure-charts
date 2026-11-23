@@ -33,6 +33,7 @@ import { scaleLinear, scaleBand } from 'd3-scale'
 import { estimateWidth, defaultFormat } from './scene.js'
 import { resolveCollisions } from './labelLayout.js'
 import { isLightHex, labelMetrics } from './customStyle.js'
+import { autoDecimals } from './decimals.js'
 import { localeOf, localizedFormat, localizeNumber, t } from './locale.js'
 import { accentColor, singleAccent, ACCENT } from './accent.js'
 import { stamp } from './figureMeta.js'
@@ -196,7 +197,8 @@ export function buildWaterfallScene(spec, bridge, opts = {}) {
   const measure = LM.base ? estimateWidth : (tx, sz) => LM.measure(tx, sz)
   const labelH = LM.base ? LABEL_H : LM.size + 4
   let unit = bridge?.unit ?? 'M'
-  const dec = spec?.numberFormat?.decimals ?? 0
+  // Default decimals: two significant digits on every figure (decimals.js), 0.6 never '1'.
+  const dec = Number.isInteger(spec?.numberFormat?.decimals) ? spec.numberFormat.decimals : autoDecimals((bridge?.steps ?? []).flatMap(s => [s.value, s.high, ...(s.parts ?? []).map(q => q?.value)]))
   // Net lines (on a multi-series waterfall): the segments of these
   // series leave the stack and the step's sum; a horizontal line marks their level
   // (e.g. a budget reference on a waterfall). A step is recomputed on its stacked segments only.

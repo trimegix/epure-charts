@@ -38,8 +38,8 @@ test('labels "name value" on both sides, spread without overlap', () => {
   const sc = buildSlopeScene({ before: '2023', after: '2025' }, items, OPTS)
   assert.deepEqual(sc.axes.map(x => x.label), ['2023', '2025'])
   assert.equal(sc.labels.length, 8)
-  assert.ok(sc.labels.some(l => l.side === 'L' && l.text === 'Alpha 10.0'))
-  assert.ok(sc.labels.some(l => l.side === 'R' && l.text === '18.0 Alpha'))
+  assert.ok(sc.labels.some(l => l.side === 'L' && l.text === 'Alpha 10'))
+  assert.ok(sc.labels.some(l => l.side === 'R' && l.text === '18 Alpha'))
   for (const side of ['L', 'R']) {
     const bs = boxes(sc.labels.filter(l => l.side === side))
     for (let i = 0; i < bs.length; i++) for (let j = i + 1; j < bs.length; j++) {
@@ -86,7 +86,7 @@ test('scale set by hand, single accent, locale fr, empty', () => {
   assert.ok(sc.lines.filter(l => l.key !== 'd').every(l => l.color === 'chart-neutral'))
   assert.equal(sc.lines.at(-1).key, 'd', 'the emphasized line is drawn last')
   assert.deepEqual(sc.axes.map(x => x.label), ['Avant', 'Après'])
-  assert.ok(sc.labels.some(l => sp(l.text) === 'Alpha 10,0'), sc.labels.map(l => l.text).join('|'))
+  assert.ok(sc.labels.some(l => sp(l.text) === 'Alpha 10'), sc.labels.map(l => l.text).join('|'))
   assert.equal(sp(sc.lines.find(l => l.key === 'd').change), '+125 %')
   assert.match(sc.lines.find(l => l.key === 'd').change, /125\u00a0%/)
   const empty = buildSlopeScene({ title: 'T' }, [], OPTS)

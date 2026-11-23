@@ -30,6 +30,7 @@
 import { scaleLinear } from 'd3-scale'
 import { estimateWidth, defaultFormat } from './scene.js'
 import { inkOn, labelMetrics } from './customStyle.js'
+import { autoDecimals } from './decimals.js'
 import { localeOf, localizedFormat, t } from './locale.js'
 import { singleAccent, emphasisOf, ACCENT, NEUTRAL, accentInk } from './accent.js'
 import { stamp } from './figureMeta.js'
@@ -92,7 +93,10 @@ export function buildBarhScene(spec, rowsIn = [], opts = {}) {
     return buildBarhScene({ ...spec, stacked100: false, stacked: true, labels: spec.labels === 'end' || spec.labels == null ? 'segments' : spec.labels, axis: spec.axis ?? false }, norm, { ...opts, format: opts.formatShare ?? pct })
   }
   const width = Math.max(220, Math.round(opts.width ?? 640))
-  const format = localizedFormat(opts.format ?? defaultFormat, L)
+  // Default decimals (two significant digits, decimals.js), passed to the host's formatter too.
+  const barDec = Number.isInteger(spec?.decimals) ? spec.decimals : autoDecimals(rowsIn.flatMap(r => [...Object.values(r?.values ?? {}), ...(r?.range ?? [])]))
+  const format0 = localizedFormat(opts.format ?? defaultFormat, L)
+  const format = v => format0(v, undefined, barDec)
   const series0 = spec?.series ?? [{ id: 'value', label: t('Value', L), color: 'gray-700' }]
   // Rotated combination chart (type options follow the orientation): a series
   // with `mark: 'line'` reads as a line from row to row over the bars.
@@ -306,8 +310,10 @@ export function buildBarhScene(spec, rowsIn = [], opts = {}) {
 // a single set of labels in the center. spec.series[0] on the left, spec.series[1] on the right.
 export function buildButterflyScene(spec, rowsIn = [], opts = {}) {
   const width = Math.max(260, Math.round(opts.width ?? 640))
-  const format = localizedFormat(opts.format ?? defaultFormat, localeOf(spec))
+  const format0 = localizedFormat(opts.format ?? defaultFormat, localeOf(spec))
   const [L, R] = spec.series ?? []
+  const bDec = Number.isInteger(spec?.decimals) ? spec.decimals : autoDecimals(rowsIn.flatMap(r => [r?.values?.[L?.id], r?.values?.[R?.id]]))
+  const format = v => format0(v, undefined, bDec)
   const rows = rowsIn.filter(r => r && (Number.isFinite(r.values?.[L?.id]) || Number.isFinite(r.values?.[R?.id])))
   const showLabels = (spec.labels ?? 'end') !== 'none'
   const LM = labelMetrics(opts.labelStyle ?? spec, VALUE)

@@ -27,6 +27,7 @@ import { resolveCollisions, leaderLine } from './labelLayout.js'
 import { dateAxisTicks, DATE_UNITS } from './dateTicks.js'
 import { roundToSum, formatDateCodes, consistentRound } from './numberStyle.js'
 import { isHex, isLightHex, isFont, isPt, sizePx, labelMetrics, baseToken } from './customStyle.js'
+import { autoDecimals, autoDecimalsByUnit } from './decimals.js'
 import { localeOf, localizedFormat, localizeNumber, t } from './locale.js'
 import { accentColor, accentInk, accentSeriesColor, accentPoints, singleAccent, NEUTRAL, ACCENT } from './accent.js'
 import { stamp } from './figureMeta.js'
@@ -422,6 +423,10 @@ function buildSceneAt(spec, resolved = [], opts = {}) {
   const tableIds = new Set(F.tableAll ? allSeries.slice(1).map(s => s.id) : (F.table ?? []).map(String))
   const tableSeries = allSeries.filter(s => tableIds.has(s.id) && s.points.length)
   const series = allSeries.filter(s => !tableSeries.includes(s))
+  // Default decimals (numberFormat.decimals unset): two significant digits per unit, the same
+  // static and live (decimals.js). The host's formatter receives them as its third argument.
+  const autoDec = autoDecimalsByUnit(allSeries.map(x => ({ unit: x.unit, points: x.points.filter(p => !hidden.has(String(p.x))) })))
+  const decOf = unit => userDecimals ?? autoDec[unit ?? ''] ?? null
   // Color scheme order (stacked fill order): top to bottom.
   // (single-accent mode: colors follow the emphasis, not the order)
   if (F.colorOrder === 'reverse' && !singleAccent(spec)) {
@@ -629,7 +634,7 @@ function buildSceneAt(spec, resolved = [], opts = {}) {
   // (the text actually written: number, "+ (%)", series or category name; at the chosen label size; totals included).
   const rotSize = 10 * FS * (SIZE_STEP[F.labels?.size] ?? 1)
   const rotText = (s, p) => {
-    const v = format(p.y, s.unit, userDecimals)
+    const v = format(p.y, s.unit, decOf(s.unit))
     const c = F.labels?.content
     return c === 'valueShare' ? `${v} (100%)` : c === 'seriesShare' ? `${s.label} 100%` : c === 'series' ? s.label : c === 'category' ? (spec?.x?.names?.[p.x] ?? formatX(p.x, grain)) : c === 'share' ? '100%' : v
   }
@@ -861,7 +866,7 @@ function buildSceneAt(spec, resolved = [], opts = {}) {
   const headW = Math.max(0, ...[...tableSeries.map(ts => ts.label), ...kpiRows.map(r => r.label)].map(t => estimateWidth(String(t ?? ''), 10) + 16))
   const plotLeft = Math.max(left ? gutterOf(left) : 12, headW)
   // Table columns, right of everything (end-of-line names included).
-  const tableColText = (s, k) => (s.colVals[k] == null ? '–' : format(s.colVals[k], s.unit, userDecimals))
+  const tableColText = (s, k) => (s.colVals[k] == null ? '–' : format(s.colVals[k], s.unit, decOf(s.unit)))
   const tableColW = tableColKeys.map(k => Math.ceil(Math.max(estimateWidth(spec?.x?.names?.[k] ?? formatX(k, grain), tickFont),
     ...series.filter(s => s.mark !== undefined && !s.other).map(s => estimateWidth(tableColText(s, k), 10)))) + 14)
   const tableW = tableColW.reduce((a, w) => a + w, 0)
@@ -1245,7 +1250,7 @@ function buildSceneAt(spec, resolved = [], opts = {}) {
         const col = base.bars.filter(b => b.key === k && groupOf(series.find(x => x.id === b.seriesId) ?? {}) === g)
         if (col.length < 2) continue
         const unit = series.find(x => x.id === col[0].seriesId)?.unit ?? 'M'
-        const r = consistentRound(col.map(b => b.value), v => format(v, unit, userDecimals))
+        const r = consistentRound(col.map(b => b.value), v => format(v, unit, decOf(unit)))
         if (r) col.forEach((b, i) => { consistent[`${b.seriesId}|${k}`] = r[i] })
       }
     }
@@ -1305,7 +1310,7 @@ function buildSceneAt(spec, resolved = [], opts = {}) {
     // "Chosen": only the chosen points carry their number (labels one by one).
     const want = k => (s.labels === 'some' ? (F.labelKeys?.[s.id] ?? []).map(String).includes(String(k)) : s.labels === 'all' || k === lastKeyOf(s))
     // The text of a cell formatted in the sheet wins (format taken from the sheet).
-    const text = (v, k) => (k != null && s.points.find(p => p.x === k)?.text) || format(k != null && consistent[`${s.id}|${k}`] != null ? consistent[`${s.id}|${k}`] : v, s.unit, userDecimals)
+    const text = (v, k) => (k != null && s.points.find(p => p.x === k)?.text) || format(k != null && consistent[`${s.id}|${k}`] != null ? consistent[`${s.id}|${k}`] : v, s.unit, decOf(s.unit))
     if (s.mark === 'bar') {
       for (const b of base.bars.filter(x => x.seriesId === s.id && want(x.key))) {
         const t = contentOf(s, b.value, b.key, text(b.value, b.key))
@@ -1368,7 +1373,7 @@ function buildSceneAt(spec, resolved = [], opts = {}) {
         const total = col.reduce((sum, b) => sum + b.value, 0)
         const top = Math.min(...col.map(b => b.y))
         outside.push({
-          key: groups.length > 1 ? `total|${k}|${g}` : `total|${k}`, x: col[0].x + col[0].width / 2, y: top - 4, text: format(total, series.find(s => s.id === col[0].seriesId)?.unit ?? 'M', userDecimals),
+          key: groups.length > 1 ? `total|${k}|${g}` : `total|${k}`, x: col[0].x + col[0].width / 2, y: top - 4, text: format(total, series.find(s => s.id === col[0].seriesId)?.unit ?? 'M', decOf(series.find(s => s.id === col[0].seriesId)?.unit ?? 'M')),
           size: LABEL, color: 'black', anchor: 'middle', droppable: k !== lastK,
         })
       }
@@ -1378,7 +1383,7 @@ function buildSceneAt(spec, resolved = [], opts = {}) {
   if ((F.grandTotal || anns.some(a => a?.type === 'grandTotal')) && base.bars.length && !share) {
     const sum = base.bars.reduce((t, b) => t + b.value, 0)
     const unit = barSeries[0]?.unit ?? 'M'
-    outside.push({ key: 'grandTotal', x: plot.right, y: plot.top - 6, text: `${t('Total', L)} ${format(sum, unit, userDecimals)}`, size: LABEL, color: 'black', anchor: 'end' })
+    outside.push({ key: 'grandTotal', x: plot.right, y: plot.top - 6, text: `${t('Total', L)} ${format(sum, unit, decOf(unit))}`, size: LABEL, color: 'black', anchor: 'end' })
   }
   // Totals of a stacked area chart: at the top of the stack.
   if (areaMode === 'stacked' && anns.some(a => a?.type === 'totals')) {
@@ -1387,7 +1392,7 @@ function buildSceneAt(spec, resolved = [], opts = {}) {
       if (!side) continue
       const y = yScaleOf(side)
       const unit = series.find(s => s.mark === 'area' && s.axis === side)?.unit ?? 'M'
-      outside.push({ key: `total|${k}`, x: cx(k), y: y(areaTop[`${side}|${k}`]) - 5, text: format(areaTop[`${side}|${k}`], unit, userDecimals), size: LABEL, color: 'black', anchor: 'middle' })
+      outside.push({ key: `total|${k}`, x: cx(k), y: y(areaTop[`${side}|${k}`]) - 5, text: format(areaTop[`${side}|${k}`], unit, decOf(unit)), size: LABEL, color: 'black', anchor: 'middle' })
     }
   }
 
@@ -1397,7 +1402,7 @@ function buildSceneAt(spec, resolved = [], opts = {}) {
     if (!ax) continue
     const yy = ax.scale(v.value)
     // `silent`: a reference without a number (the zero of a growth chart).
-    const text = v.silent ? null : v.label ? `${v.label} ${format(v.value, ax.unit, userDecimals)}` : format(v.value, ax.unit, userDecimals)
+    const text = v.silent ? null : v.label ? `${v.label} ${format(v.value, ax.unit, decOf(ax.unit))}` : format(v.value, ax.unit, decOf(ax.unit))
     // Label above (default) or below the line, on the right (default) or left.
     const atLeft = v.labelAt === 'left'
     base.annotations.push({
@@ -1435,7 +1440,7 @@ function buildSceneAt(spec, resolved = [], opts = {}) {
       // On a bar, both min and max read at the top: below the bar, the
       // number would fall on the date axis.
       const py = bar ? bar.y : y(p.y)
-      return { kind, x: cx(p.x), y: py, onBar: !!bar, text: `${t(kind === 'max' ? 'Max' : 'Min', L)} ${format(p.y, s.unit, userDecimals)}` }
+      return { kind, x: cx(p.x), y: py, onBar: !!bar, text: `${t(kind === 'max' ? 'Max' : 'Min', L)} ${format(p.y, s.unit, decOf(s.unit))}` }
     }
     const items = [at(hi, 'max'), ...(lo !== hi ? [at(lo, 'min')] : [])]
     base.annotations.push({ type: 'extremes', seriesId: s.id, items })
@@ -1511,7 +1516,8 @@ function buildSceneAt(spec, resolved = [], opts = {}) {
     const delta = vb - va
     const sgn = delta >= 0 ? '+' : '−'
     // Arrow modes (double-click on the arrow): amount, %, or both.
-    const abs = `${sgn}${format(Math.abs(delta), unitA, userDecimals)}`
+    // A difference keeps two significant digits of its own (+2.4 between 40 and 42.4).
+    const abs = `${sgn}${format(Math.abs(delta), unitA, userDecimals ?? Math.max(decOf(unitA) ?? 0, autoDecimals([Math.abs(delta) * (unitA === 'pct' ? 100 : 1)])))}`
     const pct = loc(`${sgn}${Math.abs((delta / Math.abs(va)) * 100).toFixed(0)}%`)
     // "% of end": the other relative mode (the difference over the end value).
     const pctEnd = vb ? loc(`${sgn}${Math.abs((delta / Math.abs(vb)) * 100).toFixed(0)}%`) : pct
@@ -1842,7 +1848,7 @@ function buildSceneAt(spec, resolved = [], opts = {}) {
       const b = base.bars.find(x => x.seriesId === sid && x.key === k)
       const v = b?.value ?? valueAt(sr ?? { points: [] }, k)?.y
       const text = String(tpl)
-        .replaceAll('{value}', v != null && sr ? format(v, sr.unit, userDecimals) : '')
+        .replaceAll('{value}', v != null && sr ? format(v, sr.unit, decOf(sr.unit)) : '')
         .replaceAll('{share}', b ? shareText(b.value, k, sid) : '')
         .replaceAll('{series}', sr?.label ?? '')
         .replaceAll('{category}', k != null ? fx(k) : '')
@@ -1934,7 +1940,7 @@ function buildSceneAt(spec, resolved = [], opts = {}) {
       return {
         seriesId: s.id, label: s.label, color: p.type === 'forecast' && s.role === 'actual' && s.mark === 'bar' ? FORECAST_TOKEN : s.color,
         mark: s.mark, dash: DASH_ARRAY[s.dash], value: p.y, type: p.type,
-        text: format(p.y, s.unit, userDecimals),
+        text: format(p.y, s.unit, decOf(s.unit)),
       }
     }).filter(Boolean),
   }))
@@ -1971,6 +1977,8 @@ export function buildProfileScene(spec, resolved = [], opts = {}) {
       points: (r.points ?? []).filter(p => p && p.x != null && Number.isFinite(p.y) && !hidden.has(String(p.x))),
     }
   })
+  const autoDec = autoDecimalsByUnit(series)
+  const decOf = unit => userDecimals ?? autoDec[unit ?? ''] ?? null
   const seen = []
   for (const s of series) for (const p of s.points) if (!seen.includes(String(p.x))) seen.push(String(p.x))
   const keys = (grain === 'category' && Array.isArray(spec?.x?.keys) ? spec.x.keys.map(String) : axisKeys(seen, grain))
@@ -2019,7 +2027,7 @@ export function buildProfileScene(spec, resolved = [], opts = {}) {
     for (const p of pts) {
       if (s.labels === 'last' && p.key !== last) continue
       if (s.labels === 'some' && !(F.labelKeys?.[s.id] ?? []).map(String).includes(p.key)) continue
-      outside.push({ key: `${s.id}|${p.key}`, x: p.x + 7, y: p.y + 3.5, text: format(p.value, s.unit, userDecimals), size: 10, color: labelInk(s.color), anchor: 'start', droppable: p.key !== last })
+      outside.push({ key: `${s.id}|${p.key}`, x: p.x + 7, y: p.y + 3.5, text: format(p.value, s.unit, decOf(s.unit)), size: 10, color: labelInk(s.color), anchor: 'start', droppable: p.key !== last })
     }
   }
   base.labels = resolveCollisions(outside, estimateWidth)
