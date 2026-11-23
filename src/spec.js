@@ -151,6 +151,14 @@ export function withDataDefaults(spec) {
   }
 }
 
+/**
+ * Validates the spec of a chart whose series are passed in (`resolved`), as ChartView and
+ * buildScene read it: the one validation of the live and the static entries (scene.errors).
+ */
+export function validateChartSpec(spec, { resolved = null, ...opts } = {}) {
+  return validateSpec(resolved ? withDataDefaults(spec) : spec, { ...opts, ...(resolved ? { resolved } : {}) })
+}
+
 export function validateSpec(spec, opts = {}) {
   const errors = []
   const err = (path, msg) => errors.push(`${path}: ${msg}`)

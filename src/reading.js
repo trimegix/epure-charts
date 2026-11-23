@@ -52,6 +52,10 @@ const sameCagr = (a, c) => { const p = cagrPref(a); return p.from === c.from && 
 
 const OWNED = new Set(['cagr', 'totals', 'average', 'diff'])
 const owned = a => OWNED.has(a?.type) || (a?.type === 'valueLine' && a.user)
+// The reading settings hold ONE difference arrow (the first of the spec, editable from the
+// menus); the spec's other arrows are kept as they are, so the live view draws them all, like
+// the static one.
+const extraDiffs = anns => anns.filter(a => a?.type === 'diff').slice(1)
 
 /** The reading settings a spec carries originally. */
 export function readingDefaults(spec) {
@@ -110,7 +114,8 @@ export function applyReading(spec, prefs) {
   const series = spec?.series ?? []
   const ids = new Set(series.map(s => s.id))
   const labelSeries = ids.has(prefs.labelSeries) ? prefs.labelSeries : series[0]?.id
-  const keep = (spec.annotations ?? []).filter(a => !owned(a))
+  const extra = new Set(extraDiffs(spec.annotations ?? []))
+  const keep = (spec.annotations ?? []).filter(a => !owned(a) || extra.has(a))
   const vl = parseNumber(prefs.valueLine)
   const time = spec.x?.grain !== 'category'
   const over = prefs.series ?? {}
