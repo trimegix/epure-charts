@@ -18,6 +18,7 @@
 //   · labelStyle: CSS spread on the segment labels (the user's label font, size, color).
 import FigureSvg from './FigureSvg.jsx'
 import { tok, fs, fsNote } from './customStyle.js'
+import { t } from './locale.js'
 
 const none = () => null
 
@@ -26,7 +27,7 @@ function mekkoTable(scene) {
   const ids = [...new Set(scene.segments.map(s => s.seriesId))]
   const labelOf = id => scene.segments.find(s => s.seriesId === id)?.label ?? id
   return {
-    head: ['', ...ids.map(labelOf), 'Total'],
+    head: ['', ...ids.map(labelOf), t('Total', scene.meta?.locale)],
     rows: scene.columns.map(c => [c.label, ...ids.map(id => scene.segments.find(s => s.colKey === c.key && s.seriesId === id)?.value ?? ''), c.total]),
   }
 }

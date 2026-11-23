@@ -8,6 +8,7 @@
 //   · labelStyle: CSS spread on the stage names and values.
 import FigureSvg from './FigureSvg.jsx'
 import { tok, fs, fsNote } from './customStyle.js'
+import { t } from './locale.js'
 
 const none = () => null
 
@@ -15,8 +16,9 @@ const none = () => null
 function funnelTable(scene) {
   const rates = scene.stages.some(s => s.rate)
   const filters = scene.stages.some(s => s.filter)
+  const L = scene.meta?.locale
   return {
-    head: ['', 'Value', ...(filters ? ['Filter'] : []), ...(rates ? ['Pass rate'] : [])],
+    head: ['', t('Value', L), ...(filters ? [t('Filter', L)] : []), ...(rates ? [t('Pass rate', L)] : [])],
     rows: scene.stages.map(s => [s.label, s.value, ...(filters ? [s.filter ?? ''] : []), ...(rates ? [s.rate ?? ''] : [])]),
   }
 }

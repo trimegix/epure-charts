@@ -24,6 +24,7 @@ import { pieSheet } from './sheetAdapters.js'
 // A color is a palette token, or a user-picked hex (custom style).
 import { tok, labelTextStyle, schemeMap, styleSummary } from './customStyle.js'
 import { SchemeTools, TextStyle } from './CustomStyle.jsx'
+import { SpecLocale, useT } from './uiLocale.js'
 const PALETTE = [...COLOR_TOKENS, ...NEUTRAL_TOKENS]
 const DEFAULTS = { donut: null, sort: null, start: null, direction: null, centerTitle: null, labelOffsets: null, other: null, total: null, labels: null, content: null, decimals: null, legend: null, explode: [], colors: {} }
 
@@ -54,8 +55,15 @@ function track(e, onMove, onEnd) {
 // width: fixed drawing width (no measuring; also the first width on hydration).
 // readOnly: the figure only: no format bar, menus, data sheet or per-browser preferences.
 // responsive: the SVG scales to its container (width="100%", ratio kept).
-export default function PieView({ id = 'pie', spec: baseSpec = {}, slices: slicesIn = [], format, height = 280, label = 'Pie chart', width: widthProp, readOnly = false, responsive = false, dataTable = false, applyPrefs = false }) {
+// The interface (menus, format bar, messages) speaks the spec's language (spec.locale).
+export default function PieView(props) {
+  return <SpecLocale spec={props.spec}><PieViewBody {...props} /></SpecLocale>
+}
+
+function PieViewBody({ id = 'pie', spec: baseSpec = {}, slices: slicesIn = [], format, height = 280, label: labelIn, width: widthProp, readOnly = false, responsive = false, dataTable = false, applyPrefs = false }) {
   // readOnly + applyPrefs: the stored settings and sheet edits drawn, no editing control.
+  const tr = useT()
+  const label = labelIn ?? tr('Pie chart')
   const plain = readOnly && !applyPrefs
   const boxRef = useRef(null)
   const movedRef = useRef(false)
@@ -88,96 +96,96 @@ export default function PieView({ id = 'pie', spec: baseSpec = {}, slices: slice
   const ccw = spec.direction === 'ccw'
   const toggleExplode = k => update('explode', cur0 => { const s = new Set(cur0 ?? []); if (s.has(k)) s.delete(k); else s.add(k); return [...s] })
   const objects = {
-    chart: { name: donut ? 'Doughnut' : 'Pie', icon: donut ? IconChartDonut : IconChartPie },
+    chart: { name: donut ? tr('Doughnut') : tr('Pie'), icon: donut ? IconChartDonut : IconChartPie },
     ...(arc ? { slice: { name: arc.label, icon: IconChartPie } } : {}),
-    labels: { name: 'Labels', icon: IconTag },
-    legend: { name: 'Legend', icon: IconLayoutList },
+    labels: { name: tr('Labels'), icon: IconTag },
+    legend: { name: tr('Legend'), icon: IconLayoutList },
   }
   const labelPos = spec.labels ?? 'outside'
   const legendPos = spec.legend ?? 'right'
   const controls = {
     chart: [
-      ['scheme', null, `Colors: ${P.schemeName ?? 'default'}`, 'Color schemes (named, saved by browser)', (
+      ['scheme', null, tr('Colors: {name}', { name: P.schemeName ?? tr('default') }), tr('Color schemes (named, saved by browser)'), (
         <SchemeTools current={(scene?.arcs ?? []).map(a => a.color)} active={P.schemeName}
           onApply={sc => { if (sc) set('colors', schemeMap((scene?.arcs ?? []).map(a => a.key), sc.colors)); set('schemeName', sc?.name ?? null) }} />
       )],
-      ['type', null, `Type: ${donut ? `doughnut ${Math.round((spec.donut) * 100)}%` : 'pie'}`, 'Pie or doughnut', (
+      ['type', null, tr('Type: {name}', { name: donut ? tr('doughnut {n}%', { n: Math.round((spec.donut) * 100) }) : tr('pie') }), tr('Pie or doughnut'), (
         <>
-          <Line label="Type"><Seg label="Type" value={donut ? 'donut' : 'pie'} onPick={v => set('donut', v === 'donut' ? 0.55 : 0)} items={[['pie', 'Pie'], ['donut', 'Doughnut']]} /></Line>
-          {donut && <Line label="Hole"><Seg label="Hole size" value={spec.donut} onPick={v => set('donut', v)} items={[[0.4, 'Small'], [0.55, 'Medium'], [0.7, 'Large']]} /></Line>}
-          {donut && <Line label=""><Check on={!!spec.total} onClick={() => set('total', !spec.total)}>Total in the center</Check></Line>}
-          {donut && <Line label="Title"><Field label="Center title" wide value={spec.centerTitle ?? ''} placeholder="None" onCommit={v => set('centerTitle', v || null)} /></Line>}
-          <div className="chart-pop__note">Or drag the hole handle (to the center for a pie).</div>
+          <Line label={tr('Type')}><Seg label={tr('Type')} value={donut ? 'donut' : 'pie'} onPick={v => set('donut', v === 'donut' ? 0.55 : 0)} items={[['pie', tr('Pie')], ['donut', tr('Doughnut')]]} /></Line>
+          {donut && <Line label={tr('Hole')}><Seg label={tr('Hole size')} value={spec.donut} onPick={v => set('donut', v)} items={[[0.4, tr('Small')], [0.55, tr('Medium')], [0.7, tr('Large')]]} /></Line>}
+          {donut && <Line label=""><Check on={!!spec.total} onClick={() => set('total', !spec.total)}>{tr('Total in the center')}</Check></Line>}
+          {donut && <Line label={tr('Title')}><Field label={tr('Center title')} wide value={spec.centerTitle ?? ''} placeholder={tr('None')} onCommit={v => set('centerTitle', v || null)} /></Line>}
+          <div className="chart-pop__note">{tr('Or drag the hole handle (to the center for a pie).')}</div>
         </>
       )],
-      ['order', null, `Order: ${{ desc: 'largest first', asc: 'smallest first' }[spec.sort] ?? 'sheet'}, ${ccw ? 'counter-clockwise' : 'clockwise'}`, 'Slice order', (
+      ['order', null, tr('Order: {order}, {direction}', { order: { desc: tr('largest first'), asc: tr('smallest first') }[spec.sort] ?? tr('sheet'), direction: ccw ? tr('counter-clockwise') : tr('clockwise') }), tr('Slice order'), (
         <>
-          <Line label="Order"><Seg label="Slice order" value={spec.sort ?? null} onPick={v => set('sort', v)} items={[[null, 'Sheet'], ['desc', 'Largest first'], ['asc', 'Smallest first']]} /></Line>
-          <Line label="Direction"><Seg label="Direction" value={ccw ? 'ccw' : 'cw'} onPick={v => set('direction', v === 'ccw' ? 'ccw' : null)} items={[['cw', 'Clockwise'], ['ccw', 'Counter-clockwise']]} /></Line>
+          <Line label={tr('Order')}><Seg label={tr('Slice order')} value={spec.sort ?? null} onPick={v => set('sort', v)} items={[[null, tr('Sheet')], ['desc', tr('Largest first')], ['asc', tr('Smallest first')]]} /></Line>
+          <Line label={tr('Direction')}><Seg label={tr('Direction')} value={ccw ? 'ccw' : 'cw'} onPick={v => set('direction', v === 'ccw' ? 'ccw' : null)} items={[['cw', tr('Clockwise')], ['ccw', tr('Counter-clockwise')]]} /></Line>
         </>
       )],
-      ['start', null, `Start: ${spec.start ?? 0}°`, 'Start angle', (
+      ['start', null, tr('Start: {n}°', { n: spec.start ?? 0 }), tr('Start angle'), (
         <>
-          <Line label="Start"><Seg label="Start angle" value={spec.start ?? 0} onPick={v => set('start', v)} items={[[0, '12 o’clock'], [90, '3 o’clock'], [180, '6 o’clock'], [270, '9 o’clock']]} /></Line>
-          <Line label="Angle"><Field label="Degrees" numeric value={spec.start ?? 0} onCommit={v => set('start', v == null ? null : ((Math.round(v) % 360) + 360) % 360)} /></Line>
-          <div className="chart-pop__note">Or drag the rotation handle on the edge (snaps to quarters).</div>
+          <Line label={tr('Start')}><Seg label={tr('Start angle')} value={spec.start ?? 0} onPick={v => set('start', v)} items={[[0, tr('12 o’clock')], [90, tr('3 o’clock')], [180, tr('6 o’clock')], [270, tr('9 o’clock')]]} /></Line>
+          <Line label={tr('Angle')}><Field label={tr('Degrees')} numeric value={spec.start ?? 0} onCommit={v => set('start', v == null ? null : ((Math.round(v) % 360) + 360) % 360)} /></Line>
+          <div className="chart-pop__note">{tr('Or drag the rotation handle on the edge (snaps to quarters).')}</div>
         </>
       )],
-      ['other', null, `Small slices: ${spec.other ? `grouped < ${Math.round(spec.other * 100)}%` : 'shown'}`, 'Group small slices into “Other”', (
-        <Line label="Group"><Seg label="Group small slices" value={spec.other ?? null} onPick={v => set('other', v)} items={[[null, 'Off'], [0.03, '< 3%'], [0.05, '< 5%'], [0.1, '< 10%']]} /></Line>
+      ['other', null, tr('Small slices: {state}', { state: spec.other ? tr('grouped < {n}%', { n: Math.round(spec.other * 100) }) : tr('shown') }), tr('Group small slices into “Other”'), (
+        <Line label={tr('Group')}><Seg label={tr('Group small slices')} value={spec.other ?? null} onPick={v => set('other', v)} items={[[null, tr('Off')], [0.03, tr('< {n}%', { n: 3 })], [0.05, tr('< {n}%', { n: 5 })], [0.1, tr('< {n}%', { n: 10 })]]} /></Line>
       )],
     ],
     slice: arc ? [
-      ['fill', <span className="chart-bar__dot" style={{ background: tok(arc.color) }} />, `Fill: ${colorName(arc.color)}`, 'Slice color', (
+      ['fill', <span className="chart-bar__dot" style={{ background: tok(arc.color) }} />, tr('Fill: {name}', { name: colorName(arc.color) }), tr('Slice color'), (
         <Swatches palette={PALETTE} value={P.colors?.[arc.key] ?? arc.color} onPick={c => update('colors', cur0 => ({ ...(cur0 ?? {}), [arc.key]: c }))} />
       )],
-      ['explode', null, `Explode: ${exploded.has(arc.key) ? 'on' : 'off'}`, 'Detach this slice', (
-        <Line label=""><Check on={exploded.has(arc.key)} onClick={() => toggleExplode(arc.key)}>Detach from the center</Check></Line>
+      ['explode', null, tr('Explode: {state}', { state: exploded.has(arc.key) ? tr('on') : tr('off') }), tr('Detach this slice'), (
+        <Line label=""><Check on={exploded.has(arc.key)} onClick={() => toggleExplode(arc.key)}>{tr('Detach from the center')}</Check></Line>
       )],
     ] : [],
     labels: [
-      ['textstyle', null, styleSummary(P), 'Label color, font and size', <TextStyle font={P.labelFont} pt={P.labelPt} color={P.labelColor} onFont={v => set('labelFont', v)} onPt={v => set('labelPt', v)} onColor={v => set('labelColor', v)} />],
+      ['textstyle', null, styleSummary(P), tr('Label color, font and size'), <TextStyle font={P.labelFont} pt={P.labelPt} color={P.labelColor} onFont={v => set('labelFont', v)} onPt={v => set('labelPt', v)} onColor={v => set('labelColor', v)} />],
       // Labels dropped for lack of room (large size): counted; the slice still shows on hover.
-      scene?.noRoom > 0 && ['noroom', null, `${scene.noRoom} hidden (no room)`, 'Labels left out for lack of room', (
-        <div className="chart-pop__note">{`${scene.noRoom} label${scene.noRoom > 1 ? 's' : ''} did not fit at this size. Hover a slice to read it, or reduce the size in Style.`}</div>
+      scene?.noRoom > 0 && ['noroom', null, tr('{n} hidden (no room)', { n: scene.noRoom }), tr('Labels left out for lack of room'), (
+        <div className="chart-pop__note">{scene.noRoom > 1 ? tr('{n} labels did not fit at this size. Hover a slice to read it, or reduce the size in Style.', { n: scene.noRoom }) : tr('{n} label did not fit at this size. Hover a slice to read it, or reduce the size in Style.', { n: scene.noRoom })}</div>
       )],
-      ['pos', null, `Position: ${labelPos}`, 'Label position', (
-        <Line label="Position"><Seg label="Label position" value={labelPos} onPick={v => set('labels', v === 'outside' ? null : v)} items={[['outside', 'Outside'], ['inside', 'Inside'], ['none', 'None']]} /></Line>
+      ['pos', null, tr('Position: {name}', { name: { outside: tr('outside'), inside: tr('inside'), none: tr('none') }[labelPos] ?? labelPos }), tr('Label position'), (
+        <Line label={tr('Position')}><Seg label={tr('Label position')} value={labelPos} onPick={v => set('labels', v === 'outside' ? null : v)} items={[['outside', tr('Outside')], ['inside', tr('Inside')], ['none', tr('None')]]} /></Line>
       )],
-      ['content', null, `Content: ${{ value: 'value', both: 'value + %', name: 'name', nameShare: 'name + %' }[spec.content] ?? '%'}`, 'Label content', (
-        <Line label="Content"><Seg label="Label content" value={spec.content ?? 'share'} onPick={v => set('content', v === 'share' ? null : v)} items={[['share', '%'], ['value', 'Value'], ['both', 'Value + %'], ['name', 'Name'], ['nameShare', 'Name + %']]} /></Line>
+      ['content', null, tr('Content: {name}', { name: { value: tr('value'), both: tr('value + %'), name: tr('name'), nameShare: tr('name + %') }[spec.content] ?? '%' }), tr('Label content'), (
+        <Line label={tr('Content')}><Seg label={tr('Label content')} value={spec.content ?? 'share'} onPick={v => set('content', v === 'share' ? null : v)} items={[['share', '%'], ['value', tr('Value')], ['both', tr('Value + %')], ['name', tr('Name')], ['nameShare', tr('Name + %')]]} /></Line>
       )],
-      ['dec', null, `Decimals: ${spec.decimals ?? 0}`, 'Decimals of the %', (
-        <Line label="Decimals"><Seg label="Decimals" value={spec.decimals ?? 0} onPick={v => set('decimals', v || null)} items={[[0, '0'], [1, '0.0'], [2, '0.00']]} /></Line>
+      ['dec', null, tr('Decimals: {n}', { n: spec.decimals ?? 0 }), tr('Decimals of the %'), (
+        <Line label={tr('Decimals')}><Seg label={tr('Decimals')} value={spec.decimals ?? 0} onPick={v => set('decimals', v || null)} items={[[0, '0'], [1, tr('0.0')], [2, tr('0.00')]]} /></Line>
       )],
-      labelPos === 'outside' && ['place', null, `Placement: ${moved ? `${moved} moved` : 'auto'}`, 'Label placement', (
+      labelPos === 'outside' && ['place', null, tr('Placement: {name}', { name: moved ? tr('{n} moved', { n: moved }) : tr('auto') }), tr('Label placement'), (
         <>
-          <div className="chart-pop__note">Drag an outside label to move it.</div>
-          {moved > 0 && <Line label=""><button type="button" className="chart-pop__link" onClick={() => set('labelOffsets', {})}>Reset label positions</button></Line>}
+          <div className="chart-pop__note">{tr('Drag an outside label to move it.')}</div>
+          {moved > 0 && <Line label=""><button type="button" className="chart-pop__link" onClick={() => set('labelOffsets', {})}>{tr('Reset label positions')}</button></Line>}
         </>
       )],
     ],
     legend: [
-      ['pos', null, `Position: ${legendPos}`, 'Legend position', (
-        <Line label="Position"><Seg label="Legend position" value={legendPos} onPick={v => set('legend', v === 'right' ? null : v)} items={[['right', 'Right'], ['bottom', 'Bottom'], ['none', 'Hidden']]} /></Line>
+      ['pos', null, tr('Position: {name}', { name: { right: tr('right'), bottom: tr('bottom'), none: tr('none') }[legendPos] ?? legendPos }), tr('Legend position'), (
+        <Line label={tr('Position')}><Seg label={tr('Legend position')} value={legendPos} onPick={v => set('legend', v === 'right' ? null : v)} items={[['right', tr('Right')], ['bottom', tr('Bottom')], ['none', tr('Hidden')]]} /></Line>
       )],
     ],
   }
   const actions = {
     chart: [
-      { label: 'Open data sheet', shortcut: 'Double-click', onSelect: () => sheetApi.setSheetOpen(true) },
-      sheetApi.sheetEdited && { label: 'Reset data to source', onSelect: () => sheetApi.resetSheet() },
+      { label: tr('Open data sheet'), shortcut: tr('Double-click'), onSelect: () => sheetApi.setSheetOpen(true) },
+      sheetApi.sheetEdited && { label: tr('Reset data to source'), onSelect: () => sheetApi.resetSheet() },
       '-',
-      { label: donut ? 'Change to pie' : 'Change to doughnut', onSelect: () => set('donut', donut ? 0 : 0.55) },
-      exploded.size > 0 && { label: 'Attach all slices', onSelect: () => set('explode', []) },
-      { label: ccw ? 'Clockwise' : 'Counter-clockwise', onSelect: () => set('direction', ccw ? null : 'ccw') },
+      { label: donut ? tr('Change to pie') : tr('Change to doughnut'), onSelect: () => set('donut', donut ? 0 : 0.55) },
+      exploded.size > 0 && { label: tr('Attach all slices'), onSelect: () => set('explode', []) },
+      { label: ccw ? tr('Clockwise') : tr('Counter-clockwise'), onSelect: () => set('direction', ccw ? null : 'ccw') },
     ],
-    slice: arc ? [{ label: exploded.has(arc.key) ? 'Attach this slice' : 'Detach this slice', onSelect: () => toggleExplode(arc.key) }] : [],
+    slice: arc ? [{ label: exploded.has(arc.key) ? tr('Attach this slice') : tr('Detach this slice'), onSelect: () => toggleExplode(arc.key) }] : [],
     labels: [
-      { label: labelPos === 'none' ? 'Add labels' : 'Remove labels', onSelect: () => set('labels', labelPos === 'none' ? null : 'none') },
-      moved > 0 && { label: 'Reset label positions', onSelect: () => set('labelOffsets', {}) },
+      { label: labelPos === 'none' ? tr('Add labels') : tr('Remove labels'), onSelect: () => set('labels', labelPos === 'none' ? null : 'none') },
+      moved > 0 && { label: tr('Reset label positions'), onSelect: () => set('labelOffsets', {}) },
     ],
-    legend: [{ label: legendPos === 'none' ? 'Add legend' : 'Remove legend', onSelect: () => set('legend', legendPos === 'none' ? null : 'none') }],
+    legend: [{ label: legendPos === 'none' ? tr('Add legend') : tr('Remove legend'), onSelect: () => set('legend', legendPos === 'none' ? null : 'none') }],
   }
 
   // ── Direct manipulation: rotation and hole handles, movable labels ──
@@ -186,7 +194,7 @@ export default function PieView({ id = 'pie', spec: baseSpec = {}, slices: slice
   const dragRotate = e => track(e, (x, y) => { const v = pieStartFromPoint(scene, x, y); set('start', v); setDragTip({ x, y, text: `${Math.round(v)}°` }) }, () => setDragTip(null))
   // A slice handle: the dragged edge follows the pointer (the scene at drag start is the reference).
   const dragSliceEdge = (e, h) => { const sc0 = scene; track(e, (x, y) => { const v = pieStartFromHandle(sc0, h.angle, x, y); set('start', v); setDragTip({ x, y, text: `${Math.round(v)}°` }) }, () => setDragTip(null)) }
-  const dragHole = e => track(e, (x, y) => { const v = pieHoleFromPoint(scene, x, y); set('donut', v); setDragTip({ x, y, text: v > 0 ? `Hole ${Math.round(v * 100)}%` : 'Pie' }) }, () => setDragTip(null))
+  const dragHole = e => track(e, (x, y) => { const v = pieHoleFromPoint(scene, x, y); set('donut', v); setDragTip({ x, y, text: v > 0 ? tr('Hole {n}%', { n: Math.round(v * 100) }) : tr('Pie') }) }, () => setDragTip(null))
   const dragLabel = (e, l) => {
     if (e.button !== 0 || l.ax == null) return
     movedRef.current = false
@@ -227,7 +235,7 @@ export default function PieView({ id = 'pie', spec: baseSpec = {}, slices: slice
   if (readOnly) {
     return (
       <div ref={boxRef} className="chart-engine chart-engine-box">
-        {scene?.empty && <div className="chart-engine-empty">No data for this chart yet.</div>}
+        {scene?.empty && <div className="chart-engine-empty">{tr('No data for this chart yet.')}</div>}
         <PieFigure scene={scene} interactive={!readOnly} label={label} responsive={responsive} dataTable={dataTable} />
       </div>
     )
@@ -237,24 +245,24 @@ export default function PieView({ id = 'pie', spec: baseSpec = {}, slices: slice
     <div ref={boxRef} className="chart-engine chart-engine-box" onContextMenu={e => { if (!e.defaultPrevented) open(e, { obj: 'chart' }) }} onDoubleClick={e => { if (!e.target.closest?.('.chart-datasheet, .chart-wheel, .chart-pop')) { close(); setObj(null); sheetApi.setSheetOpen(true) } }}>
       <EditedNote api={sheetApi} />
       <div className="chart-engine-float-menu">
-        <button type="button" data-wheel-anchor className="chart-opts-btn" title="Chart format: colours, labels and layout. Tip: click or right-click any part of the chart" aria-label="Chart format"
+        <button type="button" data-wheel-anchor className="chart-opts-btn" title={tr('Chart format: colours, labels and layout. Tip: click or right-click any part of the chart')} aria-label={tr('Chart format')}
           onClick={e => open(e, { obj: 'chart' })}><IconPalette size={13} /></button>
       </div>
-      {scene?.empty && <div className="chart-engine-empty">No data for this chart yet.</div>}
+      {scene?.empty && <div className="chart-engine-empty">{tr('No data for this chart yet.')}</div>}
       {scene && !scene.empty && (
         <PieFigure scene={scene} interactive={!readOnly} label={label} responsive={responsive} dataTable={dataTable} labelStyle={labelTextStyle(P)} part={part}>
           {dragTip && <text x={dragTip.x + 12} y={dragTip.y - 10} fill={tok('black')} fontWeight={600} stroke={tok('surface')} strokeWidth={3} paintOrder="stroke" pointerEvents="none" style={{ fontSize: 11, fontFamily: 'var(--font-mono)' }}>{dragTip.text}</text>}
           {pick?.obj === 'slice' && scene.arcs.find(a => a.key === pick.key)?.handles.map((h, i) => (
             <rect key={`sh-${i}`} x={h.x - 3.5} y={h.y - 3.5} width={7} height={7} className="chart-engine-knob is-on chart-engine-handle--rotate" onPointerDown={e => dragSliceEdge(e, h)}>
-              <title>Drag to rotate the chart (snaps to quarters)</title>
+              <title>{tr('Drag to rotate the chart (snaps to quarters)')}</title>
             </rect>
           ))}
           <g className={`chart-pie__handles${handlesOn ? ' is-on' : ''}`}>
             <circle cx={scene.handles.rotate.x} cy={scene.handles.rotate.y} r={4.5} className="chart-engine-knob is-on chart-engine-handle--rotate" onPointerDown={dragRotate}>
-              <title>{`Drag to rotate (${scene.handles.rotate.angle}°, snaps to quarters)`}</title>
+              <title>{tr('Drag to rotate ({n}°, snaps to quarters)', { n: scene.handles.rotate.angle })}</title>
             </circle>
             <rect x={scene.handles.hole.x - 4} y={scene.handles.hole.y - 4} width={8} height={8} rx={1.5} className="chart-engine-knob is-on chart-engine-handle--move" onPointerDown={dragHole}>
-              <title>{`Drag to size the hole (${Math.round((spec.donut ?? 0) * 100)}%)`}</title>
+              <title>{tr('Drag to size the hole ({n}%)', { n: Math.round((spec.donut ?? 0) * 100) })}</title>
             </rect>
           </g>
         </PieFigure>

@@ -22,6 +22,8 @@ import { barhSheet } from './sheetAdapters.js'
 
 // A color is a palette token, or a user-picked hex (custom style).
 import { tok, labelTextStyle, labelPrefs } from './customStyle.js'
+import { SpecLocale, useT } from './uiLocale.js'
+import { t } from './locale.js'
 // A real number for the format preview: the first value, not a total.
 const sampleOf = r => (!r ? null : r.range ? r.range[1] : Object.values(r.values ?? {}).find(Number.isFinite) ?? null)
 const rowTotalOf = r => (!r ? null : r.range ? r.range[1] : Object.values(r.values ?? {}).reduce((a, v) => a + (Number.isFinite(v) ? v : 0), 0))
@@ -48,7 +50,16 @@ function useWidth(ref, fixed) {
 // (with applyPrefs: the stored preferences and sheet edits drawn, still no control).
 // responsive: the SVG scales to its container (width="100%", ratio kept); dataTable: a
 // visually hidden table of the numbers next to the SVG.
-export default function BarhView({ spec: specIn, rows: rowsIn, format: baseFormat, onSelectRow, selectedKey, label = 'Bar chart', id, unit, reading: readingIn = true, chartActions = [], muted = false, menuSlot = null, onRotate = null, width: widthProp, readOnly = false, responsive = false, dataTable = false, applyPrefs = false }) {
+// The interface (menus, format bar, messages) speaks the spec's language (spec.locale).
+export default function BarhView(props) {
+  return <SpecLocale spec={props.spec}><BarhViewBody {...props} /></SpecLocale>
+}
+
+function BarhViewBody({ spec: specIn, rows: rowsIn, format: baseFormat, onSelectRow, selectedKey, label: labelIn, id, unit, reading: readingIn = true, chartActions = [], muted = false, menuSlot = null, onRotate = null, width: widthProp, readOnly = false, responsive = false, dataTable = false, applyPrefs = false }) {
+  const tr = useT()
+  const label = labelIn ?? tr('Bar chart')
+  // The storage key stays the same in every language.
+  const storeKey = id ?? labelIn ?? t('Bar chart', 'en')
   const boxRef = useRef(null)
   const width = useWidth(boxRef, widthProp)
   const reading = readingIn && !readOnly
@@ -56,14 +67,14 @@ export default function BarhView({ spec: specIn, rows: rowsIn, format: baseForma
   const applied = reading || (readOnly && applyPrefs)
   const [hover, setHover] = useState(null)
   // The sheet drives the chart (except in the rotated view of a column chart, which has its own).
-  const sheetBase = useMemo(() => barhSheet.toBase(rowsIn ?? [], specIn?.series ?? [{ id: 'value', label: 'Value' }]), [rowsIn, specIn?.series])
-  const sheetApi = useSheet(`barh-${id ?? label}`, sheetBase)
-  const fromSheet = applied ? barhSheet.fromSheet(sheetApi.sheet, rowsIn ?? [], specIn?.series ?? [{ id: 'value', label: 'Value' }]) : null
+  const sheetBase = useMemo(() => barhSheet.toBase(rowsIn ?? [], specIn?.series ?? [{ id: 'value', label: tr('Value') }]), [rowsIn, specIn?.series, tr])
+  const sheetApi = useSheet(`barh-${storeKey}`, sheetBase)
+  const fromSheet = applied ? barhSheet.fromSheet(sheetApi.sheet, rowsIn ?? [], specIn?.series ?? [{ id: 'value', label: tr('Value') }]) : null
   const baseRows = fromSheet ? fromSheet.rows : rowsIn
   const baseSpec = fromSheet && specIn?.series ? { ...specIn, series: fromSheet.series } : specIn
-  const [effSpec, effRows, readApi] = useBarhPrefs(baseSpec, baseRows, id ?? label)
+  const [effSpec, effRows, readApi] = useBarhPrefs(baseSpec, baseRows, storeKey)
   const api = reading ? readApi : null
-  const allActions = reading ? [{ label: 'Open data sheet', shortcut: 'Double-click', onSelect: () => sheetApi.setSheetOpen(true) }, ...(sheetApi.sheetEdited ? [{ label: 'Reset data to source', onSelect: () => sheetApi.resetSheet() }] : []), '-', ...chartActions] : chartActions
+  const allActions = reading ? [{ label: tr('Open data sheet'), sheet: true, shortcut: tr('Double-click'), onSelect: () => sheetApi.setSheetOpen(true) }, ...(sheetApi.sheetEdited ? [{ label: tr('Reset data to source'), sheet: true, onSelect: () => sheetApi.resetSheet() }] : []), '-', ...chartActions] : chartActions
   const spec = applied ? effSpec : baseSpec
   const rows = applied ? effRows : baseRows
   const P = applied ? readApi.prefs : undefined
@@ -145,7 +156,7 @@ export default function BarhView({ spec: specIn, rows: rowsIn, format: baseForma
           <BarhBarButton api={api} format={format} money={money} sample={sampleOf(baseRows[0])} chartActions={allActions} />
         </div>
       ))}
-      {scene?.empty && <div className="chart-engine-empty">No data for this chart yet.</div>}
+      {scene?.empty && <div className="chart-engine-empty">{tr('No data for this chart yet.')}</div>}
       {scene && !scene.empty && (
         <BarhFigure scene={scene} interactive={!readOnly} label={label} responsive={responsive} dataTable={dataTable} labelStyle={labelTextStyle(P)} part={readOnly ? undefined : part} patternScope={patScope}
           onMouseLeave={() => setHover(null)}>
@@ -164,7 +175,7 @@ export default function BarhView({ spec: specIn, rows: rowsIn, format: baseForma
               <g data-wheel-anchor className="chart-engine-handle" onPointerDown={rotate}>
                 <circle cx={hx} cy={hy} r={7} fill={tok('white')} stroke={tok('gold')} strokeWidth={1.5} />
                 <path d={`M${hx - 3},${hy + 2} A3.5,3.5 0 1 1 ${hx + 2},${hy + 2.5}`} fill="none" stroke={tok('gold-dark')} strokeWidth={1.2} />
-                <title>Drag to rotate back to columns</title>
+                <title>{tr('Drag to rotate back to columns')}</title>
               </g>
             )
           })()}
@@ -180,11 +191,11 @@ export default function BarhView({ spec: specIn, rows: rowsIn, format: baseForma
           style={{ left: scene.plot.left + scene.plot.width * 0.5, top: hovered.y1 + 2 }}>
           <div className="chart-engine-tip-head">{hovered.full}</div>
           {hovered.marker && (
-            <div className="chart-engine-tip-row"><span className="chart-engine-tip-label">{{ median: 'Median', mean: 'Mean' }[spec?.rangeMarker] ?? 'Marker'}</span>
+            <div className="chart-engine-tip-row"><span className="chart-engine-tip-label">{{ median: tr('Median'), mean: tr('Mean') }[spec?.rangeMarker] ?? tr('Marker')}</span>
               <span className="chart-engine-tip-value">{format(hovered.marker.value)}</span></div>
           )}
           {hoveredRange
-            ? <div className="chart-engine-tip-row"><span className="chart-engine-tip-label">Range</span>
+            ? <div className="chart-engine-tip-row"><span className="chart-engine-tip-label">{tr('Range')}</span>
                 <span className="chart-engine-tip-value">{format(hoveredRange[0])} → {format(hoveredRange[1])}</span></div>
             : series.filter(s => Number.isFinite(hoveredRow.values?.[s.id])).map(s => (
               <div key={s.id} className="chart-engine-tip-row">
@@ -195,7 +206,7 @@ export default function BarhView({ spec: specIn, rows: rowsIn, format: baseForma
             ))}
         </div>
       )}
-      {reading && sheetApi.sheetOpen && <DataSheet api={sheetApi} colors={Object.fromEntries((scene?.rows ?? []).map(r => [r.key, scene.bars.find(b => b.key === r.key)?.color]).filter(([, c]) => c))} layout={{ ...barhSheet.layout, title: spec?.sort ? `Sheet · rows (sorted ${spec.sort === 'desc' ? '↓' : '↑'})` : barhSheet.layout.title }} onClose={() => sheetApi.setSheetOpen(false)} />}
+      {reading && sheetApi.sheetOpen && <DataSheet api={sheetApi} colors={Object.fromEntries((scene?.rows ?? []).map(r => [r.key, scene.bars.find(b => b.key === r.key)?.color]).filter(([, c]) => c))} layout={{ ...barhSheet.layout, title: spec?.sort ? tr('Sheet · rows (sorted {dir})', { dir: spec.sort === 'desc' ? '↓' : '↑' }) : barhSheet.layout.title }} onClose={() => sheetApi.setSheetOpen(false)} />}
     </div>
   )
 }

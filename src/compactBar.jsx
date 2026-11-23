@@ -12,6 +12,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { IconDots } from '@tabler/icons-react'
 import { nextCompactLevel, compactValue } from './barPlacement.js'
+import { t } from './locale.js'
 
 export { compactValue }
 
@@ -52,9 +53,10 @@ export function useCompactLevel(ref, key) {
 /**
  * The list of a bar's controls, tightened: [object, …controls, (⋯), "+"].
  * `head` = number of fixed leading controls (the object picker), `tail` = trailing ones ("+"),
- * `pin` = id of a control that never collapses (the one currently open).
+ * `pin` = id of a control that never collapses (the one currently open), `tr` = the bar's
+ * translation function (useT), for the "⋯" control's tooltip.
  */
-export function compactList(list, level, { head = 1, tail = 0, display = (t, v) => v, pin = null } = {}) {
+export function compactList(list, level, { head = 1, tail = 0, display = (t, v) => v, pin = null, tr = (w, v) => t(w, undefined, v) } = {}) {
   const keep = level >= 3 ? 2 : level >= 2 ? 4 : Infinity
   const mid = list.slice(head, list.length - tail)
   if (mid.length <= keep) return list
@@ -63,7 +65,7 @@ export function compactList(list, level, { head = 1, tail = 0, display = (t, v) 
   // The open control (double-click, shortcut) always stays visible: it takes the last slot.
   const pinned = pin != null ? rest.find(c => c[0] === pin) : null
   if (pinned) { rest = [shown[shown.length - 1], ...rest.filter(c => c !== pinned)]; shown = [...shown.slice(0, -1), pinned] }
-  const more = ['overflow', IconDots, '', `More format controls (${rest.length})`, (
+  const more = ['overflow', IconDots, '', tr('More format controls ({n})', { n: rest.length }), (
     <div className="chart-pop__groups">
       {rest.map(([id, , value, title, body]) => (
         <div key={id} className="chart-pop__group">

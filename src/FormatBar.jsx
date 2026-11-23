@@ -21,11 +21,13 @@ import { useWheelPlacement } from './useWheelPlacement'
 import { undoLast, canUndo as canUndoPrefs } from './chartPrefs'
 import { useCompactLevel, compactList, compactValue } from './compactBar.jsx'
 import BarBoundary from './BarBoundary.jsx'
+import { useT } from './uiLocale.js'
 
 const GENERIC = /^(chart|legend|labels?|value axis|category axis|x axis|y axis|axes|time scale|scale|partitions?|trend line|trend|bubbles?|points?|slices?|segments?|rows?|columns?|bars?|values?)$/i
 const isComp = I =>typeof I === 'function' || I?.$$typeof === Symbol.for('react.forward_ref')
 
 function FormatBarInner({ mode: mode0 = 'bar', anchor, objects, object, onObject, controls = [], actions = [], onReset, onUndo, canUndo, onClose, onOpenSheet, initialCtl }) {
+  const tr = useT()
   const ref = useRef(null)
   const [mode, setMode] = useState(mode0 === 'menu' ? 'menu' : 'bar')
   // initialCtl: the control opened right away (e.g. the calendar on a double-click on a scale).
@@ -51,14 +53,14 @@ function FormatBarInner({ mode: mode0 = 'bar', anchor, objects, object, onObject
   const menuItems = [
     ...actions,
     // The data sheet opens from any object (not only the chart background).
-    ...(onOpenSheet && object !== 'chart' ? [{ label: 'Open data sheet', shortcut: 'Double-click', onSelect: () => { onOpenSheet(); onClose() } }] : []),
+    ...(onOpenSheet && object !== 'chart' ? [{ label: tr('Open data sheet'), shortcut: tr('Double-click'), onSelect: () => { onOpenSheet(); onClose() } }] : []),
     ...(actions.length || (onOpenSheet && object !== 'chart') ? ['-'] : []),
     // A generic name is lowercased ("Format legend…"); a proper name keeps its case.
-    { label: `Format ${GENERIC.test(String(cur.name)) ? String(cur.name).toLowerCase() : cur.name}…`, onSelect: () => setMode('bar'), keepOpen: true },
-    ...(canUndoPrefs() ? [{ label: 'Undo', shortcut: 'Ctrl+Z', onSelect: () => undoLast() }] : []),
-    ...(object === 'chart' && onReset ? ['-', { label: 'Reset formatting', onSelect: () => { onReset(); setMode('bar') }, keepOpen: true }] : []),
+    { label: tr('Format {name}…', { name: GENERIC.test(String(cur.name)) ? String(cur.name).toLowerCase() : cur.name }), onSelect: () => setMode('bar'), keepOpen: true },
+    ...(canUndoPrefs() ? [{ label: tr('Undo'), shortcut: 'Ctrl+Z', onSelect: () => undoLast() }] : []),
+    ...(object === 'chart' && onReset ? ['-', { label: tr('Reset formatting'), onSelect: () => { onReset(); setMode('bar') }, keepOpen: true }] : []),
   ]
-  const objectCtl = ['object', cur.icon, cur.name, 'Object being formatted (click to switch)', (
+  const objectCtl = ['object', cur.icon, cur.name, tr('Object being formatted (click to switch)'), (
     <div className="chart-pop__objects" role="menu">
       {Object.entries(objects).map(([k, o]) => (
         <button key={k} type="button" role="menuitemradio" aria-checked={k === object} className="chart-menu__item"
@@ -69,10 +71,10 @@ function FormatBarInner({ mode: mode0 = 'bar', anchor, objects, object, onObject
     </div>
   )]
   const addItems = actions.filter(a => a && a !== '-')
-  const fullList = [objectCtl, ...controls.filter(Boolean), ...(addItems.length ? [['more', IconPlus, '', 'Add or remove an element (also on right-click)', <ActionMenu items={addItems} onClose={() => setOpenCtl(null)} />]] : [])]
+  const fullList = [objectCtl, ...controls.filter(Boolean), ...(addItems.length ? [['more', IconPlus, '', tr('Add or remove an element (also on right-click)'), <ActionMenu items={addItems} onClose={() => setOpenCtl(null)} />]] : [])]
   // Short on room: values only, then controls folded behind "⋯" (never a cut-off word).
   const level = useCompactLevel(ref, String(object))
-  const list = compactList(fullList, level, { head: 1, tail: addItems.length ? 1 : 0, display: (t, v) => v, pin: openCtl })
+  const list = compactList(fullList, level, { head: 1, tail: addItems.length ? 1 : 0, display: (t, v) => v, pin: openCtl, tr })
   const onBarKey = e => {
     if (!e.target.classList?.contains('chart-bar__ctl')) return
     const all = [...ref.current.querySelectorAll('.chart-bar__ctl')]
@@ -83,7 +85,7 @@ function FormatBarInner({ mode: mode0 = 'bar', anchor, objects, object, onObject
   }
 
   const bar = (
-    <div className="chart-bar" role="toolbar" aria-label={`Format: ${cur.name}`} onKeyDown={onBarKey}>
+    <div className="chart-bar" role="toolbar" aria-label={tr('Format: {name}', { name: cur.name })} onKeyDown={onBarKey}>
       {list.map(([id, Icon, value, title, body], i) => (
         <div key={id} className={`chart-bar__slot${i === 0 ? ' is-object' : ''}`}>
           <button type="button" className={`chart-bar__ctl${value === '' ? ' is-icon' : ''}${openCtl === id ? ' is-open' : ''}`} aria-haspopup="true" aria-expanded={openCtl === id}
@@ -97,10 +99,10 @@ function FormatBarInner({ mode: mode0 = 'bar', anchor, objects, object, onObject
       {object === 'chart' && onReset && <>
         <span className="chart-wheel__sep" aria-hidden="true" />
         {canUndo
-          ? <button type="button" className="chart-bar__undo" onClick={onUndo}>Undo reset</button>
-          : <button type="button" className="chart-bar__text" onClick={onReset} title="Remove every format change on this chart (you can undo)">Reset</button>}
+          ? <button type="button" className="chart-bar__undo" onClick={onUndo}>{tr('Undo reset')}</button>
+          : <button type="button" className="chart-bar__text" onClick={onReset} title={tr('Remove every format change on this chart (you can undo)')}>{tr('Reset')}</button>}
       </>}
-      <button type="button" className="chart-bar__icon" onClick={onClose} aria-label="Close" title="Close (Esc)"><IconX size={13} /></button>
+      <button type="button" className="chart-bar__icon" onClick={onClose} aria-label={tr('Close')} title={tr('Close (Esc)')}><IconX size={13} /></button>
     </div>
   )
 

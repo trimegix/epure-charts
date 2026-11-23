@@ -14,14 +14,16 @@
 //   · labelStyle: CSS spread on the value labels (the user's label font, size, color).
 import FigureSvg from './FigureSvg.jsx'
 import { tok, fs, fsNote } from './customStyle.js'
+import { t } from './locale.js'
 
 const none = () => null
 
 /** The figure's numbers, for the hidden data table (what the labels say: indexed when the scene is). */
 function waterfallTable(scene) {
   const running = scene.columns.some(c => c.level)
+  const L = scene.meta?.locale
   return {
-    head: running ? ['', 'Value', 'Running total'] : ['', 'Value'],
+    head: running ? ['', t('Value', L), t('Running total', L)] : ['', t('Value', L)],
     rows: scene.columns.map(c => (running ? [c.label, c.text, c.level ?? ''] : [c.label, c.text])),
   }
 }
@@ -66,7 +68,7 @@ export default function WaterfallFigure({ scene, label, responsive = false, data
           <g key={`${c.from}-${c.to}`}>
             {c.distorted
               // Distorted connector: the anchor does not continue the running total, the conflict is visible.
-              ? <line x1={c.x1} x2={c.x2} y1={c.y} y2={c.y2} stroke={tok('red')} strokeWidth={1.25} strokeDasharray="3 2" {...part('connector', c)}><title>{`Connector conflict: ${c.text}`}</title></line>
+              ? <line x1={c.x1} x2={c.x2} y1={c.y} y2={c.y2} stroke={tok('red')} strokeWidth={1.25} strokeDasharray="3 2" {...part('connector', c)}><title>{t('Connector conflict: {text}', scene.meta?.locale, { text: c.text })}</title></line>
               : <line x1={c.x1} x2={c.x2} y1={c.y} y2={c.y} stroke={tok(c.linked ? 'gray-600' : 'gray-400')} strokeWidth={1} strokeDasharray="2 2" pointerEvents="none" {...part('connector', c)} />}
             {slot('connector', c)}
           </g>

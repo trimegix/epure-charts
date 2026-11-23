@@ -161,6 +161,11 @@ conventions and [docs/scene-shapes.md](docs/scene-shapes.md) for every field.
 
 **Language.** `spec.locale: 'fr'` (or `setDefaultLocale('fr')` for the page): engine words in
 French, decimal comma, no-break space before % and units (« 12,5 % », « 1 234 M€ »).
+The editing interface follows the same language: menus, format bars, tooltips and messages
+(« Mettre en forme le graphique… », « Ouvrir la feuille de données »). Everything goes
+through one dictionary and one function, `t(word, locale, vars)`; `addWords(locale, words)`
+completes a language or adds one, and `useT()` gives a custom bar the language of the view
+it sits in.
 
 **Single accent.** `spec.accent: 'single'` with `spec.emphasis: [keys]`: everything neutral
 but the emphasized series, steps, rows or slices.

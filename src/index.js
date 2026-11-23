@@ -51,6 +51,9 @@ export { useMenuSlot } from './useMenuSlot.js'
 export { useViewPrefs } from './useViewPrefs.js'
 export { useFormatPick } from './useFormatPick.js'
 
+// The language of the editing interface (the view's spec.locale)
+export { useT, useLocale, UiLocale } from './uiLocale.js'
+
 // Pure core (no React, no DOM): also published alone as `epure-charts/core`
 export * from './core.js'
 

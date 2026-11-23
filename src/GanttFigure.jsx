@@ -143,14 +143,14 @@ export default function GanttFigure({ scene, label, responsive = false, dataTabl
       {scene.events.map(ev => (
         <g key={ev.key} pointerEvents="none">
           <line x1={ev.x} x2={ev.x} y1={ev.y1} y2={ev.y2} stroke={tok(ev.color)} strokeWidth={1} strokeDasharray="3 3" />
-          <path d={ev.path} fill={tok(ev.color)}><title>{`${ev.label ?? 'Event'} · ${ev.date}`}</title></path>
+          <path d={ev.path} fill={tok(ev.color)}><title>{`${ev.label ?? t('Event', L)} · ${ev.date}`}</title></path>
         </g>
       ))}
       {scene.milestones.map(m => (
         <g key={m.key}>
           {m.line && <line x1={m.x} x2={m.x} y1={m.line.y1} y2={m.line.y2} stroke={tok(m.color)} strokeWidth={1} strokeDasharray="4 3" pointerEvents="none" />}
           <path d={m.path} fill={tok(m.color)} stroke={tok('surface')} strokeWidth={1}
-            {...{ children: <title>{`${m.label ?? 'Milestone'} · ${m.date}`}</title>, ...part('milestone', m) }} />
+            {...{ children: <title>{`${m.label ?? t('Milestone', L)} · ${m.date}`}</title>, ...part('milestone', m) }} />
         </g>
       ))}
       {scene.labels.map(l => {

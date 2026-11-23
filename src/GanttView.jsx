@@ -34,6 +34,7 @@ import { ganttSheet } from './sheetAdapters.js'
 // A color: a design token, or a user-picked hex (custom style).
 import { tok, labelTextStyle, styleSummary } from './customStyle.js'
 import { SchemeTools, TextStyle } from './CustomStyle.jsx'
+import { SpecLocale, useT } from './uiLocale.js'
 const PALETTE = [...COLOR_TOKENS, ...NEUTRAL_TOKENS]
 const MAPS = ['colors', 'shapes', 'markers', 'lines', 'plan', 'rowStyles', 'outlines', 'prevDays', 'recentFormats']
 const DEFAULTS = {
@@ -46,18 +47,27 @@ const DEFAULTS = {
   colors: {}, shapes: {}, markers: {}, lines: {}, rowStyles: {}, outlines: {}, prevDays: {}, recentFormats: null,
 }
 const ISO = /^\d{4}-\d{2}-\d{2}$/
-const SHAPES = [['bar', 'Bar'], ['pentagon', 'Pentagon'], ['chevron', 'Chevron']]
-const MARKERS = [['diamond', 'Diamond'], ['triangle', 'Triangle'], ['circle', 'Circle'], ['square', 'Square']]
-const DATE_FORMATS = [['d mmm', '6 Jan'], ['dd/mm', '06/01'], ['mm/dd', '01/06'], ['mmm yy', 'Jan 25'], ['iso', 'ISO']]
-const DATE_LABELS = { none: 'none', range: 'range', start: 'start', end: 'end', duration: 'duration' }
-const COLS = [['responsible', 'Responsible'], ['status', 'Status'], ['remark', 'Remark']]
-const UNIT_NAME = { year: 'Year', quarter: 'Quarter', month: 'Month', week: 'Week', day: 'Day' }
-const TIER_PRESETS = [['year,quarter', 'Year + Quarter'], ['quarter,month', 'Quarter + Month'], ['month,week', 'Month + Week'], ['week,day', 'Week + Day']]
+const COL_KEYS = ['responsible', 'status', 'remark']
+// The option tables, their names in the interface language (tr = useT()).
+const tablesOf = tr => ({
+  SHAPES: [['bar', tr('Bar')], ['pentagon', tr('Pentagon')], ['chevron', tr('Chevron')]],
+  MARKERS: [['diamond', tr('Diamond')], ['triangle', tr('Triangle')], ['circle', tr('Circle')], ['square', tr('Square')]],
+  DATE_FORMATS: [['d mmm', tr('6 Jan')], ['dd/mm', '06/01'], ['mm/dd', '01/06'], ['mmm yy', tr('Jan 25')], ['iso', 'ISO']],
+  DATE_LABELS: { none: tr('none'), range: tr('range'), start: tr('start'), end: tr('end'), duration: tr('duration') },
+  COLS: [['responsible', tr('Responsible')], ['status', tr('Status')], ['remark', tr('Remark')]],
+  UNIT_NAME: { year: tr('Year'), quarter: tr('Quarter'), month: tr('Month'), week: tr('Week'), day: tr('Day') },
+  UNIT_PLURAL: { year: tr('Years'), quarter: tr('Quarters'), month: tr('Months'), week: tr('Weeks'), day: tr('Days') },
+  TIER_PRESETS: [['year,quarter', tr('Year + Quarter')], ['quarter,month', tr('Quarter + Month')], ['month,week', tr('Month + Week')], ['week,day', tr('Week + Day')]],
+  LINKS: [['fs', tr('After end')], ['ss', tr('With start')], ['ff', tr('Same end')]],
+})
 // A color's display name, for "Fill: teal".
 const COLOR_NAME = { 'cat-1': 'teal', 'cat-2': 'blue', 'cat-3': 'orange', 'cat-4': 'purple', 'cat-5': 'raspberry', 'cat-6': 'cyan', 'cat-7': 'slate', 'cat-8': 'bronze' }
 const colorName = t => COLOR_NAME[t] ?? String(t ?? '').replace(/-\d+$/, '')
-const LANGS = [['en', 'English'], ['fr', 'Français'], ['de', 'Deutsch']]
-const LINKS = [['fs', 'After end'], ['ss', 'With start'], ['ff', 'Same end']]
+// Each language under its own name (English, Français, Deutsch).
+const ownName = code => {
+  try { const n = new Intl.DisplayNames([code], { type: 'language' }).of(code); return n.charAt(0).toUpperCase() + n.slice(1) } catch { return code }
+}
+const LANGS = ['en', 'fr', 'de'].map(code => [code, ownName(code)])
 const DAY = 86400000
 const daysOf = (a, b) => Math.round((parseDate(b) - parseDate(a)) / DAY)
 const prettyDate = (iso, lang) => formatDate(iso, 'd mmm yyyy', false, lang ?? 'en')
@@ -93,6 +103,7 @@ function useBox(ref, fixed) {
 // Shift: year), Home / End, Enter picks, Shift+arrows extends.
 // Today is shown in red. `single`: one date only (milestone).
 function Calendar({ from, to, single, weekStart = 0, lang, onPick }) {
+  const tr = useT()
   const N = ganttNames(lang)
   const today = new Date().toISOString().slice(0, 10)
   const init = from || today
@@ -127,15 +138,15 @@ function Calendar({ from, to, single, weekStart = 0, lang, onPick }) {
   return (
     <div style={{ display: 'grid', gap: 6, userSelect: 'none' }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-        <button type="button" className="chart-pop__more" aria-label="Previous month" onClick={() => step(-1)}>‹</button>
-        <select className="chart-opts-input" aria-label="Month" style={{ flex: 1, minWidth: 0 }} value={view.m} onChange={e => setView(v => ({ ...v, m: +e.target.value }))}>
+        <button type="button" className="chart-pop__more" aria-label={tr('Previous month')} onClick={() => step(-1)}>‹</button>
+        <select className="chart-opts-input" aria-label={tr('Month')} style={{ flex: 1, minWidth: 0 }} value={view.m} onChange={e => setView(v => ({ ...v, m: +e.target.value }))}>
           {N.long.map((n, i) => <option key={n} value={i}>{n}</option>)}
         </select>
-        <input className="chart-opts-input" aria-label="Year" type="number" style={{ width: 58, flex: 'none', minWidth: 58 }} value={view.y} onChange={e => { const y = Math.round(+e.target.value); if (y > 1900 && y < 2200) setView(v => ({ ...v, y })) }} />
-        <button type="button" className="chart-pop__more" aria-label="Next month" onClick={() => step(1)}>›</button>
-        <button type="button" className="chart-pop__more" onClick={() => show(today)}>Today</button>
+        <input className="chart-opts-input" aria-label={tr('Year')} type="number" style={{ width: 58, flex: 'none', minWidth: 58 }} value={view.y} onChange={e => { const y = Math.round(+e.target.value); if (y > 1900 && y < 2200) setView(v => ({ ...v, y })) }} />
+        <button type="button" className="chart-pop__more" aria-label={tr('Next month')} onClick={() => step(1)}>›</button>
+        <button type="button" className="chart-pop__more" onClick={() => show(today)}>{tr('Today')}</button>
       </div>
-      <div ref={gridRef} role="grid" aria-label="Calendar" title={single ? 'Click a day' : 'Click the first day, Shift+click the last, or drag across'} onKeyDown={onKey} style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 26px)', gap: 1 }}>
+      <div ref={gridRef} role="grid" aria-label={tr('Calendar')} title={single ? tr('Click a day') : tr('Click the first day, Shift+click the last, or drag across')} onKeyDown={onKey} style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 26px)', gap: 1 }}>
         {dows.map((d, i) => <span key={`h${i}`} style={{ fontSize: 10, textAlign: 'center', color: tok('gray-500') }}>{d}</span>)}
         {weeks.flat().map(d => {
           const inRange = a && d.iso >= a && d.iso <= b, end = d.iso === a || d.iso === b
@@ -164,7 +175,18 @@ const EMPTY = []
 // readOnly: the figure only: no format bar, menus, data sheet or per-browser preferences.
 // responsive: the SVG scales to its container (width="100%", ratio kept).
 // dataTable: the dates as a visually hidden table next to the SVG.
-export default function GanttView({ id = 'gantt', spec: baseSpec = {}, rows = [], label = 'Gantt chart', width: widthProp, readOnly = false, responsive = false, dataTable = false, applyPrefs = false }) {
+// The interface (menus, format bar, messages) speaks the spec's language (spec.locale).
+export default function GanttView(props) {
+  return <SpecLocale spec={props.spec}><GanttViewBody {...props} /></SpecLocale>
+}
+
+function GanttViewBody({ id = 'gantt', spec: baseSpec = {}, rows = [], label: labelIn, width: widthProp, readOnly = false, responsive = false, dataTable = false, applyPrefs = false }) {
+  const tr = useT()
+  const label = labelIn ?? tr('Gantt chart')
+  const { SHAPES, MARKERS, DATE_FORMATS, DATE_LABELS, COLS, UNIT_NAME, UNIT_PLURAL, TIER_PRESETS, LINKS } = tablesOf(tr)
+  // An option's name in the interface ('pentagon' → 'pentagon' / 'pentagone'); unknown ids as they are.
+  const nameIn = (table, v) => table.find(x => x[0] === v)?.[1].toLowerCase() ?? v
+  const cn = c => tr(colorName(c))
   // readOnly + applyPrefs: the stored settings and sheet edits drawn, no editing control.
   const plain = readOnly && !applyPrefs
   const boxRef = useRef(null)
@@ -194,12 +216,12 @@ export default function GanttView({ id = 'gantt', spec: baseSpec = {}, rows = []
       if (!after) continue
       const hit = bad.find(({ r: b }) => [b.name, iLabel >= 0 ? b.cells[iLabel]?.value : null].filter(Boolean).some(n => after.startsWith(String(n).replace(/^↳\s*/, ''))))
       if (!hit) continue
-      const msg = `!Depends on sheet row ${hit.i + 2}, whose date is invalid: not drawn until it is fixed`
+      const msg = `!${tr('Depends on sheet row {n}, whose date is invalid: not drawn until it is fixed', { n: hit.i + 2 })}`
       out[`${r.id}|after`] = msg
       if (iStart >= 0) out[`${r.id}|start`] = msg
     }
     return out
-  }, [])
+  }, [tr])
   const sheetApi = useSheet(`gantt-${id}`, sheetBase, ganttValidate)
   // Read-only: the source as given (no sheet edits).
   const fromSheet = plain ? { rows, events: srcEvents } : ganttSheet.fromSheet(sheetApi.sheet, rows, srcEvents, sheetOpts)
@@ -208,7 +230,7 @@ export default function GanttView({ id = 'gantt', spec: baseSpec = {}, rows = []
   // The sheet row of a bar ("linked to sheet row n"), numbered like the grid.
   const sheetRowOf = b => {
     const i = sheetApi.sheet.rows.findIndex(r => r.id === `${b.rowKey}~${b.itemKey ?? ''}`)
-    return i >= 0 ? `Sheet row ${i + 2}` : 'Sheet'
+    return i >= 0 ? tr('Sheet row {n}', { n: i + 2 }) : tr('Sheet')
   }
   // Sheet date format: the last format typed in Start / End becomes the date-label format,
   // as long as no format is chosen on the chart.
@@ -316,17 +338,17 @@ export default function GanttView({ id = 'gantt', spec: baseSpec = {}, rows = []
         if (x === 0) { td.style.paddingLeft = inf && inf.level > 0 ? `${8 + inf.level * 14}px` : ''; return }
         if (!inf) return
         let ro = false, title = '', computed = null
-        if (inf.kind === 'group') { ro = true; title = 'Group heading: no dates of its own, read-only' }
-        else if (inf.kind === 'event') { if (k !== 'start') { ro = true; title = 'Key date: only Start applies, read-only' } }
-        else if (inf.kind === 'cont' && ACT_FIELDS.includes(k)) { ro = true; title = 'Set on the activity row above, read-only' }
+        if (inf.kind === 'group') { ro = true; title = tr('Group heading: no dates of its own, read-only') }
+        else if (inf.kind === 'event') { if (k !== 'start') { ro = true; title = tr('Key date: only Start applies, read-only') } }
+        else if (inf.kind === 'cont' && ACT_FIELDS.includes(k)) { ro = true; title = tr('Set on the activity row above, read-only') }
         else if (!inf.itemKey && sums.has(inf.rowKey) && ['start', 'end', 'duration', 'after', 'label'].includes(k)) {
-          ro = true; title = 'Computed from its sub-activities, read-only'
+          ro = true; title = tr('Computed from its sub-activities, read-only')
           if (k === 'start' || k === 'end') computed = sums.get(inf.rowKey)[k]
         } else if (inf.itemKey && (k === 'start' || k === 'end') && !cell?.error && !items.get(`${inf.rowKey}|${inf.itemKey}`)?.[k]) {
           // The date the chart computes (the cell may keep a source date that After overrides).
           const b = marks.get(`${inf.rowKey}|${inf.itemKey}`)
           const v = k === 'start' ? b?.start ?? b?.date : b?.end
-          if (v) { computed = v; title = k === 'start' ? 'Computed from After: type a date to override' : 'Computed from Start + Duration: type a date to override' }
+          if (v) { computed = v; title = k === 'start' ? tr('Computed from After: type a date to override') : tr('Computed from Start + Duration: type a date to override') }
         }
         td.classList.toggle('readonly', ro)
         td.classList.toggle('chart-gantt-grid__computed', computed != null)
@@ -354,7 +376,7 @@ export default function GanttView({ id = 'gantt', spec: baseSpec = {}, rows = []
   const tiers = scene?.tiers ?? []
   const unit = scene?.scale ?? 'month'
   const snapOpts = { weekStart: spec.weekStart ?? 0, fiscalStart: spec.fiscalStart ?? 1 }
-  const toggleCol = c => { const next = cols.includes(c) ? cols.filter(x => x !== c) : COLS.map(([k]) => k).filter(k => k === c || cols.includes(k)); set('columns', next) }
+  const toggleCol = c => { const next = cols.includes(c) ? cols.filter(x => x !== c) : COL_KEYS.filter(k => k === c || cols.includes(k)); set('columns', next) }
   const setMap = (name, key, v) => update(name, x => ({ ...(x ?? {}), [key]: v }))
   const setTiers = list => set('tiers', list?.length ? GANTT_UNITS.filter(u => list.includes(u)) : null)
   const toggleTier = u => setTiers(tiers.includes(u) ? tiers.filter(x => x !== u) : [...tiers, u])
@@ -392,22 +414,22 @@ export default function GanttView({ id = 'gantt', spec: baseSpec = {}, rows = []
     const span = unit === 'day' ? 5 : unit === 'week' ? 2 : 1
     const last = addUnits(addUnits(mid, span, unit), -1, 'day')
     return [
-      { label: 'Insert row above', shortcut: 'Shift+Ins', onSelect: () => { setSelRow(ganttNewKey(plan)); edit(p => insertRow(p, key, 'above')) } },
-      { label: 'Insert row below', shortcut: 'Ins', onSelect: () => { setSelRow(ganttNewKey(plan)); edit(p => insertRow(p, key, 'below')) } },
-      { label: 'Duplicate row', shortcut: 'Ctrl+D', onSelect: () => { setSelRow(ganttNewKey(plan, key)); edit(p => duplicateRow(p, key)) } },
-      { label: 'Duplicate row above', shortcut: 'Ctrl+Alt+↑', onSelect: () => { setSelRow(ganttNewKey(plan, key)); edit(p => duplicateRow(p, key, 'above')) } },
-      { label: 'Delete row', shortcut: 'Del', onSelect: () => { setSelRow(null); edit(p => deleteRow(p, key)) } },
+      { label: tr('Insert row above'), shortcut: 'Shift+Ins', onSelect: () => { setSelRow(ganttNewKey(plan)); edit(p => insertRow(p, key, 'above')) } },
+      { label: tr('Insert row below'), shortcut: 'Ins', onSelect: () => { setSelRow(ganttNewKey(plan)); edit(p => insertRow(p, key, 'below')) } },
+      { label: tr('Duplicate row'), shortcut: 'Ctrl+D', onSelect: () => { setSelRow(ganttNewKey(plan, key)); edit(p => duplicateRow(p, key)) } },
+      { label: tr('Duplicate row above'), shortcut: 'Ctrl+Alt+↑', onSelect: () => { setSelRow(ganttNewKey(plan, key)); edit(p => duplicateRow(p, key, 'above')) } },
+      { label: tr('Delete row'), shortcut: 'Del', onSelect: () => { setSelRow(null); edit(p => deleteRow(p, key)) } },
       '-',
-      sibUp && (sibUp.level ?? 0) === L && { label: 'Move row up', shortcut: 'Alt+↑', onSelect: () => edit(p => moveRow(p, key, -1)) },
-      sibDown && (sibDown.level ?? 0) === L && { label: 'Move row down', shortcut: 'Alt+↓', onSelect: () => edit(p => moveRow(p, key, 1)) },
-      i > 0 && (plan[i - 1].level ?? 0) >= L && { label: 'Indent', shortcut: 'Tab / Alt+Shift+→', onSelect: () => edit(p => indentRow(p, key, 1)) },
-      L > 0 && { label: 'Outdent', shortcut: 'Shift+Tab / Alt+Shift+←', onSelect: () => edit(p => indentRow(p, key, -1)) },
+      sibUp && (sibUp.level ?? 0) === L && { label: tr('Move row up'), shortcut: 'Alt+↑', onSelect: () => edit(p => moveRow(p, key, -1)) },
+      sibDown && (sibDown.level ?? 0) === L && { label: tr('Move row down'), shortcut: 'Alt+↓', onSelect: () => edit(p => moveRow(p, key, 1)) },
+      i > 0 && (plan[i - 1].level ?? 0) >= L && { label: tr('Indent'), shortcut: 'Tab / Alt+Shift+→', onSelect: () => edit(p => indentRow(p, key, 1)) },
+      L > 0 && { label: tr('Outdent'), shortcut: 'Shift+Tab / Alt+Shift+←', onSelect: () => edit(p => indentRow(p, key, -1)) },
       '-',
-      { label: 'Add bar', onSelect: () => edit(p => addItem(p, key, { start: mid, end: last, label: '' })) },
-      { label: 'Add milestone', onSelect: () => edit(p => addItem(p, key, { start: mid, kind: 'milestone' })) },
-      { label: 'Add bracket', onSelect: () => edit(p => addItem(p, key, { start: mid, end: last, kind: 'bracket' })) },
-      { label: 'Add shade', onSelect: () => addShade(mid, last) },
-      { label: 'Edit label', shortcut: 'F2', noFocus: true, onSelect: () => startEdit(key, 'activity') },
+      { label: tr('Add bar'), onSelect: () => edit(p => addItem(p, key, { start: mid, end: last, label: '' })) },
+      { label: tr('Add milestone'), onSelect: () => edit(p => addItem(p, key, { start: mid, kind: 'milestone' })) },
+      { label: tr('Add bracket'), onSelect: () => edit(p => addItem(p, key, { start: mid, end: last, kind: 'bracket' })) },
+      { label: tr('Add shade'), onSelect: () => addShade(mid, last) },
+      { label: tr('Edit label'), shortcut: 'F2', noFocus: true, onSelect: () => startEdit(key, 'activity') },
     ].filter(Boolean).map(it => (it === '-' ? it : { ...it, onSelect: () => { setSelRow(key); it.onSelect(); if (!it.noFocus) refocus() } }))
   }
   // After a menu action, keyboard focus returns to the chart (the row stays selected).
@@ -476,7 +498,7 @@ export default function GanttView({ id = 'gantt', spec: baseSpec = {}, rows = []
       setDrag({ rowKey: b.rowKey, itemKey: b.itemKey, toRow, items, frame: sc.frame })
       // The crosshair: the date (start, or end for the right end) under the pointer.
       const shown = kind === 'end' ? next.end : next.start
-      setCross({ x: pxOf(ev, r), y: ev.clientY - r.top - 12, of: `${toRow}|${b.itemKey}`, text: `${tipOf(shown)}${copy ? (copy === 2 ? ' · anchored copy' : ' · copy') : ''}` })
+      setCross({ x: pxOf(ev, r), y: ev.clientY - r.top - 12, of: `${toRow}|${b.itemKey}`, text: `${tipOf(shown)}${copy ? ` · ${copy === 2 ? tr('anchored copy') : tr('copy')}` : ''}` })
     }
     const up = () => {
       window.removeEventListener('pointermove', move); window.removeEventListener('pointerup', up)
@@ -515,7 +537,7 @@ export default function GanttView({ id = 'gantt', spec: baseSpec = {}, rows = []
       const raw = sc.dateAt(px)
       d = unit === 'day' ? raw : snapDate(raw, unit, snapOpts)
       if (side === 'to' && unit !== 'day') d = addUnits(d, -1, 'day')
-      setCross({ x: px, text: `${side === 'from' ? 'From' : 'To'} ${tipOf(d)}` })
+      setCross({ x: px, text: side === 'from' ? tr('From {date}', { date: tipOf(d) }) : tr('To {date}', { date: tipOf(d) }) })
     }
     const up = () => {
       window.removeEventListener('pointermove', move); window.removeEventListener('pointerup', up)
@@ -553,34 +575,34 @@ export default function GanttView({ id = 'gantt', spec: baseSpec = {}, rows = []
   }
   const objects = {
     chart: { name: 'Gantt', icon: IconTimeline },
-    ...(bar ? { bar: { name: bar.label || 'Bar', icon: IconChartBar } } : {}),
-    ...(ms ? { milestone: { name: ms.label ?? 'Milestone', icon: IconFlag } } : {}),
-    ...(br ? { bracket: { name: 'Bracket', icon: IconBracketsContain } } : {}),
-    ...(shade ? { shade: { name: shade.label || 'Shade', icon: IconCalendarEvent } } : {}),
-    ...(row ? { row: { name: row.label || 'Row', icon: IconListTree } } : {}),
-    scale: { name: 'Time scale', icon: IconCalendarEvent },
-    columns: { name: 'Label columns', icon: IconColumns },
-    labels: { name: 'Labels', icon: IconTag },
+    ...(bar ? { bar: { name: bar.label || tr('Bar'), icon: IconChartBar } } : {}),
+    ...(ms ? { milestone: { name: ms.label ?? tr('Milestone'), icon: IconFlag } } : {}),
+    ...(br ? { bracket: { name: tr('Bracket'), icon: IconBracketsContain } } : {}),
+    ...(shade ? { shade: { name: shade.label || tr('Shade'), icon: IconCalendarEvent } } : {}),
+    ...(row ? { row: { name: row.label || tr('Row'), icon: IconListTree } } : {}),
+    scale: { name: tr('Time scale'), icon: IconCalendarEvent },
+    columns: { name: tr('Label columns'), icon: IconColumns },
+    labels: { name: tr('Labels'), icon: IconTag },
   }
-  const colorCtl = it => ['fill', <span className="chart-bar__dot" style={{ background: tok(it.color) }} />, `Fill: ${colorName(it.color)}`, 'Fill color', (
+  const colorCtl = it => ['fill', <span className="chart-bar__dot" style={{ background: tok(it.color) }} />, tr('Fill: {v}', { v: cn(it.color) }), tr('Fill color'), (
     <Swatches palette={PALETTE} value={P.colors?.[it.key] ?? it.color} onPick={c => setMap('colors', it.key, c)} />
   )]
   // An item's dates, editable (or dragged on the chart).
-  const dateCtl = (o, one) => ['dates', null, one ? `Date: ${tipOf(o.date)}` : `Dates: ${tipOf(o.start)} → ${tipOf(o.end)}`, one ? 'Date (calendar)' : 'Dates (calendar)', (
+  const dateCtl = (o, one) => ['dates', null, one ? tr('Date: {date}', { date: tipOf(o.date) }) : tr('Dates: {from} → {to}', { from: tipOf(o.start), to: tipOf(o.end) }), one ? tr('Date (calendar)') : tr('Dates (calendar)'), (
     <>
       <Calendar from={one ? o.date : o.start} to={one ? o.date : o.end} single={one} weekStart={spec.weekStart ?? 0} lang={lang}
         onPick={(a, b) => edit(p => patchItem(p, o.rowKey, o.itemKey, one ? { start: a, end: null, duration: null } : { start: a, end: b, duration: null }))} />
-      {one && <Line label=""><Check on={!!o.prevDay} onClick={() => setMap('prevDays', o.key, !o.prevDay)}>Date label shows the previous day</Check></Line>}
-      <Line label={one ? 'Date' : 'Start'}><Field label="Start" inline value={one ? o.date : o.start} placeholder="YYYY-MM-DD" onCommit={v => ISO.test(v) && edit(p => patchItem(p, o.rowKey, o.itemKey, { start: v, ...(one ? {} : { duration: null, end: o.end }) }))} /></Line>
-      {!one && <Line label="End"><Field label="End" inline value={o.end} placeholder="YYYY-MM-DD" onCommit={v => ISO.test(v) && v >= o.start && edit(p => patchItem(p, o.rowKey, o.itemKey, { end: v, duration: null, start: o.start }))} /></Line>}
-      {o.linked && <div className="chart-pop__note">Starts after its predecessor unless dated here.</div>}
+      {one && <Line label=""><Check on={!!o.prevDay} onClick={() => setMap('prevDays', o.key, !o.prevDay)}>{tr('Date label shows the previous day')}</Check></Line>}
+      <Line label={one ? tr('Date') : tr('Start')}><Field label={tr('Start')} inline value={one ? o.date : o.start} placeholder="YYYY-MM-DD" onCommit={v => ISO.test(v) && edit(p => patchItem(p, o.rowKey, o.itemKey, { start: v, ...(one ? {} : { duration: null, end: o.end }) }))} /></Line>
+      {!one && <Line label={tr('End')}><Field label={tr('End')} inline value={o.end} placeholder="YYYY-MM-DD" onCommit={v => ISO.test(v) && v >= o.start && edit(p => patchItem(p, o.rowKey, o.itemKey, { end: v, duration: null, start: o.start }))} /></Line>}
+      {o.linked && <div className="chart-pop__note">{tr('Starts after its predecessor unless dated here.')}</div>}
     </>
   )]
   // Bar outline.
-  const outlineCtl = it => ['outline', null, `Outline: ${it.outline ? colorName(it.outline) : 'none'}`, 'Outline color', (
+  const outlineCtl = it => ['outline', null, tr('Outline: {v}', { v: it.outline ? cn(it.outline) : tr('none') }), tr('Outline color'), (
     <>
       <Swatches palette={PALETTE} value={it.outline} onPick={c => setMap('outlines', it.key, c)} />
-      {it.outline && <Line label=""><button type="button" className="chart-pop__more" onClick={() => setMap('outlines', it.key, null)}>No outline</button></Line>}
+      {it.outline && <Line label=""><button type="button" className="chart-pop__more" onClick={() => setMap('outlines', it.key, null)}>{tr('No outline')}</button></Line>}
     </>
   )]
   // Anchors: link the dates to an item on any row.
@@ -596,17 +618,17 @@ export default function GanttView({ id = 'gantt', spec: baseSpec = {}, rows = []
     const setA = (after, lk = link, lag = it.lag) => edit(p => patchItem(p, o.rowKey, o.itemKey, after
       ? { after, link: lk === 'fs' ? null : lk, lag: lag || null, start: null, ...(one ? {} : { end: null, duration: dur }) }
       : { after: null, link: null, lag: null, start: one ? o.date : o.start, ...(one ? {} : { end: o.end, duration: null }) }))
-    return ['anchor', null, `Anchor: ${name ? `${LINKS.find(l => l[0] === link)[1].toLowerCase()} ${name.split(' · ').at(-1)}` : 'none'}`, 'Link its dates to another item (any row)', (
+    return ['anchor', null, tr('Anchor: {v}', { v: name ? `${LINKS.find(l => l[0] === link)[1].toLowerCase()} ${name.split(' · ').at(-1)}` : tr('none') }), tr('Link its dates to another item (any row)'), (
       <>
-        <Line label="To">
-          <select className="chart-opts-input" aria-label="Anchored to" value={name ? pred : ''} onChange={e => setA(e.target.value || null)}>
-            <option value="">None</option>
+        <Line label={tr('To')}>
+          <select className="chart-opts-input" aria-label={tr('Anchored to')} value={name ? pred : ''} onChange={e => setA(e.target.value || null)}>
+            <option value="">{tr('None')}</option>
             {others.map(([k, l]) => <option key={k} value={k}>{l}</option>)}
           </select>
         </Line>
-        {name && <Line label="Type"><Seg label="Anchor type" value={link} onPick={v => setA(pred, v)} items={LINKS} /></Line>}
-        {name && <Line label="Lag"><Field label="Lag in days" inline numeric value={it.lag ?? 0} onCommit={v => setA(pred, link, Math.round(v ?? 0))} /></Line>}
-        <div className="chart-pop__note">The dates follow the other item; also typed in the sheet (After: « Name SS +2 »).</div>
+        {name && <Line label={tr('Type')}><Seg label={tr('Anchor type')} value={link} onPick={v => setA(pred, v)} items={LINKS} /></Line>}
+        {name && <Line label={tr('Lag')}><Field label={tr('Lag in days')} inline numeric value={it.lag ?? 0} onCommit={v => setA(pred, link, Math.round(v ?? 0))} /></Line>}
+        <div className="chart-pop__note">{tr('The dates follow the other item; also typed in the sheet (After: « Name SS +2 »).')}</div>
       </>
     )]
   }
@@ -617,58 +639,58 @@ export default function GanttView({ id = 'gantt', spec: baseSpec = {}, rows = []
   const actRows = scene?.rows.filter(r => !r.group && !r.events) ?? []
   const controls = {
     chart: [
-      ['scheme', null, `Colors: ${P.schemeName ?? 'default'}`, 'Color schemes (named, saved by browser)', (
+      ['scheme', null, tr('Colors: {v}', { v: P.schemeName ?? tr('default') }), tr('Color schemes (named, saved by browser)'), (
         <SchemeTools current={actRows.map(r => r.color ?? scene.bars.find(b => b.rowKey === r.key)?.color ?? 'cat-2')} active={P.schemeName}
           onApply={sc => {
             if (sc) update('rowStyles', m => Object.fromEntries([...Object.entries(m ?? {}), ...actRows.map((r, i) => [r.key, { ...(m?.[r.key] ?? {}), color: sc.colors[i % sc.colors.length] }])]))
             set('schemeName', sc?.name ?? null)
           }} />
       )],
-      hasGroups &&['groups', null, `Groups: ${spec.groups ? 'shown' : 'off'}`, 'Group rows under a heading', (
-        <Line label=""><Check on={!!spec.groups} onClick={() => set('groups', !spec.groups)}>Group headings</Check></Line>
+      hasGroups &&['groups', null, tr('Groups: {v}', { v: spec.groups ? tr('shown') : tr('off') }), tr('Group rows under a heading'), (
+        <Line label=""><Check on={!!spec.groups} onClick={() => set('groups', !spec.groups)}>{tr('Group headings')}</Check></Line>
       )],
-      ['today', null, `Today line: ${spec.today ? tipOf(spec.today) : 'off'}`, 'Today line', (
+      ['today', null, tr('Today line: {v}', { v: spec.today ? tipOf(spec.today) : tr('off') }), tr('Today line'), (
         <>
-          <Line label=""><Check on={!!spec.today} onClick={() => set('today', spec.today ? null : todayISO)}>Today line</Check></Line>
-          {spec.today && <Line label="Date"><Field label="Date" type="date" value={spec.today} placeholder="YYYY-MM-DD" onCommit={v => ISO.test(v) && set('today', v)} /></Line>}
-          <div className="chart-pop__note">Or drag the line on the chart.</div>
+          <Line label=""><Check on={!!spec.today} onClick={() => set('today', spec.today ? null : todayISO)}>{tr('Today line')}</Check></Line>
+          {spec.today && <Line label={tr('Date')}><Field label={tr('Date')} type="date" value={spec.today} placeholder="YYYY-MM-DD" onCommit={v => ISO.test(v) && set('today', v)} /></Line>}
+          <div className="chart-pop__note">{tr('Or drag the line on the chart.')}</div>
         </>
       )],
-      ['rows', null, `Rows: ${{ 20: 'compact', 34: 'roomy' }[spec.rowHeight] ?? 'medium'}, ${{ lines: 'separators', plain: 'plain' }[spec.rowStyle] ?? 'shaded'}`, 'Row height, row shade and separators', (
+      ['rows', null, tr('Rows: {height}, {style}', { height: { 20: tr('compact'), 34: tr('roomy') }[spec.rowHeight] ?? tr('medium'), style: { lines: tr('separators'), plain: tr('plain') }[spec.rowStyle] ?? tr('shaded') }), tr('Row height, row shade and separators'), (
         <>
-          <Line label="Height"><Seg label="Row height" value={spec.rowHeight ?? 26} onPick={v => set('rowHeight', v === 26 ? null : v)} items={[[20, 'Compact'], [26, 'Medium'], [34, 'Roomy']]} /></Line>
-          <Line label="Rows"><Seg label="Row style" value={spec.rowStyle ?? 'banded'} onPick={v => set('rowStyle', v === 'banded' ? null : v)} items={[['banded', 'Shade'], ['lines', 'Separators'], ['plain', 'Plain']]} /></Line>
+          <Line label={tr('Height')}><Seg label={tr('Row height')} value={spec.rowHeight ?? 26} onPick={v => set('rowHeight', v === 26 ? null : v)} items={[[20, tr('Compact')], [26, tr('Medium')], [34, tr('Roomy')]]} /></Line>
+          <Line label={tr('Rows')}><Seg label={tr('Row style')} value={spec.rowStyle ?? 'banded'} onPick={v => set('rowStyle', v === 'banded' ? null : v)} items={[['banded', tr('Shade')], ['lines', tr('Separators')], ['plain', tr('Plain')]]} /></Line>
         </>
       )],
-      ['shapes', null, `Shapes: ${spec.shape ?? 'bar'}, ${spec.marker ?? 'diamond'}`, 'Default bar shape (process arrows) and milestone marker', (
+      ['shapes', null, tr('Shapes: {shape}, {marker}', { shape: nameIn(SHAPES, spec.shape ?? 'bar'), marker: nameIn(MARKERS, spec.marker ?? 'diamond') }), tr('Default bar shape (process arrows) and milestone marker'), (
         <>
-          <Line label="Bars"><Seg label="Bar shape" value={spec.shape ?? 'bar'} onPick={v => set('shape', v === 'bar' ? null : v)} items={SHAPES} /></Line>
-          <Line label="Milestones"><Seg label="Milestone marker" value={spec.marker ?? 'diamond'} onPick={v => set('marker', v === 'diamond' ? null : v)} items={MARKERS} /></Line>
+          <Line label={tr('Bars')}><Seg label={tr('Bar shape')} value={spec.shape ?? 'bar'} onPick={v => set('shape', v === 'bar' ? null : v)} items={SHAPES} /></Line>
+          <Line label={tr('Milestones')}><Seg label={tr('Milestone marker')} value={spec.marker ?? 'diamond'} onPick={v => set('marker', v === 'diamond' ? null : v)} items={MARKERS} /></Line>
         </>
       )],
-      ['progress', null, `Progress: ${spec.progress ? 'shown' : 'off'}`, 'Progress inside the bars', (
-        <Line label=""><Check on={!!spec.progress} onClick={() => set('progress', !spec.progress)}>Show progress (% done)</Check></Line>
+      ['progress', null, tr('Progress: {v}', { v: spec.progress ? tr('shown') : tr('off') }), tr('Progress inside the bars'), (
+        <Line label=""><Check on={!!spec.progress} onClick={() => set('progress', !spec.progress)}>{tr('Show progress (% done)')}</Check></Line>
       )],
-      ['background', spec.background ? <span className="chart-bar__dot" style={{ background: tok(spec.background) }} /> : null, `Background: ${spec.background ? colorName(spec.background) : 'none'}`, 'Chart background color', (
+      ['background', spec.background ? <span className="chart-bar__dot" style={{ background: tok(spec.background) }} /> : null, tr('Background: {v}', { v: spec.background ? cn(spec.background) : tr('none') }), tr('Chart background color'), (
         <>
           <Swatches palette={[...NEUTRAL_TOKENS, ...COLOR_TOKENS]} value={spec.background} onPick={c => set('background', c)} />
-          {spec.background && <Line label=""><button type="button" className="chart-pop__more" onClick={() => set('background', null)}>No background</button></Line>}
+          {spec.background && <Line label=""><button type="button" className="chart-pop__more" onClick={() => set('background', null)}>{tr('No background')}</button></Line>}
         </>
       )],
-      ['lang', null, `Language: ${LANGS.find(l => l[0] === lang)?.[1] ?? lang}`, 'Month names, weekdays and default headings', (
-        <Line label="Language"><Seg label="Language" value={lang} onPick={v => set('lang', v === defaultLang ? null : v)} items={LANGS} /></Line>
+      ['lang', null, tr('Language: {v}', { v: LANGS.find(l => l[0] === lang)?.[1] ?? lang }), tr('Month names, weekdays and default headings'), (
+        <Line label={tr('Language')}><Seg label={tr('Language')} value={lang} onPick={v => set('lang', v === defaultLang ? null : v)} items={LANGS} /></Line>
       )],
-      hasLinks && ['links', null, `Links: ${spec.links === false ? 'hidden' : 'shown'}`, 'Dependency arrows between linked items', (
+      hasLinks && ['links', null, tr('Links: {v}', { v: spec.links === false ? tr('hidden') : tr('shown') }), tr('Dependency arrows between linked items'), (
         <>
-          <Line label=""><Check on={spec.links !== false} onClick={() => set('links', spec.links === false ? null : false)}>Dependency arrows</Check></Line>
-          <div className="chart-pop__note">A linked item starts the day after its predecessor ends.</div>
+          <Line label=""><Check on={spec.links !== false} onClick={() => set('links', spec.links === false ? null : false)}>{tr('Dependency arrows')}</Check></Line>
+          <div className="chart-pop__note">{tr('A linked item starts the day after its predecessor ends.')}</div>
         </>
       )],
     ],
     bar: bar ? [
       colorCtl(bar),
-      ['shape', null, `Shape: ${bar.shape}`, 'Shape of this item', (
-        <Line label="Shape"><Seg label="Item shape" value={bar.shape} onPick={v => setMap('shapes', bar.key, v)} items={SHAPES} /></Line>
+      ['shape', null, tr('Shape: {v}', { v: nameIn(SHAPES, bar.shape) }), tr('Shape of this item'), (
+        <Line label={tr('Shape')}><Seg label={tr('Item shape')} value={bar.shape} onPick={v => setMap('shapes', bar.key, v)} items={SHAPES} /></Line>
       )],
       dateCtl(bar),
       outlineCtl(bar),
@@ -676,10 +698,10 @@ export default function GanttView({ id = 'gantt', spec: baseSpec = {}, rows = []
     ] : [],
     milestone: ms ? [
       colorCtl(ms),
-      ['marker', null, `Marker: ${ms.marker}`, 'Marker of this milestone', (
+      ['marker', null, tr('Marker: {v}', { v: nameIn(MARKERS, ms.marker) }), tr('Marker of this milestone'), (
         <>
-          <Line label="Marker"><Seg label="Milestone marker" value={ms.marker} onPick={v => setMap('markers', ms.key, v)} items={MARKERS} /></Line>
-          <Line label=""><Check on={!!ms.line} onClick={() => setMap('lines', ms.key, !ms.line)}>Milestone line across the chart</Check></Line>
+          <Line label={tr('Marker')}><Seg label={tr('Milestone marker')} value={ms.marker} onPick={v => setMap('markers', ms.key, v)} items={MARKERS} /></Line>
+          <Line label=""><Check on={!!ms.line} onClick={() => setMap('lines', ms.key, !ms.line)}>{tr('Milestone line across the chart')}</Check></Line>
         </>
       )],
       dateCtl(ms, true),
@@ -687,153 +709,153 @@ export default function GanttView({ id = 'gantt', spec: baseSpec = {}, rows = []
     ] : [],
     bracket: br ? [colorCtl(br), dateCtl(br)] : [],
     shade: shade ? [
-      ['dates', null, `Dates: ${tipOf(shade.from)} → ${tipOf(shade.to)}`, 'Dates (calendar)', (
+      ['dates', null, tr('Dates: {from} → {to}', { from: tipOf(shade.from), to: tipOf(shade.to) }), tr('Dates (calendar)'), (
         <Calendar from={shade.from} to={shade.to} weekStart={spec.weekStart ?? 0} lang={lang} onPick={(a, b) => setShade(shade.index, { from: a, to: b })} />
       )],
-      ['label', null, `Label: ${shade.label || '—'}`, 'Shade label', (
-        <Line label="Label"><Field label="Shade label" inline wide value={shade.label ?? ''} onCommit={v => setShade(shade.index, { label: v || null })} /></Line>
+      ['label', null, tr('Label: {v}', { v: shade.label || '—' }), tr('Shade label'), (
+        <Line label={tr('Label')}><Field label={tr('Shade label')} inline wide value={shade.label ?? ''} onCommit={v => setShade(shade.index, { label: v || null })} /></Line>
       )],
-      ['fill', <span className="chart-bar__dot" style={{ background: tok(shade.color) }} />, `Fill: ${colorName(shade.color)}`, 'Shade color', (
+      ['fill', <span className="chart-bar__dot" style={{ background: tok(shade.color) }} />, tr('Fill: {v}', { v: cn(shade.color) }), tr('Shade color'), (
         <Swatches palette={[...NEUTRAL_TOKENS, ...COLOR_TOKENS]} value={shade.color} onPick={c => setShade(shade.index, { color: c })} />
       )],
-      ['bracket', null, `Bracket: ${shade.bracket ? 'shown' : 'off'}`, 'A bracket anchored to the shade', (
-        <Line label=""><Check on={!!shade.bracket} onClick={() => setShade(shade.index, { bracket: shade.bracket ? null : true })}>Bracket under the chart</Check></Line>
+      ['bracket', null, tr('Bracket: {v}', { v: shade.bracket ? tr('shown') : tr('off') }), tr('A bracket anchored to the shade'), (
+        <Line label=""><Check on={!!shade.bracket} onClick={() => setShade(shade.index, { bracket: shade.bracket ? null : true })}>{tr('Bracket under the chart')}</Check></Line>
       )],
     ] : [],
     row: row ? [
-      ['label', null, `Label: ${row.label || '—'}`, 'Activity label', (
-        <Line label="Label"><Field label="Activity label" inline wide value={row.label} onCommit={v => edit(p => patchRow(p, row.key, { label: v }))} /></Line>
+      ['label', null, tr('Label: {v}', { v: row.label || '—' }), tr('Activity label'), (
+        <Line label={tr('Label')}><Field label={tr('Activity label')} inline wide value={row.label} onCommit={v => edit(p => patchRow(p, row.key, { label: v }))} /></Line>
       )],
-      ['rowfill', <span className="chart-bar__dot" style={{ background: tok(rowColor ?? 'cat-2') }} />, `Fill: ${rowColor ? colorName(rowColor) : 'chart default'}`, 'Bar color for this row', (
+      ['rowfill', <span className="chart-bar__dot" style={{ background: tok(rowColor ?? 'cat-2') }} />, tr('Fill: {v}', { v: rowColor ? cn(rowColor) : tr('chart default') }), tr('Bar color for this row'), (
         <>
           <Swatches palette={PALETTE} value={rowColor} onPick={c => styleRow(row.key, { color: c })} />
-          {rowColor && <Line label=""><button type="button" className="chart-pop__more" onClick={() => styleRow(row.key, { color: null })}>Use the chart default</button></Line>}
+          {rowColor && <Line label=""><button type="button" className="chart-pop__more" onClick={() => styleRow(row.key, { color: null })}>{tr('Use the chart default')}</button></Line>}
         </>
       )],
-      ['rowshape', null, `Shape: ${row.shape ?? 'chart default'}`, 'Bar shape for this row', (
-        <Line label="Shape"><Seg label="Row bar shape" value={row.shape ?? null} onPick={v => styleRow(row.key, { shape: v })} items={[[null, 'Default'], ...SHAPES]} /></Line>
+      ['rowshape', null, tr('Shape: {v}', { v: row.shape ? nameIn(SHAPES, row.shape) : tr('chart default') }), tr('Bar shape for this row'), (
+        <Line label={tr('Shape')}><Seg label={tr('Row bar shape')} value={row.shape ?? null} onPick={v => styleRow(row.key, { shape: v })} items={[[null, tr('Default')], ...SHAPES]} /></Line>
       )],
-      ['bold', null, `Text: ${row.bold ? 'bold' : 'regular'}`, 'Label weight', (
-        <Line label=""><Check on={!!row.bold} onClick={() => styleRow(row.key, { bold: row.bold ? null : true })}>Bold label</Check></Line>
+      ['bold', null, tr('Text: {v}', { v: row.bold ? tr('bold') : tr('regular') }), tr('Label weight'), (
+        <Line label=""><Check on={!!row.bold} onClick={() => styleRow(row.key, { bold: row.bold ? null : true })}>{tr('Bold label')}</Check></Line>
       )],
-      spanCols.length > 0 && ['span', null, `Spans: ${spanCols.map(c => spanOf(c, row.key)?.rows ?? 1).join(' / ')} rows`, 'Responsible or remark label spanning several rows', (
+      spanCols.length > 0 && ['span', null, tr('Spans: {v} rows', { v: spanCols.map(c => spanOf(c, row.key)?.rows ?? 1).join(' / ') }), tr('Responsible or remark label spanning several rows'), (
         <>
           {spanCols.map(c => (
-            <Line key={c} label={c === 'responsible' ? 'Responsible' : 'Remark'}>
-              <Seg label={`${c} spans rows`} value={spanOf(c, row.key)?.rows ?? 1} onPick={v => setSpan(c, row.key, { ...(spanOf(c, row.key) ?? {}), rows: v })} items={[[1, '1'], [2, '2'], [3, '3'], [4, '4'], [5, '5']]} />
-              {(spanOf(c, row.key)?.rows ?? 1) > 1 && <Check on={!!spanOf(c, row.key)?.bracket} onClick={() => setSpan(c, row.key, { ...spanOf(c, row.key), bracket: !spanOf(c, row.key)?.bracket })}>Bracket</Check>}
+            <Line key={c} label={c === 'responsible' ? tr('Responsible') : tr('Remark')}>
+              <Seg label={tr('{col} spans rows', { col: c, name: nameIn(COLS, c) })} value={spanOf(c, row.key)?.rows ?? 1} onPick={v => setSpan(c, row.key, { ...(spanOf(c, row.key) ?? {}), rows: v })} items={[[1, '1'], [2, '2'], [3, '3'], [4, '4'], [5, '5']]} />
+              {(spanOf(c, row.key)?.rows ?? 1) > 1 && <Check on={!!spanOf(c, row.key)?.bracket} onClick={() => setSpan(c, row.key, { ...spanOf(c, row.key), bracket: !spanOf(c, row.key)?.bracket })}>{tr('Bracket')}</Check>}
             </Line>
           ))}
-          <div className="chart-pop__note">The label of this row covers the rows below it.</div>
+          <div className="chart-pop__note">{tr('The label of this row covers the rows below it.')}</div>
         </>
       )],
-      ['level', null, `Level: ${row.level ?? 0}`, 'Hierarchy level (Tab / Shift+Tab)', (
+      ['level', null, tr('Level: {v}', { v: row.level ?? 0 }), tr('Hierarchy level (Tab / Shift+Tab)'), (
         <>
-          <Line label="Level">
-            <button type="button" className="chart-pop__more" disabled={!(row.level > 0)} onClick={() => edit(p => indentRow(p, row.key, -1))}>Outdent</button>
-            <button type="button" className="chart-pop__more" disabled={rowIdx < 1 || (plan[rowIdx - 1].level ?? 0) < (row.level ?? 0)} onClick={() => edit(p => indentRow(p, row.key, 1))}>Indent</button>
+          <Line label={tr('Level')}>
+            <button type="button" className="chart-pop__more" disabled={!(row.level > 0)} onClick={() => edit(p => indentRow(p, row.key, -1))}>{tr('Outdent')}</button>
+            <button type="button" className="chart-pop__more" disabled={rowIdx < 1 || (plan[rowIdx - 1].level ?? 0) < (row.level ?? 0)} onClick={() => edit(p => indentRow(p, row.key, 1))}>{tr('Indent')}</button>
           </Line>
-          <div className="chart-pop__note">A parent row without its own bar shows a summary bar over its children.</div>
+          <div className="chart-pop__note">{tr('A parent row without its own bar shows a summary bar over its children.')}</div>
         </>
       )],
     ] : [],
     scale: [
-      ['tiers', null, `Scales: ${tiers.map(u => UNIT_NAME[u]).join(' + ')}`, 'Time scale: unit and stacked scales (up to three)', (
+      ['tiers', null, tr('Scales: {v}', { v: tiers.map(u => UNIT_NAME[u]).join(' + ') }), tr('Time scale: unit and stacked scales (up to three)'), (
         <>
-        <Line label="Unit"><Seg label="Time scale" value={spec.tiers ? 'custom' : spec.scale ?? null} onPick={v => { set('tiers', null); set('scale', v) }} items={[[null, 'Auto'], ['day', 'Days'], ['week', 'Weeks'], ['month', 'Months'], ['quarter', 'Quarters'], ['year', 'Years']]} /></Line>
-          <Line label="Preset"><Seg label="Scale tiers" value={spec.tiers ? spec.tiers.join(',') : null} onPick={v => setTiers(v ? v.split(',') : null)} items={[[null, 'Auto'], ...TIER_PRESETS]} /></Line>
+        <Line label={tr('Unit')}><Seg label={tr('Time scale')} value={spec.tiers ? 'custom' : spec.scale ?? null} onPick={v => { set('tiers', null); set('scale', v) }} items={[[null, tr('Auto')], ['day', tr('Days')], ['week', tr('Weeks')], ['month', tr('Months')], ['quarter', tr('Quarters')], ['year', tr('Years')]]} /></Line>
+          <Line label={tr('Preset')}><Seg label={tr('Scale tiers')} value={spec.tiers ? spec.tiers.join(',') : null} onPick={v => setTiers(v ? v.split(',') : null)} items={[[null, tr('Auto')], ...TIER_PRESETS]} /></Line>
           <Line label="">
             <div className="chart-pop__stack">
-              {GANTT_UNITS.map(u => <Check key={u} on={tiers.includes(u)} onClick={() => (tiers.includes(u) ? tiers.length > 1 : tiers.length < 3) && toggleTier(u)}>{UNIT_NAME[u]}s</Check>)}
+              {GANTT_UNITS.map(u => <Check key={u} on={tiers.includes(u)} onClick={() => (tiers.includes(u) ? tiers.length > 1 : tiers.length < 3) && toggleTier(u)}>{UNIT_PLURAL[u]}</Check>)}
             </div>
           </Line>
         </>
       )],
-      ['scalelabels', null, `Scale labels: ${spec.scaleLabels ? 'shown' : 'off'}`, 'A label at the left of each scale', (
+      ['scalelabels', null, tr('Scale labels: {v}', { v: spec.scaleLabels ? tr('shown') : tr('off') }), tr('A label at the left of each scale'), (
         <>
-          <Line label=""><Check on={!!spec.scaleLabels} onClick={() => set('scaleLabels', spec.scaleLabels ? null : true)}>Scale labels</Check></Line>
+          <Line label=""><Check on={!!spec.scaleLabels} onClick={() => set('scaleLabels', spec.scaleLabels ? null : true)}>{tr('Scale labels')}</Check></Line>
           {spec.scaleLabels && tiers.map(u => (
-            <Line key={u} label={UNIT_NAME[u]}><Field label={`${UNIT_NAME[u]} scale label`} inline value={scene?.tierLabels?.find(t => t.unit === u)?.text ?? ''}
+            <Line key={u} label={UNIT_NAME[u]}><Field label={tr('{name} scale label', { name: UNIT_NAME[u] })} inline value={scene?.tierLabels?.find(t => t.unit === u)?.text ?? ''}
               onCommit={v => set('scaleLabels', { ...(typeof spec.scaleLabels === 'object' ? spec.scaleLabels : {}), [u]: v })} /></Line>
           ))}
         </>
       )],
-      pick?.cell && ['celltext', null, `Text: ${spec.scaleTexts?.[pick.cell] ?? 'date'}`, 'Free text in this scale label (footnote, name…)', (
+      pick?.cell && ['celltext', null, tr('Text: {v}', { v: spec.scaleTexts?.[pick.cell] ?? tr('date') }), tr('Free text in this scale label (footnote, name…)'), (
         <>
-          <Line label="Text"><Field label="Scale label text" inline wide value={spec.scaleTexts?.[pick.cell] ?? ''} placeholder={scene?.header.find(h => h.key === pick.cell)?.text ?? ''}
+          <Line label={tr('Text')}><Field label={tr('Scale label text')} inline wide value={spec.scaleTexts?.[pick.cell] ?? ''} placeholder={scene?.header.find(h => h.key === pick.cell)?.text ?? ''}
             onCommit={v => set('scaleTexts', Object.fromEntries(Object.entries({ ...(spec.scaleTexts ?? {}), [pick.cell]: v || null }).filter(([, x]) => x != null)))} /></Line>
-          <div className="chart-pop__note">Empty: back to the date.</div>
+          <div className="chart-pop__note">{tr('Empty: back to the date.')}</div>
         </>
       )],
-      ['range', null, `Range: ${spec.from || spec.to ? `${tipOf(scene?.range?.from)} → ${tipOf(scene?.range?.to)}` : 'fit'}`, 'Date range shown (calendar, or drag the ends of the scale)', (
+      ['range', null, tr('Range: {v}', { v: spec.from || spec.to ? `${tipOf(scene?.range?.from)} → ${tipOf(scene?.range?.to)}` : tr('fit') }), tr('Date range shown (calendar, or drag the ends of the scale)'), (
         <>
           <Calendar from={scene?.range?.from} to={scene?.range?.to} weekStart={spec.weekStart ?? 0} lang={lang} onPick={(a, b) => { set('from', a); set('to', b) }} />
-          {(spec.from || spec.to) && <Line label=""><button type="button" className="chart-pop__more" onClick={() => { set('from', null); set('to', null) }}>Fit scale to data</button></Line>}
+          {(spec.from || spec.to) && <Line label=""><button type="button" className="chart-pop__more" onClick={() => { set('from', null); set('to', null) }}>{tr('Fit scale to data')}</button></Line>}
         </>
       )],
-      ['fiscal', null, `Year: ${spec.fiscalStart > 1 ? `FY ${['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'][spec.fiscalStart - 1]}` : 'calendar'}`, 'Fiscal year start', (
-        <Line label="Starts"><Seg label="Fiscal year start" value={spec.fiscalStart ?? 1} onPick={v => set('fiscalStart', v === 1 ? null : v)} items={[[1, 'Jan'], [4, 'Apr'], [7, 'Jul'], [10, 'Oct']]} /></Line>
+      ['fiscal', null, tr('Year: {v}', { v: spec.fiscalStart > 1 ? tr('FY {month}', { month: ganttNames(lang).short[spec.fiscalStart - 1] }) : tr('calendar') }), tr('Fiscal year start'), (
+        <Line label={tr('Starts')}><Seg label={tr('Fiscal year start')} value={spec.fiscalStart ?? 1} onPick={v => set('fiscalStart', v === 1 ? null : v)} items={[1, 4, 7, 10].map(m => [m, ganttNames(lang).short[m - 1]])} /></Line>
       )],
-      ['weekends', null, `Weekends: ${spec.weekends ?? 'normal'}`, 'Weekend display and first day of the week', (
+      ['weekends', null, tr('Weekends: {v}', { v: spec.weekends === 'shaded' ? tr('shaded') : spec.weekends === 'hidden' ? tr('hidden') : spec.weekends ?? tr('normal') }), tr('Weekend display and first day of the week'), (
         <>
-          <Line label="Weekends"><Seg label="Weekend display" value={spec.weekends ?? 'normal'} onPick={v => set('weekends', v === 'normal' ? null : v)} items={[['normal', 'Normal'], ['shaded', 'Shaded'], ['hidden', 'Hidden']]} /></Line>
-          <Line label="Days"><Seg label="Weekend days" value={(spec.weekendDays ?? [5, 6]).join(',')} onPick={v => set('weekendDays', v === '5,6' ? null : v.split(',').map(Number))} items={[['5,6', 'Sat–Sun'], ['4,5', 'Fri–Sat']]} /></Line>
-          <Line label="Week starts"><Seg label="Week starts on" value={spec.weekStart ?? 0} onPick={v => set('weekStart', v === 0 ? null : v)} items={[[0, 'Monday'], [6, 'Sunday']]} /></Line>
+          <Line label={tr('Weekends')}><Seg label={tr('Weekend display')} value={spec.weekends ?? 'normal'} onPick={v => set('weekends', v === 'normal' ? null : v)} items={[['normal', tr('Normal')], ['shaded', tr('Shaded')], ['hidden', tr('Hidden')]]} /></Line>
+          <Line label={tr('Days')}><Seg label={tr('Weekend days')} value={(spec.weekendDays ?? [5, 6]).join(',')} onPick={v => set('weekendDays', v === '5,6' ? null : v.split(',').map(Number))} items={[['5,6', tr('Sat–Sun')], ['4,5', tr('Fri–Sat')]]} /></Line>
+          <Line label={tr('Week starts')}><Seg label={tr('Week starts on')} value={spec.weekStart ?? 0} onPick={v => set('weekStart', v === 0 ? null : v)} items={[[0, tr('Monday')], [6, tr('Sunday')]]} /></Line>
         </>
       )],
-      ['format', null, `Labels: ${fine ? (scene?.scale === 'day' ? (spec.dayLabel ?? 'date') : (spec.weekLabel ?? 'date')) : (spec.monthLabel ?? 'short')}`, 'Scale label format', (
+      ['format', null, tr('Labels: {v}', { v: tr(fine ? (scene?.scale === 'day' ? (spec.dayLabel ?? 'date') : (spec.weekLabel ?? 'date')) : (spec.monthLabel ?? 'short')) }), tr('Scale label format'), (
         <>
-          <Line label="Months"><Seg label="Month labels" value={spec.monthLabel ?? 'short'} onPick={v => set('monthLabel', v === 'short' ? null : v)} items={[['short', 'Jan'], ['letter', 'J'], ['number', '01']]} /></Line>
-          <Line label="Weeks"><Seg label="Week labels" value={spec.weekLabel ?? 'date'} onPick={v => set('weekLabel', v === 'date' ? null : v)} items={[['date', 'Start date'], ['number', 'Week no.']]} /></Line>
-          <Line label="Days"><Seg label="Day labels" value={spec.dayLabel ?? 'date'} onPick={v => set('dayLabel', v === 'date' ? null : v)} items={[['date', 'Date'], ['weekday', 'Weekday']]} /></Line>
+          <Line label={tr('Months')}><Seg label={tr('Month labels')} value={spec.monthLabel ?? 'short'} onPick={v => set('monthLabel', v === 'short' ? null : v)} items={[['short', ganttNames(lang).short[0]], ['letter', ganttNames(lang).short[0].charAt(0).toUpperCase()], ['number', '01']]} /></Line>
+          <Line label={tr('Weeks')}><Seg label={tr('Week labels')} value={spec.weekLabel ?? 'date'} onPick={v => set('weekLabel', v === 'date' ? null : v)} items={[['date', tr('Start date')], ['number', tr('Week no.')]]} /></Line>
+          <Line label={tr('Days')}><Seg label={tr('Day labels')} value={spec.dayLabel ?? 'date'} onPick={v => set('dayLabel', v === 'date' ? null : v)} items={[['date', tr('Date')], ['weekday', tr('Weekday')]]} /></Line>
         </>
       )],
-      ['grid', null, `Separators: ${spec.gridlines ?? 'all'}`, 'Vertical separator lines', (
-        <Line label="Lines"><Seg label="Vertical separators" value={spec.gridlines ?? 'all'} onPick={v => set('gridlines', v === 'all' ? null : v)} items={[['all', 'Every unit'], ['major', 'Major only'], ['none', 'None']]} /></Line>
+      ['grid', null, tr('Separators: {v}', { v: tr(spec.gridlines ?? 'all') }), tr('Vertical separator lines'), (
+        <Line label={tr('Lines')}><Seg label={tr('Vertical separators')} value={spec.gridlines ?? 'all'} onPick={v => set('gridlines', v === 'all' ? null : v)} items={[['all', tr('Every unit')], ['major', tr('Major only')], ['none', tr('None')]]} /></Line>
       )],
     ],
     columns: [
-      ['cols', null, `Columns: ${cols.length ? cols.join(', ') : 'activity only'}`, 'Label columns beside the activities', (
+      ['cols', null, tr('Columns: {v}', { v: cols.length ? cols.map(c => nameIn(COLS, c)).join(', ') : tr('activity only') }), tr('Label columns beside the activities'), (
         <Line label="">
           <div className="chart-pop__stack">
             {COLS.map(([k, l]) => <Check key={k} on={cols.includes(k)} onClick={() => toggleCol(k)}>{l}</Check>)}
           </div>
         </Line>
       )],
-      cols.length > 0 && ['titles', null, `Titles: ${scene?.colHeads.map(h => h.text).join(', ')}`, 'Column headings', (
+      cols.length > 0 && ['titles', null, tr('Titles: {v}', { v: scene?.colHeads.map(h => h.text).join(', ') }), tr('Column headings'), (
         <>
           {(scene?.colHeads ?? []).map(h => (
-            <Line key={h.key} label={h.key === 'activity' ? 'Activity' : COLS.find(c => c[0] === h.key)?.[1]}>
-              <Field label={`${h.key} heading`} inline value={spec.colTitles?.[h.key] ?? ''} placeholder={h.text}
+            <Line key={h.key} label={h.key === 'activity' ? tr('Activity') : COLS.find(c => c[0] === h.key)?.[1]}>
+              <Field label={tr('{key} heading', { key: h.key, name: h.key === 'activity' ? tr('Activity') : nameIn(COLS, h.key) })} inline value={spec.colTitles?.[h.key] ?? ''} placeholder={h.text}
                 onCommit={v => set('colTitles', Object.fromEntries(Object.entries({ ...(spec.colTitles ?? {}), [h.key]: v || null }).filter(([, x]) => x != null)))} />
             </Line>
           ))}
         </>
       )],
-      cols.includes('status') && ['status', null, `Status: ${spec.status === 'checkbox' ? 'checkbox' : 'Harvey ball'}`, 'Status display', (
-        <Line label="Show as"><Seg label="Status display" value={spec.status ?? 'harvey'} onPick={v => set('status', v === 'harvey' ? null : v)} items={[['harvey', 'Harvey ball'], ['checkbox', 'Checkbox']]} /></Line>
+      cols.includes('status') && ['status', null, tr('Status: {v}', { v: spec.status === 'checkbox' ? tr('checkbox') : tr('Harvey ball') }), tr('Status display'), (
+        <Line label={tr('Show as')}><Seg label={tr('Status display')} value={spec.status ?? 'harvey'} onPick={v => set('status', v === 'harvey' ? null : v)} items={[['harvey', tr('Harvey ball')], ['checkbox', tr('Checkbox')]]} /></Line>
       )],
     ],
     labels: [
-      ['textstyle', null, styleSummary(P), 'Label color, font and size', <TextStyle font={P.labelFont} pt={P.labelPt} color={P.labelColor} onFont={v => set('labelFont', v)} onPt={v => set('labelPt', v)} onColor={v => set('labelColor', v)} />],
+      ['textstyle', null, styleSummary(P), tr('Label color, font and size'), <TextStyle font={P.labelFont} pt={P.labelPt} color={P.labelColor} onFont={v => set('labelFont', v)} onPt={v => set('labelPt', v)} onColor={v => set('labelColor', v)} />],
       // Labels dropped for lack of room (large size): counted; the name stays on bar hover.
-      scene?.noRoom > 0 && ['noroom', null, `${scene.noRoom} hidden (no room)`, 'Labels left out for lack of room', (
-        <div className="chart-pop__note">{`${scene.noRoom} label${scene.noRoom > 1 ? 's' : ''} did not fit at this size. Hover a bar to read it, or reduce the size in Style.`}</div>
+      scene?.noRoom > 0 && ['noroom', null, tr('{n} hidden (no room)', { n: scene.noRoom }), tr('Labels left out for lack of room'), (
+        <div className="chart-pop__note">{scene.noRoom > 1 ? tr('{n} labels did not fit at this size. Hover a bar to read it, or reduce the size in Style.', { n: scene.noRoom }) : tr('{n} label did not fit at this size. Hover a bar to read it, or reduce the size in Style.', { n: scene.noRoom })}</div>
       )],
-      ['pos', null, `Labels: ${spec.labels ?? 'inside'}`, 'Bar labels', (
-        <Line label="Position"><Seg label="Bar labels" value={spec.labels ?? 'inside'} onPick={v => set('labels', v === 'inside' ? null : v)} items={[['inside', 'Inside'], ['right', 'Right'], ['none', 'None']]} /></Line>
+      ['pos', null, tr('Labels: {v}', { v: tr(spec.labels ?? 'inside') }), tr('Bar labels'), (
+        <Line label={tr('Position')}><Seg label={tr('Bar labels')} value={spec.labels ?? 'inside'} onPick={v => set('labels', v === 'inside' ? null : v)} items={[['inside', tr('Inside')], ['right', tr('Right')], ['none', tr('None')]]} /></Line>
       )],
-      ['dates', null, `Dates: ${DATE_LABELS[spec.dateLabels ?? 'none']}`, 'Date labels of the items', (
+      ['dates', null, tr('Dates: {v}', { v: DATE_LABELS[spec.dateLabels ?? 'none'] }), tr('Date labels of the items'), (
         <>
-          <Line label="Content"><Seg label="Date label content" value={spec.dateLabels ?? 'none'} onPick={v => set('dateLabels', v === 'none' ? null : v)} items={[['none', 'None'], ['range', 'Range'], ['start', 'Start'], ['end', 'End'], ['duration', 'Duration']]} /></Line>
-          <Line label="Format"><Seg label="Date format" value={spec.dateFormat ?? 'd mmm'} onPick={v => set('dateFormat', v === 'd mmm' ? null : v)} items={DATE_FORMATS} /></Line>
-          {(P.recentFormats ?? []).length > 0 && <Line label="Recent"><Seg label="Recent date formats" value={spec.dateFormat} onPick={v => set('dateFormat', v)} items={P.recentFormats.map(f => [f, f])} /></Line>}
-          <Line label="Code">
-            <input className="chart-opts-input" aria-label="Date format code" placeholder="dddd d mmmm yyyy" defaultValue={DATE_FORMATS.some(f => f[0] === spec.dateFormat) ? '' : spec.dateFormat ?? ''}
+          <Line label={tr('Content')}><Seg label={tr('Date label content')} value={spec.dateLabels ?? 'none'} onPick={v => set('dateLabels', v === 'none' ? null : v)} items={[['none', tr('None')], ['range', tr('Range')], ['start', tr('Start')], ['end', tr('End')], ['duration', tr('Duration')]]} /></Line>
+          <Line label={tr('Format')}><Seg label={tr('Date format')} value={spec.dateFormat ?? 'd mmm'} onPick={v => set('dateFormat', v === 'd mmm' ? null : v)} items={DATE_FORMATS} /></Line>
+          {(P.recentFormats ?? []).length > 0 && <Line label={tr('Recent')}><Seg label={tr('Recent date formats')} value={spec.dateFormat} onPick={v => set('dateFormat', v)} items={P.recentFormats.map(f => [f, f])} /></Line>}
+          <Line label={tr('Code')}>
+            <input className="chart-opts-input" aria-label={tr('Date format code')} placeholder="dddd d mmmm yyyy" defaultValue={DATE_FORMATS.some(f => f[0] === spec.dateFormat) ? '' : spec.dateFormat ?? ''}
               onKeyDown={e => { if (e.key === 'Enter') e.currentTarget.blur() }}
               onBlur={e => { const v = e.target.value.trim(); if (!v) return; set('dateFormat', v); update('recentFormats', l => [v, ...(l ?? []).filter(x => x !== v)].slice(0, 4)) }} />
           </Line>
-          <div className="chart-pop__note">Codes: d dd ddd dddd, m mm mmm mmmm, yy yyyy, q (quarter), w ww (ISO week), "text". Example now: {formatDate(todayISO, spec.dateFormat ?? 'd mmm', false, lang)}</div>
+          <div className="chart-pop__note">{tr('Codes: d dd ddd dddd, m mm mmm mmmm, yy yyyy, q (quarter), w ww (ISO week), "text". Example now:')} {formatDate(todayISO, spec.dateFormat ?? 'd mmm', false, lang)}</div>
         </>
       )],
     ],
@@ -856,48 +878,48 @@ export default function GanttView({ id = 'gantt', spec: baseSpec = {}, rows = []
   const openCal = () => setForceCtl(f => ({ ctl: 'range', n: (f?.n ?? 0) + 1 }))
   const actions = {
     chart: [
-      { label: 'Open data sheet', shortcut: 'Double-click', onSelect: () => sheetApi.setSheetOpen(true) },
-      sheetApi.sheetEdited && { label: 'Reset data to source', onSelect: () => { sheetApi.resetSheet(); setGridGen(n => n + 1) } },
-      { label: spec.today ? 'Remove today line' : 'Add today line', onSelect: () => set('today', spec.today ? null : todayISO) },
-      { label: 'Right-to-left layout', checked: !!spec.rtl, onSelect: () => set('rtl', spec.rtl ? null : true) },
-      hasGroups && { label: spec.groups ? 'Remove group headings' : 'Add group headings', onSelect: () => set('groups', !spec.groups) },
-      ...COLS.map(([k, l]) => ({ label: `${cols.includes(k) ? 'Remove' : 'Add'} ${l.toLowerCase()} column`, onSelect: () => toggleCol(k) })),
+      { label: tr('Open data sheet'), shortcut: tr('Double-click'), onSelect: () => sheetApi.setSheetOpen(true) },
+      sheetApi.sheetEdited && { label: tr('Reset data to source'), onSelect: () => { sheetApi.resetSheet(); setGridGen(n => n + 1) } },
+      { label: spec.today ? tr('Remove today line') : tr('Add today line'), onSelect: () => set('today', spec.today ? null : todayISO) },
+      { label: tr('Right-to-left layout'), checked: !!spec.rtl, onSelect: () => set('rtl', spec.rtl ? null : true) },
+      hasGroups && { label: spec.groups ? tr('Remove group headings') : tr('Add group headings'), onSelect: () => set('groups', !spec.groups) },
+      ...COLS.map(([k, l]) => ({ label: cols.includes(k) ? tr('Remove {name} column', { name: l.toLowerCase() }) : tr('Add {name} column', { name: l.toLowerCase() }), onSelect: () => toggleCol(k) })),
     ],
     bar: bar ? [
-      { label: bar.shape === 'bar' ? 'Switch to process arrow' : 'Switch to bar', onSelect: () => setMap('shapes', bar.key, bar.shape === 'bar' ? 'pentagon' : 'bar') },
-      { label: 'Delete bar', onSelect: () => { close(); edit(p => removeItem(p, bar.rowKey, bar.itemKey)) } },
+      { label: bar.shape === 'bar' ? tr('Switch to process arrow') : tr('Switch to bar'), onSelect: () => setMap('shapes', bar.key, bar.shape === 'bar' ? 'pentagon' : 'bar') },
+      { label: tr('Delete bar'), onSelect: () => { close(); edit(p => removeItem(p, bar.rowKey, bar.itemKey)) } },
     ] : [],
     milestone: ms ? [
-      { label: ms.line ? 'Remove milestone line' : 'Add milestone line', onSelect: () => setMap('lines', ms.key, !ms.line) },
-      { label: 'Delete milestone', onSelect: () => { close(); edit(p => removeItem(p, ms.rowKey, ms.itemKey)) } },
+      { label: ms.line ? tr('Remove milestone line') : tr('Add milestone line'), onSelect: () => setMap('lines', ms.key, !ms.line) },
+      { label: tr('Delete milestone'), onSelect: () => { close(); edit(p => removeItem(p, ms.rowKey, ms.itemKey)) } },
     ] : [],
-    bracket: br ? [{ label: 'Delete bracket', onSelect: () => { close(); edit(p => removeItem(p, br.rowKey, br.itemKey)) } }] : [],
+    bracket: br ? [{ label: tr('Delete bracket'), onSelect: () => { close(); edit(p => removeItem(p, br.rowKey, br.itemKey)) } }] : [],
     shade: shade ? [
-      { label: shade.bracket ? 'Remove bracket' : 'Add bracket', onSelect: () => setShade(shade.index, { bracket: shade.bracket ? null : true }) },
-      { label: 'Delete shade', onSelect: () => { close(); set('shades', shadeList.filter((_, k) => k !== shade.index)) } },
+      { label: shade.bracket ? tr('Remove bracket') : tr('Add bracket'), onSelect: () => setShade(shade.index, { bracket: shade.bracket ? null : true }) },
+      { label: tr('Delete shade'), onSelect: () => { close(); set('shades', shadeList.filter((_, k) => k !== shade.index)) } },
     ] : [],
     row: row ? rowOps(row.key) : [],
     scale: [
-      { label: 'Calendar…', shortcut: 'Double-click', keepOpen: true, onSelect: openCal },
-      (spec.from || spec.to) && { label: 'Fit scale to data', onSelect: () => { set('from', null); set('to', null) } },
-      { label: spec.weekends === 'shaded' ? 'Show weekends normally' : 'Shade weekends', onSelect: () => set('weekends', spec.weekends === 'shaded' ? null : 'shaded') },
-      { label: spec.scaleLabels ? 'Remove scale labels' : 'Add scale labels', onSelect: () => set('scaleLabels', spec.scaleLabels ? null : true) },
-      ...GANTT_UNITS.filter(u => (tiers.includes(u) ? tiers.length > 1 : tiers.length < 3)).map(u => ({ label: `${tiers.includes(u) ? 'Remove' : 'Add'} ${UNIT_NAME[u].toLowerCase()} scale`, onSelect: () => toggleTier(u) })),
+      { label: tr('Calendar…'), shortcut: tr('Double-click'), keepOpen: true, onSelect: openCal },
+      (spec.from || spec.to) && { label: tr('Fit scale to data'), onSelect: () => { set('from', null); set('to', null) } },
+      { label: spec.weekends === 'shaded' ? tr('Show weekends normally') : tr('Shade weekends'), onSelect: () => set('weekends', spec.weekends === 'shaded' ? null : 'shaded') },
+      { label: spec.scaleLabels ? tr('Remove scale labels') : tr('Add scale labels'), onSelect: () => set('scaleLabels', spec.scaleLabels ? null : true) },
+      ...GANTT_UNITS.filter(u => (tiers.includes(u) ? tiers.length > 1 : tiers.length < 3)).map(u => ({ label: tiers.includes(u) ? tr('Remove {name} scale', { name: UNIT_NAME[u].toLowerCase(), names: UNIT_PLURAL[u].toLowerCase() }) : tr('Add {name} scale', { name: UNIT_NAME[u].toLowerCase(), names: UNIT_PLURAL[u].toLowerCase() }), onSelect: () => toggleTier(u) })),
     ],
     columns: [
-      ...COLS.map(([k, l]) => ({ label: `${cols.includes(k) ? 'Remove' : 'Add'} ${l.toLowerCase()} column`, onSelect: () => toggleCol(k) })),
-      cols.includes('status') && { label: spec.status === 'checkbox' ? 'Switch to Harvey ball' : 'Switch to checkbox', onSelect: () => set('status', spec.status === 'checkbox' ? null : 'checkbox') },
+      ...COLS.map(([k, l]) => ({ label: cols.includes(k) ? tr('Remove {name} column', { name: l.toLowerCase() }) : tr('Add {name} column', { name: l.toLowerCase() }), onSelect: () => toggleCol(k) })),
+      cols.includes('status') && { label: spec.status === 'checkbox' ? tr('Switch to Harvey ball') : tr('Switch to checkbox'), onSelect: () => set('status', spec.status === 'checkbox' ? null : 'checkbox') },
     ],
     labels: [
-      { label: spec.labels === 'none' ? 'Add labels' : 'Remove labels', onSelect: () => set('labels', spec.labels === 'none' ? null : 'none') },
-      { label: spec.dateLabels && spec.dateLabels !== 'none' ? 'Remove date labels' : 'Add date labels', onSelect: () => set('dateLabels', spec.dateLabels && spec.dateLabels !== 'none' ? null : 'range') },
+      { label: spec.labels === 'none' ? tr('Add labels') : tr('Remove labels'), onSelect: () => set('labels', spec.labels === 'none' ? null : 'none') },
+      { label: spec.dateLabels && spec.dateLabels !== 'none' ? tr('Remove date labels') : tr('Add date labels'), onSelect: () => set('dateLabels', spec.dateLabels && spec.dateLabels !== 'none' ? null : 'range') },
     ],
   }
   const dragToday = e => {
     e.preventDefault(); e.stopPropagation()
     const svg = e.currentTarget.ownerSVGElement
     // The date shows near the cursor during the drag (crosshair).
-    const move = ev => { const r = svg.getBoundingClientRect(); const x = pxOf(ev, r); const d = scene.invert(x); set('today', d); setCross({ x, text: `Today ${tipOf(d)}` }) }
+    const move = ev => { const r = svg.getBoundingClientRect(); const x = pxOf(ev, r); const d = scene.invert(x); set('today', d); setCross({ x, text: tr('Today {date}', { date: tipOf(d) }) }) }
     const up = () => { window.removeEventListener('pointermove', move); window.removeEventListener('pointerup', up); setCross(null) }
     window.addEventListener('pointermove', move); window.addEventListener('pointerup', up)
   }
@@ -960,18 +982,18 @@ export default function GanttView({ id = 'gantt', spec: baseSpec = {}, rows = []
   const part = (kind, it) => {
     switch (kind) {
       case 'scale': return { className: 'chart-engine-axis chart-engine-clickable', ...clickable('scale', undefined, 'range') }
-      case 'header': return { onClick: e => { e.stopPropagation(); go('scale', { cell: it.key })(e) }, children: <>{it.text}<title>{`${it.text} (click: free text, double-click: calendar)`}</title></> }
+      case 'header': return { onClick: e => { e.stopPropagation(); go('scale', { cell: it.key })(e) }, children: <>{it.text}<title>{tr('{text} (click: free text, double-click: calendar)', { text: it.text })}</title></> }
       case 'rowLabel': return editBox?.key === `${it.key}|activity` ? { children: null } : null
       case 'rowHit': return {
         className: 'chart-engine-clickable', onClick: pickRow(it.key), onContextMenu: pickRow(it.key), onPointerDown: e => startRowDrag(e, it.key),
         onDoubleClick: e => { e.stopPropagation(); close(); setSelRow(it.key); startEdit(it.key, 'activity') },
-        children: <title>{`${it.label} (click to format, F2 or double-click to edit, drag to move, right-click to insert)`}</title>,
+        children: <title>{tr('{label} (click to format, F2 or double-click to edit, drag to move, right-click to insert)', { label: it.label })}</title>,
       }
       case 'rowArea': return { onContextMenu: rowMenuAt(it.key) }
       case 'shade': return { className: 'chart-engine-clickable', ...clickable('shade', { key: it.key }, 'dates') }
       case 'shadeFill': return {
         ...(isOn('shade', it.key) ? { stroke: tok('gold'), strokeWidth: 1.5 } : {}),
-        children: <title>{`${it.label ? `${it.label} · ` : ''}${tipOf(it.from)} → ${tipOf(it.to)} (click to format, double-click for the calendar)`}</title>,
+        children: <title>{`${it.label ? `${it.label} · ` : ''}${tr('{from} → {to} (click to format, double-click for the calendar)', { from: tipOf(it.from), to: tipOf(it.to) })}`}</title>,
       }
       case 'columns': return { className: 'chart-engine-clickable', ...clickable('columns') }
       case 'cell': return editBox?.key === it.key ? { children: null }
@@ -983,7 +1005,7 @@ export default function GanttView({ id = 'gantt', spec: baseSpec = {}, rows = []
       }
       case 'barShape': return {
         ...(isOn('bar', it.key) ? { stroke: tok('gold'), strokeWidth: 2 } : {}),
-        children: <title>{`${it.label ? `${it.label} · ` : ''}${tipOf(it.start)} → ${tipOf(it.end)}${it.done != null ? ` · ${Math.round(it.done * 100)}% done` : ''} · ${sheetRowOf(it)} (drag to move or to another row, Ctrl+drag to copy, Shift+click to select several, ${it.shape === 'bar' ? 'double-click for the calendar' : 'double-click: pentagon / chevron'})`}</title>,
+        children: <title>{`${it.label ? `${it.label} · ` : ''}${tipOf(it.start)} → ${tipOf(it.end)}${it.done != null ? ` · ${tr('{n}% done', { n: Math.round(it.done * 100) })}` : ''} · ${sheetRowOf(it)} ${tr('(drag to move or to another row, Ctrl+drag to copy, Shift+click to select several, {dbl})', { dbl: it.shape === 'bar' ? tr('double-click for the calendar') : tr('double-click: pentagon / chevron') })}`}</title>,
       }
       case 'barHandle': return { className: 'chart-engine-handle', onPointerDown: e => startDrag(e, it.side, it.bar) }
       case 'bracket': return { className: 'chart-engine-clickable', ...clickable('bracket', { key: it.key }, 'dates') }
@@ -994,11 +1016,11 @@ export default function GanttView({ id = 'gantt', spec: baseSpec = {}, rows = []
           'data-gantt-key': it.key, stroke: on ? tok('black') : tok('surface'), strokeWidth: on ? 2 : 1, className: 'chart-engine-clickable chart-gantt__bar',
           onClick: e => click(e, 'milestone', { key: it.key }), onContextMenu: go('milestone', { key: it.key }), onPointerDown: e => startDrag(e, 'milestone', it),
           onDoubleClick: dbl('milestone', { key: it.key }, 'dates'),
-          children: <title>{`${it.label ?? 'Milestone'} · ${it.date} (drag to move, Ctrl+drag to copy, double-click for the calendar)`}</title>,
+          children: <title>{`${it.label ?? tr('Milestone')} · ${tr('{date} (drag to move, Ctrl+drag to copy, double-click for the calendar)', { date: it.date })}`}</title>,
         }
       }
       case 'label': return { className: 'chart-engine-clickable', ...clickable('labels') }
-      case 'todayHandle': return { className: 'chart-engine-handle', onPointerDown: dragToday, children: <title>{`Today: ${it.date} (drag to move)`}</title> }
+      case 'todayHandle': return { className: 'chart-engine-handle', onPointerDown: dragToday, children: <title>{tr('Today: {date} (drag to move)', { date: it.date })}</title> }
       default: return null
     }
   }
@@ -1007,7 +1029,7 @@ export default function GanttView({ id = 'gantt', spec: baseSpec = {}, rows = []
   if (readOnly) {
     return (
       <div ref={boxRef} className="chart-engine chart-engine-box chart-gantt">
-        {scene?.empty && <div className="chart-engine-empty">No dated task yet.</div>}
+        {scene?.empty && <div className="chart-engine-empty">{tr('No dated task yet.')}</div>}
         <GanttFigure scene={scene} interactive={!readOnly} label={label} responsive={responsive} dataTable={dataTable} uid={arrowId} />
       </div>
     )
@@ -1017,11 +1039,11 @@ export default function GanttView({ id = 'gantt', spec: baseSpec = {}, rows = []
     <div ref={boxRef} id={`${arrowId}-box`} className="chart-engine chart-engine-box chart-gantt" tabIndex={0} style={reserve ? { paddingTop: reserve } : undefined} onKeyDown={onKey}
       onContextMenu={e => { if (!e.defaultPrevented) open(e, { obj: 'chart' }) }}>
       <div className="chart-engine-float-menu">
-        <button type="button" data-wheel-anchor className="chart-opts-btn" title="Chart format: colours, labels and layout. Tip: click or right-click any part of the chart" aria-label="Chart format"
+        <button type="button" data-wheel-anchor className="chart-opts-btn" title={tr('Chart format: colours, labels and layout. Tip: click or right-click any part of the chart')} aria-label={tr('Chart format')}
           onClick={go('chart')}><IconPalette size={13} /></button>
       </div>
       <EditedNote api={sheetApi} />
-      {scene?.empty && <div className="chart-engine-empty">No dated task yet. Double-click or open the data sheet to add one.</div>}
+      {scene?.empty && <div className="chart-engine-empty">{tr('No dated task yet. Double-click or open the data sheet to add one.')}</div>}
       {scene && !scene.empty && (
         <GanttFigure scene={scene} interactive={!readOnly} label={label} responsive={responsive} dataTable={dataTable} uid={arrowId} labelStyle={labelTextStyle(P)} part={part}
           onDoubleClick={() => { close(); sheetApi.setSheetOpen(true) }}>
@@ -1029,12 +1051,12 @@ export default function GanttView({ id = 'gantt', spec: baseSpec = {}, rows = []
           {rowDrop && <line x1={0} x2={scene.width} y1={rowDrop.y} y2={rowDrop.y} stroke={tok('gold')} strokeWidth={2} pointerEvents="none" />}
           {['from', 'to'].map(side => (
             <rect key={side} x={side === 'from' ? scene.plot.left - 3 : scene.plot.right - 3} y={0} width={6} height={scene.plot.top} fill="transparent" className="chart-engine-handle"
-              style={{ cursor: 'ew-resize' }} onPointerDown={dragScale(side)} onClick={e => e.stopPropagation()}><title>{`Drag to change the ${side === 'from' ? 'start' : 'end'} of the scale`}</title></rect>
+              style={{ cursor: 'ew-resize' }} onPointerDown={dragScale(side)} onClick={e => e.stopPropagation()}><title>{side === 'from' ? tr('Drag to change the start of the scale') : tr('Drag to change the end of the scale')}</title></rect>
           ))}
           {editBox && (
             // The edit field placed on the label cell (inside the SVG, so it follows the plot).
             <foreignObject x={editBox.left} y={editBox.top} width={editBox.width} height={editBox.height}>
-              <input key={editBox.key} className="chart-opts-input" aria-label="Edit label" autoFocus defaultValue={editBox.value} onKeyDown={onEditKey} onBlur={e => { if (editing) commitEdit(e.target.value) }}
+              <input key={editBox.key} className="chart-opts-input" aria-label={tr('Edit label')} autoFocus defaultValue={editBox.value} onKeyDown={onEditKey} onBlur={e => { if (editing) commitEdit(e.target.value) }}
                 onPointerDown={e => e.stopPropagation()} onDoubleClick={e => e.stopPropagation()}
                 style={{ width: '100%', height: '100%', fontSize: 11, padding: '0 4px', boxSizing: 'border-box', transform: spec.rtl ? 'scaleX(-1)' : undefined, userSelect: 'text' }} />
             </foreignObject>

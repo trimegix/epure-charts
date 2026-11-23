@@ -32,6 +32,7 @@ import { bridgeSheet } from './sheetAdapters.js'
 
 // A color is a palette token, or a user-picked hex (custom style).
 import { tok, labelTextStyle, labelPrefs } from './customStyle.js'
+import { SpecLocale, useT } from './uiLocale.js'
 
 
 // The drawing width: the `width` prop when given (no measuring: server rendering,
@@ -57,9 +58,10 @@ function useWidth(ref, fixed) {
 // Without `api`, the view keeps its own settings (useWaterfallPrefs) like every other view: the
 // format button and the menus are there in edit mode. `floatMenu` (default: on) puts the button
 // in the plot corner when the view has no header of its own (bare); false hides it.
+// The interface (menus, format bar, messages) speaks the spec's language (spec.locale).
 export default function WaterfallView(props) {
-  if (props.api !== undefined || (props.readOnly && !props.applyPrefs)) return <WaterfallBody {...props} />
-  return <WaterfallOwnPrefs {...props} />
+  const own = !(props.api !== undefined || (props.readOnly && !props.applyPrefs))
+  return <SpecLocale spec={props.spec}>{own ? <WaterfallOwnPrefs {...props} /> : <WaterfallBody {...props} />}</SpecLocale>
 }
 
 function WaterfallOwnPrefs(props) {
@@ -68,6 +70,7 @@ function WaterfallOwnPrefs(props) {
 }
 
 function WaterfallBody({ bridge: providedBridge, spec, currentId, scope, context, selectedStep, onSelectStep, bare = false, headerSlot, height: fixedHeight, api: apiIn, floatMenu = true, width: widthProp, readOnly = false, responsive = false, dataTable = false, applyPrefs = false }) {
+  const tr = useT()
   const boxRef = useRef(null)
   const width = useWidth(boxRef, widthProp)
   // readOnly + applyPrefs: the host's settings (api) and the sheet edits drawn, no control.
@@ -268,7 +271,7 @@ function WaterfallBody({ bridge: providedBridge, spec, currentId, scope, context
             <line x1={c.x1} x2={c.x2} y1={c.y} y2={c.y} stroke="transparent" strokeWidth={8} className="chart-engine-handle" data-wheel-anchor
               onPointerDown={e => dragConnector(e, c)} onDoubleClick={e => { e.stopPropagation(); if (c.linked) api.setLink(c.to, null) }}
               onContextMenu={e => { const r = e.currentTarget.ownerSVGElement.getBoundingClientRect(); open(e, { obj: 'connector', stepKey: c.from, connTo: c.to, mark: { x: r.left + c.x1, y: r.top + c.y - 6, w: c.x2 - c.x1, h: 12, weight: 1000, el: e.currentTarget } }) }}>
-              <title>{c.linked ? 'Click to format, drag to reconnect (double-click: back to the previous bar)' : 'Click to format, drag onto an earlier bar to start this bar from its level'}</title>
+              <title>{c.linked ? tr('Click to format, drag to reconnect (double-click: back to the previous bar)') : tr('Click to format, drag onto an earlier bar to start this bar from its level')}</title>
             </line>
           )}
         </>
@@ -290,7 +293,7 @@ function WaterfallBody({ bridge: providedBridge, spec, currentId, scope, context
     if (kind === 'valueLine') return (
       <>
         <line x1={it.x1} x2={it.x2} y1={it.y} y2={it.y} stroke="transparent" strokeWidth={10} />
-        {api && <title>{`Value line · ${it.text} · drag to move, double-click: start level`}</title>}
+        {api && <title>{tr('Value line · {value} · drag to move, double-click: start level', { value: it.text })}</title>}
       </>
     )
     return null
@@ -300,7 +303,7 @@ function WaterfallBody({ bridge: providedBridge, spec, currentId, scope, context
     return (
       <div className="chart-engine">
         <div ref={boxRef} className="chart-engine-box">
-          {scene?.empty && <div className="chart-engine-empty">No data for this bridge yet.</div>}
+          {scene?.empty && <div className="chart-engine-empty">{tr('No data for this bridge yet.')}</div>}
           <WaterfallFigure scene={scene} interactive={!readOnly} label={spec.title} responsive={responsive} dataTable={dataTable} />
         </div>
       </div>
@@ -314,12 +317,12 @@ function WaterfallBody({ bridge: providedBridge, spec, currentId, scope, context
       {!bare && <Header title={spec.title} menu={api ? <>{headerSlot}<BridgeBarButton api={barApi} /></> : headerSlot} />}
       <EditedNote api={{ ...sheetApi, sheetOpen: !!api?.sheetOpen, setSheetOpen: v => api?.setSheetOpen(v) }} />
       {errors.length > 0 && (
-        <div className="chart-engine-error" role="alert">This chart definition is invalid: {errors.join(' · ')}</div>
+        <div className="chart-engine-error" role="alert">{tr('This chart definition is invalid:')} {errors.join(' · ')}</div>
       )}
       <div ref={boxRef} className="chart-engine-box">
         {/* No header of our own (bare) and no host-provided button: the button in the corner, like the other charts. */}
         {bare && floatMenu && api && <div className="chart-engine-float-menu"><BridgeBarButton api={barApi} /></div>}
-        {scene?.empty && <div className="chart-engine-empty">No data for this bridge yet.</div>}
+        {scene?.empty && <div className="chart-engine-empty">{tr('No data for this bridge yet.')}</div>}
         {scene && !scene.empty && (
           <WaterfallFigure scene={scene} interactive={!readOnly} label={spec.title} responsive={responsive} dataTable={dataTable}
             labelStyle={labelTextStyle(api?.prefs)} part={part} slot={slot}
@@ -335,20 +338,20 @@ function WaterfallBody({ bridge: providedBridge, spec, currentId, scope, context
         {col && (
           <div className={`chart-engine-tip${col.cx > scene.width * 0.6 ? ' chart-engine-tip--left' : ''}`}
             style={{ left: col.cx, top: scene.plot.top }}>
-            <div className="chart-engine-tip-head">{col.label}{col.projected ? ' (projected)' : ''}</div>
+            <div className="chart-engine-tip-head">{col.label}{col.projected ? ` ${tr('(projected)')}` : ''}</div>
             <div className="chart-engine-tip-row">
-              <span className="chart-engine-tip-label">{col.tone === 'anchor' ? 'Value' : 'Move'}</span>
+              <span className="chart-engine-tip-label">{col.tone === 'anchor' ? tr('Value') : tr('Move')}</span>
               <span className="chart-engine-tip-value" style={{ color: tok(col.color) }}>{col.text}</span>
             </div>
             {col.level && (
               <div className="chart-engine-tip-row">
-                <span className="chart-engine-tip-label">Running total</span>
+                <span className="chart-engine-tip-label">{tr('Running total')}</span>
                 <span className="chart-engine-tip-value">{col.level}</span>
               </div>
             )}
             {col.high && (
               <div className="chart-engine-tip-row">
-                <span className="chart-engine-tip-label">High scenario</span>
+                <span className="chart-engine-tip-label">{tr('High scenario')}</span>
                 <span className="chart-engine-tip-value">{col.high}</span>
               </div>
             )}

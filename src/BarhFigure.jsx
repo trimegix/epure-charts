@@ -19,6 +19,7 @@
 import FigureSvg from './FigureSvg.jsx'
 import PatternDefs from './patterns.jsx'
 import { tok, fs, fsNote, colorId } from './customStyle.js'
+import { t } from './locale.js'
 
 const none = () => null
 
@@ -26,9 +27,10 @@ const none = () => null
 function barhTable(scene) {
   const ranged = scene.bars.some(b => b.range)
   const marked = scene.rows.some(r => r.marker)
+  const L = scene.meta?.locale
   if (ranged) {
     return {
-      head: ['', 'Low', 'High', ...(marked ? ['Marker'] : [])],
+      head: ['', t('Low', L), t('High', L), ...(marked ? [t('Marker', L)] : [])],
       rows: scene.rows.map(r => {
         const b = scene.bars.find(z => z.key === r.key)
         return [r.full, b?.range?.[0] ?? '', b?.range?.[1] ?? '', ...(marked ? [r.marker?.value ?? ''] : [])]

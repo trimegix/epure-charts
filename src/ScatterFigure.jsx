@@ -18,6 +18,7 @@
 //   · clipId: the id of the plot's clip path (unique per page).
 import FigureSvg from './FigureSvg.jsx'
 import { tok, fs, fsNote } from './customStyle.js'
+import { t } from './locale.js'
 
 const none = () => null
 
@@ -34,7 +35,7 @@ function scatterTable(scene) {
   const size = scene.points.some(p => p.size != null)
   const group = scene.points.some(p => p.group != null)
   return {
-    head: ['', scene.axes.x.title ?? 'X', scene.axes.y.title ?? 'Y', ...(size ? ['Size'] : []), ...(group ? ['Group'] : [])],
+    head: ['', scene.axes.x.title ?? 'X', scene.axes.y.title ?? 'Y', ...(size ? [t('Size', scene.meta?.locale)] : []), ...(group ? [t('Group', scene.meta?.locale)] : [])],
     rows: scene.points.map(p => [p.label ?? p.key, p.vx, p.vy, ...(size ? [p.size ?? ''] : []), ...(group ? [p.group ?? ''] : [])]),
   }
 }
