@@ -63,7 +63,7 @@ the drawing.
 
 A cartesian scene (`buildScene`) lists in `scene.warnings` (strings) every annotation it was
 asked for and did not draw, with the reason: a CAGR whose end has no value, whose values are
-not both positive, or a first-to-last CAGR on a category axis; a difference arrow whose start is
+not both positive, or below its `minBase` at either end, or a first-to-last CAGR on a category axis; a difference arrow whose start is
 zero. Nothing is hidden for lack of room. `ChartView` logs these warnings once in development
 (`process.env.NODE_ENV !== 'production'`), and also warns when stored or published settings hide
 an arrow the spec asks for (settings saved whole by an earlier version), or when several charts

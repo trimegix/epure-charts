@@ -121,6 +121,7 @@ export function applyReading(spec, prefs) {
   // its mode is the reading's (format.diffMode, seeded by readingDefaults).
   const diffOrigin = (spec.annotations ?? []).find(a => a.type === 'diff'
     && String(a.from) === prefs.diffFrom && String(a.to) === prefs.diffTo)
+  const origin0 = (spec.annotations ?? []).filter(a => a.type === 'cagr' && !a.from)
   return {
     ...spec,
     x: { ...spec.x, hidden: [...(prefs.hidden ?? [])], ...(!time && (prefs.sort === 'desc' || prefs.sort === 'asc') ? { sort: prefs.sort } : {}) },
@@ -147,7 +148,8 @@ export function applyReading(spec, prefs) {
     }),
     annotations: [
       ...keep,
-      ...(ids.has(prefs.cagr) && time ? [{ type: 'cagr', series: prefs.cagr }] : []),
+      // The spec's own first-to-last CAGR keeps its options (minBase, tone) when its series did not change.
+      ...(ids.has(prefs.cagr) && time ? [origin0.find(a => a.series === prefs.cagr) ?? { type: 'cagr', series: prefs.cagr }] : []),
       ...cagrs.map((c, i) => {
         // Same bounds and series: the spec's own arrow (its duration, label, tone).
         const o = origin.find(a => sameCagr(a, c)) ?? origin.find(a => String(a.from.key) === c.from && String(a.to.key) === c.to && !c.fromSeries && !c.toSeries)

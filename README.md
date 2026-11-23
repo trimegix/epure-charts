@@ -117,7 +117,7 @@ Every chart has a data sheet (`DataSheet`) and the same interaction model.
 | Tab / Alt + arrows | Moves the selection to the next element of the same kind |
 | Ctrl + Z | Undo |
 
-**Annotations.** Difference arrows (between any two points, or to a value line), level differences, CAGR arrows that know the real number of years even when some are hidden, value and average lines, totals, error bars, connectors.
+**Annotations.** Difference arrows (between any two points, or to a value line), level differences, CAGR arrows that know the real number of years even when some are hidden, value and average lines, totals, error bars, connectors. A CAGR annotation takes an optional `minBase` (a number ≥ 0): when its start or its end is below it, the arrow is not drawn and `scene.warnings` says why, since a rate over a small base (11 → 14) reads as spectacular and means little. Both ends of a CAGR are already positive, so the values are compared as they are; a value equal to `minBase` is drawn. Without `minBase`, nothing changes.
 
 **Axes.** Drag the bounds, axis breaks, log scale, date axes in years, quarters, months or weeks, the same scale across several charts.
 
