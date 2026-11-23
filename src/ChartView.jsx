@@ -87,10 +87,15 @@ function useWidth(ref, fixed) {
 // container (ratio kept); `dataTable` adds the numbers as a visually hidden table.
 // `applyPrefs` (with readOnly): the figure as its stored view settings and sheet edits
 // draw it (a published format, see configurePrefs), still without any editing control.
+//
+// Small multiples (SmallMultiplesView): `basePrefs` layers this chart's view settings over
+// a block's (useReadingPrefs `base`); `settingsButton={false}` leaves the settings icon to
+// the block, a click on the chart still formats it alone.
 export default function ChartView({
   spec: specIn, currentId, onSelectSeries, selectedId, headerSlot, reading: readingIn = true,
   resolved: provided, format: formatProp, bare = false, height: fixedHeight, legend = true, menuSlot = null,
   width: widthProp, readOnly = false, responsive = false, dataTable = false, applyPrefs = false,
+  basePrefs, settingsButton = true,
 }) {
   // Series passed in: the spec needs no catalog fields (version, kind, refs).
   const baseSpec = useMemo(() => (provided ? withDataDefaults(specIn) : specIn), [specIn, provided])
@@ -109,7 +114,7 @@ export default function ChartView({
   const Header = charts.Header ?? ChartHeader
   const resolved = useMemo(() => provided ?? charts.resolveSeries(baseSpec, { currentId }), [provided, baseSpec, currentId, charts])
   // View settings touch neither the series nor their references: `resolved` holds for both.
-  const [readSpec, readingApi] = useReadingPrefs(baseSpec, resolved)
+  const [readSpec, readingApi] = useReadingPrefs(baseSpec, resolved, { base: basePrefs })
   const external = reading && typeof reading === 'object' ? reading : null
   const spec = external ? external.spec : applied ? readSpec : baseSpec
   const api = external ? external.api : applied ? readingApi : null
@@ -138,7 +143,7 @@ export default function ChartView({
   // Fluid height: follows the width within a readable range.
   const height = fixedHeight ?? Math.round(Math.min(320, Math.max(220, width * 0.4)))
   // The settings button floats in the plot corner (chart without header or slot): its area is reserved.
-  const floatMenu = bare && reading === true && !menuSlot
+  const floatMenu = bare && reading === true && settingsButton && !menuSlot
   const natural = useMemo(
     () => (width > 0 ? buildScene(full, all, { width, height, format: fmt, formatAxis: fmtAxis, legend, ...(floatMenu ? { menuBox: { w: 34, h: 30 } } : {}) }) : null),
     [full, all, width, height, fmt, fmtAxis, legend, floatMenu],
@@ -763,7 +768,7 @@ export default function ChartView({
       <div className="chart-engine" onContextMenu={api ? e => { if (!e.defaultPrevented) open(e, { tab: 'chart' }) } : undefined}>
         {!bare && (
           <Header title={spec.title} sub={subtitle}
-            menu={reading ? <>{headerSlot}<ChartWheelButton api={api} formatters={formatters} /></> : headerSlot} />
+            menu={reading && settingsButton ? <>{headerSlot}<ChartWheelButton api={api} formatters={formatters} /></> : headerSlot} />
         )}
         <div ref={boxRef} className="chart-engine-box">
           <ChartFigure scene={P} interactive={!readOnly} scope={clipId} label={spec.title} responsive={responsive} dataTable={dataTable} part={profilePart}
@@ -795,7 +800,7 @@ export default function ChartView({
       <div className="chart-engine" onContextMenu={e => { e.preventDefault(); open(e, { tab: 'chart' }) }}>
         {!bare && (
           <Header title={spec.title} sub={subtitle}
-            menu={reading ? <>{headerSlot}<ChartWheelButton api={api} formatters={formatters} /></> : headerSlot} />
+            menu={reading && settingsButton ? <>{headerSlot}<ChartWheelButton api={api} formatters={formatters} /></> : headerSlot} />
         )}
         {/* The measured box stays the same: the width follows, and switching back to columns is immediate. */}
         <div ref={boxRef} className="chart-engine-box chart-engine-clickable" onClickCapture={e => { e.stopPropagation(); open(e, { tab: 'chart' }) }}>
@@ -1329,7 +1334,7 @@ export default function ChartView({
     <div className="chart-engine" onContextMenu={api ? e => { if (!e.defaultPrevented) open(e, { tab: 'chart' }) } : undefined}>
       {!bare && (
         <Header title={spec.title} sub={subtitle}
-          menu={reading ? <>{headerSlot}<ChartWheelButton api={api} formatters={formatters} /></> : headerSlot} />
+          menu={reading && settingsButton ? <>{headerSlot}<ChartWheelButton api={api} formatters={formatters} /></> : headerSlot} />
       )}
       {errors.length > 0 && (
         <div className="chart-engine-error" role="alert">
@@ -1341,7 +1346,7 @@ export default function ChartView({
       <div ref={boxRef} className="chart-engine-box">
         {/* Without its own header (bare) and without host-provided view settings, the
             settings icon sits in the plot corner: no chart is left without settings. */}
-        {bare && reading === true && (menuSlot
+        {bare && reading === true && settingsButton && (menuSlot
           ? createPortal(<ChartWheelButton api={api} formatters={formatters} />, menuSlot)
           : <div className="chart-engine-float-menu"><ChartWheelButton api={api} formatters={formatters} /></div>)}
         {/* Empty chart: the data sheet opens with one click. */}

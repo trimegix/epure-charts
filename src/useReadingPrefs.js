@@ -4,10 +4,15 @@
 //     epure-chart-read-<id>;
 //   · the wheel API (ChartWheel): the settings button and a click on a
 //     series open the same wheel and adjust the same preferences.
+// useReadingPrefs(spec, resolved, { base }) → the same, layered (small multiples):
+//   the chart stores only what it changes over `base` (a block's settings, api.own of
+//   the block's own hook); it draws layerPrefs(readingDefaults(spec), base, own).
+//   `base: {}` layers over the spec alone (the block itself). The data sheet stays the
+//   chart's own (base.sheet is ignored).
 import { useState } from 'react'
 import { useChartPrefs } from './chartPrefs'
 import { buildSheet, emptyEdits, hasEdits } from './sheetModel'
-import { readingDefaults, applyReading } from './reading'
+import { readingDefaults, applyReading, layerPrefs, prunePrefs } from './reading'
 import { COLOR_TOKENS, NEUTRAL_TOKENS } from './spec'
 import { formatX } from './scene'
 
@@ -94,8 +99,20 @@ function applySheet(spec, resolved, sheetIn, edits, fmt = {}) {
  * Reading preferences for a cartesian chart.
  * @returns {[object, object]} [effective spec, api for the format wheel and menus]
  */
-export function useReadingPrefs(spec, resolved = []) {
-  const [prefs, setPref, reset, update, latest] = useChartPrefs(`epure-chart-read-${spec.id}`, readingDefaults(spec))
+const NONE = {}
+
+export function useReadingPrefs(spec, resolved = [], { base } = {}) {
+  const layered = base != null
+  const defaults = readingDefaults(spec)
+  const [own, setOwn, resetOwn, updateOwn, latestOwn] = useChartPrefs(`epure-chart-read-${spec.id}`, layered ? NONE : defaults)
+  // Layered: the block's settings (its data sheet excepted) over the spec's; every write
+  // stores only what differs from them, so a later block change still reaches this chart.
+  const under = layered ? layerPrefs(defaults, { ...base, sheet: undefined }) : null
+  const prefs = layered ? layerPrefs(under, own) : own
+  const latest = layered ? () => layerPrefs(under, latestOwn()) : latestOwn
+  const setPref = layered ? (name, value) => setOwn(name, prunePrefs(value, under[name])) : setOwn
+  const update = layered ? (name, fn) => setPref(name, fn(latest()[name])) : updateOwn
+  const reset = resetOwn
   const [sheetOpen, setSheetOpen] = useState(false)
   const allKeys = keysOf(spec, resolved)
   // The sheet: the base is recomputed from the host series; edits are a view
@@ -165,6 +182,8 @@ export function useReadingPrefs(spec, resolved = []) {
     colorOf: id => effective.series.find(s => s.id === id)?.style?.color,
     labelsOf: id => (effective.series.find(s => s.id === id)?.labels ?? 'none'),
     update, latest,
+    // What this chart stores (layered: only its own changes): the base of its panels.
+    own,
   }
 
   // ── What the wheel also reads, to offer only what makes sense ──

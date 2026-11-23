@@ -139,3 +139,40 @@ export function applyReading(spec, prefs) {
     ],
   }
 }
+
+// ── Layered settings (small multiples) ───────────────────────────────────────
+// A block of panels stores its settings under its own id; each panel stores only what it
+// changes on top of them, under the panel's id. Both are deltas: the settings a chart
+// draws are layerPrefs(readingDefaults(spec), block, panel).
+const plain = v => v != null && typeof v === 'object' && !Array.isArray(v)
+
+/** Layers settings objects, later ones winning: plain objects merge key by key, arrays and
+ *  values replace, undefined keys are skipped. */
+export function layerPrefs(...layers) {
+  let out = {}
+  for (const l of layers) {
+    if (!plain(l)) continue
+    const next = { ...out }
+    for (const [k, v] of Object.entries(l)) {
+      if (v === undefined) continue
+      next[k] = plain(v) && plain(out[k]) ? layerPrefs(out[k], v) : v
+    }
+    out = next
+  }
+  return out
+}
+
+const same = (a, b) => a === b || (a != null && b != null && typeof a === 'object' && JSON.stringify(a) === JSON.stringify(b))
+
+/** What `value` changes over `base` (undefined: nothing). Plain objects are compared key by
+ *  key; a key removed from `value` that `base` sets cannot be expressed: it falls back to base. */
+export function prunePrefs(value, base) {
+  if (same(value, base)) return undefined
+  if (!plain(value) || !plain(base)) return value
+  const out = {}
+  for (const [k, v] of Object.entries(value)) {
+    const d = prunePrefs(v, base[k])
+    if (d !== undefined) out[k] = d
+  }
+  return Object.keys(out).length ? out : undefined
+}

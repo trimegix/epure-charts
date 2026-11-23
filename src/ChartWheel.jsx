@@ -528,7 +528,7 @@ function ChartWheelInner({ api, pick = {}, anchor, onClose, onMode, extra = [], 
       '-',
       { label: 'Add text label', onSelect: () => (onAddNote ? onAddNote() : api.setFmt('notes', [...(F.notes ?? []), { fx: pick.atFx ?? 0.5, fy: pick.atFy ?? 0.1, text: 'Text' }])), keepOpen: !!onAddNote },
       canUndo() && { label: 'Undo', shortcut: 'Ctrl+Z', onSelect: () => undoLast() },
-      { label: 'Open data sheet', onSelect: () => api.setSheetOpen(true), shortcut: 'Double-click' },
+      api.setSheetOpen && { label: 'Open data sheet', onSelect: () => api.setSheetOpen(true), shortcut: 'Double-click' },
       formatItem('chart'),
       '-',
       { label: 'Reset formatting', onSelect: resetAll, keepOpen: true },
@@ -654,7 +654,7 @@ function ChartWheelInner({ api, pick = {}, anchor, onClose, onMode, extra = [], 
   }
   // The data sheet from any object (series, axes, labels, legend).
   for (const k of ['series', 'yaxis', 'xaxis', 'labels', 'legend']) {
-    if (Array.isArray(menus[k])) menus[k] = [...menus[k], '-', { label: 'Open data sheet', shortcut: 'Double-click', onSelect: () => api.setSheetOpen(true) }]
+    if (Array.isArray(menus[k]) && api.setSheetOpen) menus[k] = [...menus[k], '-', { label: 'Open data sheet', shortcut: 'Double-click', onSelect: () => api.setSheetOpen(true) }]
   }
   // Rotated view (horizontal bars): only the actions visible there remain.
   if (F.horizontal) {
@@ -1237,8 +1237,10 @@ function ChartWheelInner({ api, pick = {}, anchor, onClose, onMode, extra = [], 
         <button type="button" className="chart-bar__icon" onClick={() => { removeAnn(); onClose() }} title="Remove (Del)" aria-label="Remove"><IconTrash size={14} /></button>
       )}
       {obj === 'chart' && <>
-        <button type="button" className="chart-bar__text" onClick={() => { api.setSheetOpen(true); onClose() }} title="Open the data sheet (or double-click the chart)">Data</button>
-        <span className="chart-wheel__sep" aria-hidden="true" />
+        {api.setSheetOpen && <>
+          <button type="button" className="chart-bar__text" onClick={() => { api.setSheetOpen(true); onClose() }} title="Open the data sheet (or double-click the chart)">Data</button>
+          <span className="chart-wheel__sep" aria-hidden="true" />
+        </>}
         {undo
           ? <button type="button" className="chart-bar__undo" onClick={() => { api.restore(undo); setUndo(null) }}>Undo reset</button>
           : <button type="button" className="chart-bar__text" onClick={resetAll} title="Remove every format change on this chart (you can undo)">Reset</button>}
