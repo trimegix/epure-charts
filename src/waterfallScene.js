@@ -314,7 +314,10 @@ export function buildWaterfallScene(spec, bridge, opts = {}) {
   const innerBottom = plotBottom - footroom
   const tickCount = Math.max(2, Math.min(6, Math.floor((plotBottom - plotTop) / 42)))
   // Scale set by hand (axis mini toolbar): min, max, step; out of bounds, bars are clipped.
-  const ya = spec?.yAxis ?? {}
+  // Every bar carries its figure (labels: 'all', the default): the value axis and its gridlines
+  // repeat them, so neither is drawn unless yAxis.labels / yAxis.grid asks for it (zero stays).
+  const ya0 = spec?.yAxis ?? {}
+  const ya = { ...ya0, labels: ya0.labels ?? (showLabels ? false : undefined), grid: ya0.grid ?? (showLabels ? 'none' : undefined) }
   const yMin = Number.isFinite(ya.min) ? ya.min : null
   const yMax = Number.isFinite(ya.max) ? ya.max : null
   const manualScale = (yMin != null || yMax != null) && (yMax ?? hi) > (yMin ?? lo)

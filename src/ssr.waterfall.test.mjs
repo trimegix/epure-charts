@@ -78,7 +78,7 @@ test('locale fr: engine words and number punctuation', () => {
   // Default format: bare numbers, French thousands ('1 400').
   assert.ok(scene.axes.left.ticks.some(x => /^1\u202f\d00$/.test(x.label)), scene.axes.left.ticks.map(x => x.label).join('|'))
   // A currency formatter: axis ticks above a billion, '€1.5B' → '1,5 Md€'.
-  const eur = buildWaterfallScene({ locale: 'fr' }, bridge, { width: 900, height: 360, format: (v, u, d) => `€${v.toFixed(d ?? 0)}M` })
+  const eur = buildWaterfallScene({ locale: 'fr', yAxis: { labels: true } }, bridge, { width: 900, height: 360, format: (v, u, d) => `€${v.toFixed(d ?? 0)}M` })
   assert.ok(eur.axes.left.ticks.some(x => /Md€$/.test(x.label)), eur.axes.left.ticks.map(x => x.label).join('|'))
   assert.match(scene.annotations[0].text, /\(\+\d+\u00a0%\)$/)
 })
