@@ -103,6 +103,12 @@ No bundler setting is needed, server rendering included (Astro, Next.js, Remix):
 
 Every chart has a data sheet (`DataSheet`) and the same interaction model.
 
+A few reading defaults worth knowing:
+
+- **Direct legend.** `format: { legend: 'direct' }` names each series right of its segment in the last column (stacked columns) instead of a legend on top; the names are spread so they never overlap.
+- **Bridges.** When every step carries its figure (`labels: 'all'`, the default), the value axis and its gridlines are left out; `yAxis: { labels: true, grid: 'solid' }` brings them back.
+- **Horizontal bars.** A row label too long for its gutter wraps onto two lines before it is shortened with an ellipsis; the rows grow to hold them.
+
 ## Interaction model
 
 | Gesture | Effect |

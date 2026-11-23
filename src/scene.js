@@ -468,9 +468,10 @@ function buildSceneAt(spec, resolved = [], opts = {}) {
 
   // ── Legend (on top, rows that wrap) ──────────────────────────────────────
   const withData = series.filter(s => s.points.length)
-  // Series labels on the chart: the names of the
-  // bars right of the last column, at the height of their segment, instead of the legend.
-  const seriesOnChart = F.legend === 'series' && opts.legend !== false && withData.some(s => s.mark === 'bar')
+  // Direct legend (format.legend: 'direct', alias 'series'): the names of the bars right of the
+  // last column, at the height of their segment (stacked), spread so they never overlap,
+  // instead of the legend on top.
+  const seriesOnChart = (F.legend === 'direct' || F.legend === 'series') && opts.legend !== false && withData.some(s => s.mark === 'bar')
   const direct = opts.legend !== false && spec?.endLabels !== false && F.endLabels !== false && withData.length > 0 && (seriesOnChart || withData.length <= 4)
     && (seriesOnChart || withData.some(s => s.mark !== 'bar'))
   const onChart = s => s.mark !== 'bar' || seriesOnChart

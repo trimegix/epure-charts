@@ -29,6 +29,7 @@
 // Pure, tested under node --test. Colors as token names.
 import { scaleLinear } from 'd3-scale'
 import { estimateWidth, defaultFormat } from './scene.js'
+import { wrapLabel } from './waterfallScene.js'
 import { inkOn, labelMetrics } from './customStyle.js'
 import { autoDecimals } from './decimals.js'
 import { localeOf, localizedFormat, t } from './locale.js'
@@ -36,6 +37,8 @@ import { singleAccent, emphasisOf, ACCENT, NEUTRAL, accentInk } from './accent.j
 import { stamp } from './figureMeta.js'
 
 const LABEL = 11
+// Line height of a row label wrapped onto two lines.
+const LABEL_LINE = 13
 const VALUE = 10.5
 const LEGEND_ROW = 18
 const DASH = { solid: null, dash: '4 3', dot: '1.5 3' }
@@ -120,13 +123,20 @@ export function buildBarhScene(spec, rowsIn = [], opts = {}) {
   const rowMin = LM.base || profile ? 0 : showLabels && inner0 > 1 ? Math.ceil((inner0 * (LM.size + 2)) / 0.72) : LM.size + 6
   // A marker labelled above the bar: the row holds the bar and its note.
   const markerLabels = !!spec?.rangeMarkerLabel && rowsIn.some(r => r && markerOf(spec, withRange(r) ?? r) != null)
-  const rowH = Math.max(spec?.rowHeight ?? 28, rowMin, markerLabels ? 36 : 0)
+  let rowH = Math.max(spec?.rowHeight ?? 28, rowMin, markerLabels ? 36 : 0)
   // Grouped with several series: the row is shared, each bar keeps ~13 px (its figure readable).
-  const barH = !stacked && (spec?.series ?? []).length > 1 ? Math.round(rowH * 0.72) : Math.min(18, Math.round(rowH * 0.58))
+  const barHOf = h => (!stacked && (spec?.series ?? []).length > 1 ? Math.round(h * 0.72) : Math.min(18, Math.round(h * 0.58)))
+  let barH = barHOf(rowH)
 
   let rows = rowsIn.map(withRange).filter(r => r && (r.range || Object.values(r.values ?? {}).some(Number.isFinite)))
   if (spec?.sort === 'desc') rows = [...rows].sort((a, b) => rowTotal(b) - rowTotal(a))
   if (spec?.sort === 'asc') rows = [...rows].sort((a, b) => rowTotal(a) - rowTotal(b))
+  // The label gutter: their width + a margin (a short label is never shortened), at most 36 %.
+  const labelW = Math.min(width * 0.36, Math.max(...rows.map(r => estimateWidth(r.label, LABEL))) + 18)
+  // A label too long for it wraps onto two lines before being shortened (…); the rows then
+  // grow to hold two lines.
+  const labelLines = rows.map(r => (estimateWidth(r.label, LABEL) <= labelW - 10 ? [r.label] : wrapLabel(r.label, labelW - 10, LABEL, 2)))
+  if (labelLines.some(l => l.length > 1)) { rowH = Math.max(rowH, 2 * LABEL_LINE + 10); barH = barHOf(rowH) }
 
   const multi = series0.length > 1
   // Legend hidden by the reading settings (spec.legend === false).
@@ -172,9 +182,7 @@ export function buildBarhScene(spec, rowsIn = [], opts = {}) {
   if (lo === hi) { hi += 1; lo -= ranged ? 1 : 0 }
   if (ranged) { const pad = (hi - lo) * 0.04; lo -= pad; hi += pad }
 
-  // ── Gutters: row labels on the left, figures at the end of the bar ──
-  // The label gutter: their width + a margin (a short label is never shortened).
-  const labelW = Math.min(width * 0.36, Math.max(...rows.map(r => estimateWidth(r.label, LABEL))) + 18)
+  // ── Gutters: row labels on the left (labelW above), figures at the end of the bar ──
   const endText = (r, side) => {
     if (r.range) return format(side === 'lo' ? r.range[0] : r.range[1])
     return format(rowTotal(r))
@@ -216,7 +224,8 @@ export function buildBarhScene(spec, rowsIn = [], opts = {}) {
   rows.forEach((r, i) => {
     const y0 = plot.top + i * rowH
     const cy = y0 + rowH / 2
-    base.rows.push({ key: r.key, label: ellipsize(r.label, labelW - 10, LABEL), full: r.label, y: cy, y0, y1: y0 + rowH, emphasis: !!r.emphasis })
+    const lines = labelLines[i]
+    base.rows.push({ key: r.key, label: lines.length > 1 ? lines.join(' ') : ellipsize(r.label, labelW - 10, LABEL), ...(lines.length > 1 ? { lines } : {}), full: r.label, y: cy, y0, y1: y0 + rowH, emphasis: !!r.emphasis })
     const top = cy - barH / 2
     if (r.range) {
       const [a, b] = r.range
