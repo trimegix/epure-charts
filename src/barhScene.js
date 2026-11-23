@@ -30,6 +30,7 @@
 import { scaleLinear } from 'd3-scale'
 import { estimateWidth, defaultFormat } from './scene.js'
 import { inkOn, labelMetrics } from './customStyle.js'
+import { autoDecimals } from './decimals.js'
 import { localeOf, localizedFormat, t } from './locale.js'
 import { singleAccent, emphasisOf, ACCENT, NEUTRAL, accentInk } from './accent.js'
 import { stamp } from './figureMeta.js'
@@ -92,7 +93,10 @@ export function buildBarhScene(spec, rowsIn = [], opts = {}) {
     return buildBarhScene({ ...spec, stacked100: false, stacked: true, labels: spec.labels === 'end' || spec.labels == null ? 'segments' : spec.labels, axis: spec.axis ?? false }, norm, { ...opts, format: opts.formatShare ?? pct })
   }
   const width = Math.max(220, Math.round(opts.width ?? 640))
-  const format = localizedFormat(opts.format ?? defaultFormat, L)
+  // Default decimals (two significant digits, decimals.js), passed to the host's formatter too.
+  const barDec = Number.isInteger(spec?.decimals) ? spec.decimals : autoDecimals(rowsIn.flatMap(r => [...Object.values(r?.values ?? {}), ...(r?.range ?? [])]))
+  const format0 = localizedFormat(opts.format ?? defaultFormat, L)
+  const format = v => format0(v, undefined, barDec)
   const series0 = spec?.series ?? [{ id: 'value', label: t('Value', L), color: 'gray-700' }]
   // Rotated combination chart (type options follow the orientation): a series
   // with `mark: 'line'` reads as a line from row to row over the bars.
@@ -202,7 +206,11 @@ export function buildBarhScene(spec, rowsIn = [], opts = {}) {
     : x.ticks(Math.max(2, Math.min(6, Math.floor(plot.width / 80))))
   if (showAxis) base.axis = { y: plot.bottom + 14, ticks: ticks.map(v => ({ value: v, x: x(v), label: v === 0 ? '0' : format(v) })) }
   // Gridlines: solid (default), dotted, or none (zero stays).
-  base.gridlines = ticks.filter(v => spec?.grid !== 'none' || v === 0).map(v => ({ x: x(v), y1: plot.top, y2: plot.bottom, zero: v === 0, dash: spec?.grid === 'dash' && v !== 0 }))
+  // axis: false also removes the gridlines (a bare bar list), unless spec.grid asks for them;
+  // the zero line stays when bars go both ways.
+  const gridOn = spec?.grid != null ? spec.grid !== 'none' : showAxis
+  const twoWays = x.domain()[0] < 0 && x.domain()[1] > 0
+  base.gridlines = ticks.filter(v => (gridOn && spec?.grid !== 'none') || (v === 0 && (showAxis || twoWays))).map(v => ({ x: x(v), y1: plot.top, y2: plot.bottom, zero: v === 0, dash: spec?.grid === 'dash' && v !== 0 }))
 
   const prof = {}
   rows.forEach((r, i) => {
@@ -302,8 +310,10 @@ export function buildBarhScene(spec, rowsIn = [], opts = {}) {
 // a single set of labels in the center. spec.series[0] on the left, spec.series[1] on the right.
 export function buildButterflyScene(spec, rowsIn = [], opts = {}) {
   const width = Math.max(260, Math.round(opts.width ?? 640))
-  const format = localizedFormat(opts.format ?? defaultFormat, localeOf(spec))
+  const format0 = localizedFormat(opts.format ?? defaultFormat, localeOf(spec))
   const [L, R] = spec.series ?? []
+  const bDec = Number.isInteger(spec?.decimals) ? spec.decimals : autoDecimals(rowsIn.flatMap(r => [r?.values?.[L?.id], r?.values?.[R?.id]]))
+  const format = v => format0(v, undefined, bDec)
   const rows = rowsIn.filter(r => r && (Number.isFinite(r.values?.[L?.id]) || Number.isFinite(r.values?.[R?.id])))
   const showLabels = (spec.labels ?? 'end') !== 'none'
   const LM = labelMetrics(opts.labelStyle ?? spec, VALUE)

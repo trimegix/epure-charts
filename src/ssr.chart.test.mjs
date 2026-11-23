@@ -73,13 +73,13 @@ test('ChartView, editable, with a width also renders on the server', () => {
 })
 
 test('locale fr: numbers, CAGR and engine words', () => {
-  const s = withDefaults({ ...spec, locale: 'fr', format: { grandTotal: true } }, resolved)
+  const s = withDefaults({ ...spec, locale: 'fr', numberFormat: { decimals: 1 }, format: { grandTotal: true } }, resolved)
   const scene = buildScene(s, resolved, { width: 720, height: 360 })
   assert.equal(scene.meta.locale, 'fr')
   const texts = scene.labels.map(l => l.text)
-  assert.ok(texts.includes('52,3\u00a0M€') || texts.includes('52,2\u00a0M€'), texts.join('|'))
+  assert.ok(texts.includes('52,3') || texts.includes('52,2'), texts.join('|'))
   assert.ok(texts.some(t => /^Total /.test(t)), texts.join('|'))
-  assert.ok(scene.axes.left.ticks.some(t => /M€$/.test(t.label)), scene.axes.left.ticks.map(t => t.label).join('|'))
+  assert.ok(scene.axes.left.ticks.some(t => /^\d+$/.test(t.label)) && !scene.axes.left.ticks.some(t => /€/.test(t.label)), scene.axes.left.ticks.map(t => t.label).join('|'))
   const cagr = scene.annotations.find(a => a.type === 'cagr')
   assert.match(cagr.text, /^TCAM \+\d+,\d\u00a0%$/)
   // 'Other' series (small segments grouped) in French.

@@ -163,7 +163,12 @@ conventions and [docs/scene-shapes.md](docs/scene-shapes.md) for every field.
 French, decimal comma, no-break space before % and units (« 12,5 % », « 1 234 M€ »).
 
 **Single accent.** `spec.accent: 'single'` with `spec.emphasis: [keys]`: everything neutral
-but the emphasized series, steps, rows or slices.
+but the emphasized series, steps, rows or slices. On a cartesian chart a key that names no
+series is a category: `emphasis: ['2024']` puts that column forward. A de-emphasized series
+whose `style.color` is a gray (`gray-300`, `gray-500`…) keeps it, so series stay apart.
+
+**Default number format.** Without `format`, values print as bare numbers with the locale's
+thousands separator (`8,617`, « 8 617 »): the page states the unit, or passes `format`.
 
 **More forms.** `buildSlopeScene` (before / after for N items), `buildFunnelScene`
 (selection funnel with named filters and pass rates), `spec.index: 100` on a waterfall (a

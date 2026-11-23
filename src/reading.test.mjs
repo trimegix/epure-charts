@@ -72,7 +72,9 @@ test('hiding the last category also removes the gap before it, and its series fr
     series: [{ id: 'a', ref: { metric: 'm', source: 'actual' }, mark: 'bar' }, { id: 'x', ref: { metric: 'm', source: 'actual' }, mark: 'bar', style: { color: 'black' } }], annotations: [] }
   const sc = buildScene(s, [res('Sales', [['2024', 1], ['2025', 2]]), res('Exit', [['Exit 2026', 3]])], { width: 600, height: 260 })
   assert.deepEqual(sc.columns.map(c => c.key), ['2024', '2025'])
-  assert.deepEqual(sc.legend.map(l => l.seriesId), ['a'])
+  assert.deepEqual(sc.legend.map(l => l.seriesId), [], 'one series left: no legend by default')
+  const shown = buildScene({ ...s, format: { legend: 'top' } }, [res('Sales', [['2024', 1], ['2025', 2]]), res('Exit', [['Exit 2026', 3]])], { width: 600, height: 260 })
+  assert.deepEqual(shown.legend.map(l => l.seriesId), ['a'])
 })
 
 test('property controls: outline, dash, weight, marker, smoothing, single segment, axis', () => {

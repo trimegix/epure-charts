@@ -60,6 +60,7 @@ const WORDS = {
     High: 'Haut',
     Marker: 'Repère',
     CAGR: 'TCAM',
+    Source: 'Source',
     Avg: 'Moy.',
     'no data': 'aucune donnée',
     growth: 'croissance',

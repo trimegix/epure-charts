@@ -10,6 +10,7 @@ import { useId, useMemo, useRef, useState } from 'react'
 import { useIsoLayoutEffect } from './useIsoLayoutEffect.js'
 import { createPortal } from 'react-dom'
 import { buildBarhScene } from './barhScene'
+import { defaultFormat } from './scene.js'
 import BarhFigure from './BarhFigure.jsx'
 import { useBarhPrefs } from './useBarhPrefs'
 import { BarhBar, BarhBarButton } from './BarhBar'
@@ -69,8 +70,10 @@ export default function BarhView({ spec: specIn, rows: rowsIn, format: baseForma
   const P = applied ? readApi.prefs : undefined
   // The configured number format (decimals, magnitude, separators…), on top of the host's.
   const format = useMemo(() => {
-    const f = baseFormat ?? (v => String(v))
-    if (!P) return f
+    // No number setting: the host's formatter as is, or the engine's default (barhScene), the
+    // same decimals as the static figure (decimals.js).
+    if (!P || (P.decimals == null && P.magnitude == null && P.num == null)) return baseFormat
+    const f = baseFormat ?? ((v, d) => defaultFormat(v, undefined, d))
     const full = makeFormatter((v, _u, d) => f(v, d), P.decimals ?? null, P.magnitude ?? null, P.num ?? null)
     return v => full(v, unit ?? '')
   }, [baseFormat, P, unit])

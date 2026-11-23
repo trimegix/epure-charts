@@ -33,9 +33,11 @@ import { scaleLinear, scaleBand } from 'd3-scale'
 import { estimateWidth, defaultFormat } from './scene.js'
 import { resolveCollisions } from './labelLayout.js'
 import { isLightHex, labelMetrics } from './customStyle.js'
+import { autoDecimals } from './decimals.js'
 import { localeOf, localizedFormat, localizeNumber, t } from './locale.js'
 import { accentColor, singleAccent, ACCENT } from './accent.js'
 import { stamp } from './figureMeta.js'
+import { validateBridgeSpec } from './spec.js'
 
 // Semantic tokens (--chart-*), each falling back on the palette color it replaced.
 export const HYPOTHESIS_TOKEN = 'chart-hypothesis'
@@ -160,7 +162,9 @@ function signed(v, unit, dec, format) {
 export function axisLabels(values, unit, format, gap = false, locale = 'en') {
   if (gap) return values.map(v => (v === 0 ? '0' : signed(v, unit, 0, format)))
   const step = values.length > 1 ? Math.abs(values[1] - values[0]) : 0
-  if (unit === 'M' && values.some(v => Math.abs(v) >= 1000)) {
+  // Only for a formatter that writes a currency or a magnitude (the default writes bare numbers:
+  // 1,000, 1,200…).
+  if (unit === 'M' && values.some(v => Math.abs(v) >= 1000) && /[€$£]|\dM/.test(format(1, unit, 0))) {
     const d = step > 0 ? Math.max(0, Math.min(2, -Math.floor(Math.log10(step / 1000) + 1e-9))) : 1
     return values.map(v => (v === 0 ? '0' : localizeNumber(`€${(v / 1000).toFixed(d)}B`, locale)))
   }
@@ -193,7 +197,8 @@ export function buildWaterfallScene(spec, bridge, opts = {}) {
   const measure = LM.base ? estimateWidth : (tx, sz) => LM.measure(tx, sz)
   const labelH = LM.base ? LABEL_H : LM.size + 4
   let unit = bridge?.unit ?? 'M'
-  const dec = spec?.numberFormat?.decimals ?? 0
+  // Default decimals: two significant digits on every figure (decimals.js), 0.6 never '1'.
+  const dec = Number.isInteger(spec?.numberFormat?.decimals) ? spec.numberFormat.decimals : autoDecimals((bridge?.steps ?? []).flatMap(s => [s.value, s.high, ...(s.parts ?? []).map(q => q?.value)]))
   // Net lines (on a multi-series waterfall): the segments of these
   // series leave the stack and the step's sum; a horizontal line marks their level
   // (e.g. a budget reference on a waterfall). A step is recomputed on its stacked segments only.
@@ -237,6 +242,8 @@ export function buildWaterfallScene(spec, bridge, opts = {}) {
     connectors: [], whiskers: [], annotations: [], legend: [], columns: [], netLines: [], empty: steps.length === 0,
     indexed, ...(indexIgnored ? { indexIgnored: true } : {}),
   }
+  // The same validation as the live view: what it would refuse, said here too (never thrown).
+  base.errors = validateBridgeSpec(spec ?? {}, { bridge })
   if (base.empty) return stamp(base, 'waterfall', spec)
 
   // Dragged connectors: a movement can only restart from an earlier, non-adjacent column.
