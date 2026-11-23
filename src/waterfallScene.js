@@ -36,6 +36,7 @@ import { isLightHex, labelMetrics } from './customStyle.js'
 import { localeOf, localizedFormat, localizeNumber, t } from './locale.js'
 import { accentColor, singleAccent, ACCENT } from './accent.js'
 import { stamp } from './figureMeta.js'
+import { validateBridgeSpec } from './spec.js'
 
 // Semantic tokens (--chart-*), each falling back on the palette color it replaced.
 export const HYPOTHESIS_TOKEN = 'chart-hypothesis'
@@ -239,6 +240,8 @@ export function buildWaterfallScene(spec, bridge, opts = {}) {
     connectors: [], whiskers: [], annotations: [], legend: [], columns: [], netLines: [], empty: steps.length === 0,
     indexed, ...(indexIgnored ? { indexIgnored: true } : {}),
   }
+  // The same validation as the live view: what it would refuse, said here too (never thrown).
+  base.errors = validateBridgeSpec(spec ?? {}, { bridge })
   if (base.empty) return stamp(base, 'waterfall', spec)
 
   // Dragged connectors: a movement can only restart from an earlier, non-adjacent column.
