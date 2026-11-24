@@ -205,6 +205,12 @@ columns on horizontal bars (`spec.columns: [{ key, label?, value: 'share' | 'cum
 format? }]`, or a host value per row in `rows[].columns[key]`), and
 `smallMultiples(build, panels, { columns, same })` to share one scale across several scenes.
 
+**Small multiples, one settings bar.** `<SmallMultiplesView id title panels={[{ key, spec, resolved }]} columns />`
+draws a grid of charts with a single settings icon: a setting made there (decimals, colors,
+CAGR arrows, totals, value lines…) applies to every panel; a click on a panel formats that
+panel alone, over the block's settings. The block's settings are stored under its `id`, each
+panel's own changes under `<id>-<key>`; the panels share their value axis unless `same={false}`.
+
 ## Theming
 
 All colors and fonts are CSS custom properties (`--cat-1` … `--cat-7`, `--gray-*`, `--font`, `--font-mono`, …). Import `epure-charts/theme.css` for the defaults, or define the same variables in your own stylesheet: your values win. Light and dark themes are supported (`prefers-color-scheme` or `data-theme="dark"`). A page that stays light whatever the system theme imports `epure-charts/theme-light.css` instead.

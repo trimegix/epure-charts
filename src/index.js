@@ -21,6 +21,7 @@ export { default as GanttView } from './GanttView.jsx'
 export { default as FormatBar } from './FormatBar.jsx'
 export { default as TableView } from './TableView.jsx'
 export { HarveyBall, CheckMark } from './HarveyBall.jsx'
+export { default as SmallMultiplesView } from './SmallMultiplesView.jsx'
 
 // Figures: drawing only, no hooks (also in `epure-charts/static`)
 export { default as FigureSvg } from './FigureSvg.jsx'
