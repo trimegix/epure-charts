@@ -103,7 +103,7 @@ test('table column: the category leaves the plot, its numbers read on the right'
   assert.equal(sc.tableCols.length, 1)
   const t = sc.tableCols[0]
   assert.equal(t.header, '2024')
-  assert.deepEqual(t.items.map(i => i.text).sort(), ['17.3', '40.0'].sort())
+  assert.deepEqual(t.items.map(i => i.text).sort(), ['17', '40'].sort())
   assert.ok(t.x0 >= sc.plot.right)
   assert.ok(sc.axes.left.domain[1] < 40, 'the scale no longer counts the moved-out column')
 })

@@ -20,6 +20,7 @@
 // Pure, tested under node --test. Colors as token names.
 import { defaultFormat } from './scene.js'
 import { inkOn, labelMetrics } from './customStyle.js'
+import { autoDecimals } from './decimals.js'
 import { localeOf, localizedFormat, localizeNumber, t, NBSP } from './locale.js'
 import { accentColor, accentInk } from './accent.js'
 import { stamp } from './figureMeta.js'
@@ -51,7 +52,9 @@ export function buildFunnelScene(spec = {}, stagesIn = [], opts = {}) {
   const L = localeOf(spec)
   const counts = !opts.format && (spec.unit == null || spec.unit === 'count')
   const format = localizedFormat(opts.format ?? (counts ? countFormat : defaultFormat), L)
-  const fmt = v => format(v, spec.unit, spec.decimals ?? null)
+  // Default decimals: two significant digits (decimals.js), the same static and live.
+  const fDec = spec.decimals ?? (spec.unit === 'pct' ? null : autoDecimals(stagesIn.map(s => s?.value)))
+  const fmt = v => format(v, spec.unit, fDec)
   const LM = labelMetrics(opts.labelStyle ?? spec, LABEL)
   const LS = LM.size
   const BL = Math.round(LS * 0.35)

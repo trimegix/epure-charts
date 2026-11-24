@@ -5,6 +5,7 @@
 
 export * from './spec.js'
 export { withDefaults, defaultsFor } from './defaults.js'
+export { autoDecimals } from './decimals.js'
 export { buildScene, formatX, defaultFormat, estimateWidth, yearsBetween, ROLE_TOKEN, FORECAST_TOKEN, DASH_ARRAY } from './scene.js'
 export { buildWaterfallScene, bridgeLevels, wrapLabel, axisLabels, TONE_TOKEN } from './waterfallScene.js'
 export { buildBarhScene } from './barhScene.js'

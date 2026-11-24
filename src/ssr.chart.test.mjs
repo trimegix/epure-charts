@@ -73,7 +73,7 @@ test('ChartView, editable, with a width also renders on the server', () => {
 })
 
 test('locale fr: numbers, CAGR and engine words', () => {
-  const s = withDefaults({ ...spec, locale: 'fr', format: { grandTotal: true } }, resolved)
+  const s = withDefaults({ ...spec, locale: 'fr', numberFormat: { decimals: 1 }, format: { grandTotal: true } }, resolved)
   const scene = buildScene(s, resolved, { width: 720, height: 360 })
   assert.equal(scene.meta.locale, 'fr')
   const texts = scene.labels.map(l => l.text)
