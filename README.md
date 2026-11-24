@@ -105,7 +105,7 @@ Every chart has a data sheet (`DataSheet`) and the same interaction model.
 
 A few reading defaults worth knowing:
 
-- **Direct legend.** `format: { legend: 'direct' }` names each series right of its segment in the last column (stacked columns) instead of a legend on top; the names are spread so they never overlap.
+- **Direct legend.** `format: { legend: 'direct' }` names each series right of its segment in the last column (stacked columns) instead of a legend on top; the names are spread so they never overlap. It is the default of stacked columns with 2 to 5 series, each present in the last column, on a chart at least 480 px wide; `legend: 'top'` keeps the legend on top.
 - **Bridges.** When every step carries its figure (`labels: 'all'`, the default), the value axis and its gridlines are left out; `yAxis: { labels: true, grid: 'solid' }` brings them back.
 - **Horizontal bars.** A row label too long for its gutter wraps onto two lines before it is shortened with an ellipsis; the rows grow to hold them.
 

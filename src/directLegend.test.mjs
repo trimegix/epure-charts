@@ -33,11 +33,26 @@ test("legend 'direct': names right of the last column, at their segment, no lege
   for (const e of sc.endLabels) assert.ok(e.x + estimateWidth(e.text, 11) <= 720 + 0.5, 'inside the card')
 })
 
-test("'series' stays an alias; without it the legend stays on top", () => {
+test("'series' stays an alias; 'top' keeps the legend on top", () => {
   const a = buildScene(spec('direct'), resolved, { width: 720, height: 360 })
   const b = buildScene(spec('series'), resolved, { width: 720, height: 360 })
   assert.deepEqual(a.endLabels, b.endLabels)
-  const top = buildScene(spec(null), resolved, { width: 720, height: 360 })
+  const top = buildScene(spec('top'), resolved, { width: 720, height: 360 })
   assert.equal(top.legend.length, 4)
   assert.equal(top.endLabels.length, 0)
+})
+
+test('the default of stacked columns: direct for 2 to 5 series with room, on top otherwise', () => {
+  const auto = buildScene(spec(null), resolved, { width: 720, height: 360 })
+  assert.deepEqual(auto.endLabels, buildScene(spec('direct'), resolved, { width: 720, height: 360 }).endLabels)
+  assert.equal(auto.legend.length, 0)
+  const narrow = buildScene(spec(null), resolved, { width: 420, height: 300 })
+  assert.equal(narrow.legend.length, 4, 'under 480 px the legend stays on top')
+  const six = [...resolved, ...resolved.slice(0, 2).map(r => ({ ...r, label: `${r.label} bis` }))]
+  const many = buildScene({ ...spec(null), series: ['a', 'b', 'c', 'd', 'e', 'f'].map(id => ({ id, mark: 'bar' })) }, six, { width: 720, height: 360 })
+  assert.equal(many.legend.length, 6, 'more than 5 series: on top')
+  const gap = resolved.map((r, i) => (i === 3 ? { ...r, points: r.points.slice(0, 2) } : r))
+  assert.equal(buildScene(spec(null), gap, { width: 720, height: 360 }).legend.length, 4, 'a series missing from the last column: on top')
+  const clustered = buildScene({ ...spec(null), bars: 'clustered' }, resolved, { width: 720, height: 360 })
+  assert.equal(clustered.legend.length, 4, 'clustered columns keep their legend')
 })

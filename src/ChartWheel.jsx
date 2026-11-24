@@ -637,7 +637,13 @@ function ChartWheelInner({ api, pick = {}, anchor, onClose, onMode, extra = [], 
       formatItem('labels'),
     ],
     legend: [
-      pick.seriesLabels && { label: 'Remove series labels', onSelect: () => api.setFmt(F.legend === 'series' ? 'legend' : 'endLabels', F.legend === 'series' ? null : false) },
+      pick.seriesLabels && { label: 'Remove series labels', onSelect: () => {
+        // Bar names (direct legend, the default on stacked columns) go back to a legend on top;
+        // line end names are switched off.
+        const onBars = ['series', 'direct'].includes(F.legend)
+        if (onBars || F.legend == null) api.setFmt('legend', 'top')
+        if (!onBars) api.setFmt('endLabels', false)
+      } },
       { label: 'Remove legend', onSelect: () => api.setFmt('legend', 'none') },
       '-',
       formatItem('legend'),
@@ -1083,10 +1089,10 @@ function ChartWheelInner({ api, pick = {}, anchor, onClose, onMode, extra = [], 
     legend: [
       ['position', IconLayoutList, { bottom: 'Bottom', none: 'Hidden', series: 'On chart' }[F.legend] ?? 'Top', 'Legend position', (
         <>
-          <Line label="Position"><Seg label="Legend position" value={F.legend ?? null} onPick={v => api.setFmt('legend', v)} items={[[null, 'Top'], ['bottom', 'Bottom'], ['series', 'On chart'], ['none', 'Hidden']]} /></Line>
-          {(F.legend ?? null) !== 'none' && F.legend !== 'series' && <Line label=""><Check on={!!F.legendFrame} onClick={() => api.setFmt('legendFrame', F.legendFrame ? null : true)}>Frame</Check></Line>}
+          <Line label="Position"><Seg label="Legend position" value={F.legend ?? null} onPick={v => api.setFmt('legend', v)} items={[['top', 'Top'], ['bottom', 'Bottom'], ['direct', 'On chart'], ['none', 'Hidden']]} /></Line>
+          {(F.legend ?? null) !== 'none' && !['series', 'direct'].includes(F.legend) && <Line label=""><Check on={!!F.legendFrame} onClick={() => api.setFmt('legendFrame', F.legendFrame ? null : true)}>Frame</Check></Line>}
           {/* The frame line style of the legend. */}
-          {F.legendFrame && F.legend !== 'series' && <Line label="Frame"><Seg label="Legend frame style" value={F.legendFrameStyle ?? null} onPick={v => api.setFmt('legendFrameStyle', v)} items={DASHES.map(([v, l, d]) => [v === 'solid' ? null : v, l, () => lineGlyph(d)])} /></Line>}
+          {F.legendFrame && !['series', 'direct'].includes(F.legend) && <Line label="Frame"><Seg label="Legend frame style" value={F.legendFrameStyle ?? null} onPick={v => api.setFmt('legendFrameStyle', v)} items={DASHES.map(([v, l, d]) => [v === 'solid' ? null : v, l, () => lineGlyph(d)])} /></Line>}
           {F.legendOffset && <Line label=""><button type="button" className="chart-pop__link" onClick={() => api.setFmt('legendOffset', null)}>Put the legend back in place</button></Line>}
         </>
       )],

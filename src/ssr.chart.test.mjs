@@ -86,7 +86,8 @@ test('locale fr: numbers, CAGR and engine words', () => {
   const three = [S('a', 'bar'), S('b', 'bar'), S('c', 'bar')]
   const r3 = [res('A', [['2024', 80]]), res('B', [['2024', 10]]), res('C', [['2024', 10]])]
   const other = buildScene(withDefaults(specOf(three, { locale: 'fr', bars: 'stacked', format: { otherBelow: 20 } }), r3), r3, { width: 720, height: 360 })
-  assert.ok(other.legend.some(it => it.label === 'Autres'), other.legend.map(it => it.label).join('|'))
+  // Stacked, two series in the last column: the names sit by their segment (direct legend).
+  assert.ok(other.endLabels.some(it => it.text === 'Autres'), other.endLabels.map(it => it.text).join('|'))
 })
 
 test('single accent: the emphasized series in the accent, the rest neutral', () => {
