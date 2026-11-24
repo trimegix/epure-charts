@@ -226,6 +226,8 @@ configurePrefs({ seed: published, local: false })
 
 Readers then draw the views with `readOnly` and `applyPrefs`: the published settings and sheet edits, without any editing control. `snapshotPrefs()` returns the current state of every chart of the page.
 
+Only what the user changed is stored and sent to `onChange`: the settings that differ from the chart's defaults, which are recomputed from the spec. An annotation added to the spec after publishing still shows; a reset sends `{}`. A whole object saved by an earlier version still applies, and shrinks to its changes at the next write.
+
 ## Development
 
 ```bash

@@ -612,8 +612,16 @@ function buildSceneAt(spec, resolved = [], opts = {}) {
   // actual of one series, which assumes a time axis.
   // The duration of an explicit CAGR is given (periods) or derived from the bounds.
   const explicitCagr = a => a?.from?.key != null && a?.to?.key != null
-  const cagrs = anns.filter(a => a?.type === 'cagr' && (explicitCagr(a)
-    || (grain !== 'category' && series.some(s => s.id === a.series && s.points.length >= 2))))
+  // Why a requested annotation is not drawn (scene.warnings; the views log them in development).
+  const warnings = []
+  const cagrName = a => (explicitCagr(a) ? `CAGR ${a.from.key} → ${a.to.key}` : `CAGR of series "${a.series ?? '?'}"`)
+  const cagrs = anns.filter(a => {
+    if (a?.type !== 'cagr') return false
+    if (explicitCagr(a)) return true
+    if (!series.some(s => s.id === a.series && s.points.length >= 2)) { warnings.push(`${cagrName(a)}: not drawn, the series is missing or has fewer than two points; set from / to, or a series with data.`); return false }
+    if (grain === 'category') { warnings.push(`${cagrName(a)}: not drawn, a category axis has no first and last year; set from: { key } and to: { key }.`); return false }
+    return true
+  })
   const wantTotals = stacked && !share && anns.some(a => a?.type === 'totals')
   const wantAreaTotals = (F.areaMode ?? spec?.areaMode) === 'stacked' && anns.some(a => a?.type === 'totals')
   // A series' mean (over its visible points) reads as a value line.
@@ -896,7 +904,7 @@ function buildSceneAt(spec, resolved = [], opts = {}) {
   const empty = !keys.length || (!left && !right)
   const base = {
     width, height, plot, legend: legend.items, labels: [], annotations: [],
-    bars: [], lines: [], areas: [], gridlines: [], columns: [], endLabels: [], empty,
+    bars: [], lines: [], areas: [], gridlines: [], columns: [], endLabels: [], empty, warnings,
     axes: { x: { y: plotBottom, ticks: [], line: !!xo.line, rotate, labels: xLabels, tickMarks: !!xo.tickMarks }, left: null, right: null },
     gridColor: F.gridColor ?? null, fontScale: FS, legendScale, legendY: legendPos === 'bottom' ? height - legendH : 0, gridStyle: F.grid === 'dash' ? 'dash' : 'solid', gridTone: F.gridTone === 'dark' ? 'dark' : 'light',
   }
@@ -1552,7 +1560,10 @@ function buildSceneAt(spec, resolved = [], opts = {}) {
   for (const d of ordered) {
     const A = endOf(d.from)
     const B = endOf(d.to)
-    if (!A || !B || !A.v || (d.from.key === d.to.key && d.from.series === d.to.series && d.from.vline === d.to.vline)) continue
+    if (!A || !B || !A.v || (d.from.key === d.to.key && d.from.series === d.to.series && d.from.vline === d.to.vline)) {
+      warnings.push(`Difference arrow ${d.from.key} → ${d.to.key}: not drawn, ${!A || !B ? 'no value at one of its ends' : !A.v ? 'its start is zero' : 'both ends are the same point'}.`)
+      continue
+    }
     const unitA = d.from.series || d.to.series ? A.unit : A.unit ?? 'M'
     const text = arrowText(A.v, B.v, unitA, d.mode ?? F.diffMode)
     const pillW = estimateWidth(text, 10.5) + 16
@@ -1630,8 +1641,14 @@ function buildSceneAt(spec, resolved = [], opts = {}) {
       periods = first && last ? yearsBetween(first, last, grain) : 0
       sid = s.id
     }
-    if (!first || !last || first === last || !keys.includes(first.x) || !keys.includes(last.x)) continue
-    if (!(first.y > 0 && last.y > 0 && periods > 0)) continue
+    if (!first || !last || first === last || !keys.includes(first.x) || !keys.includes(last.x)) {
+      warnings.push(`${cagrName(a)}: not drawn, ${!first || !last ? 'no value at one of its ends' : first === last ? 'both ends are the same point' : 'one of its ends is hidden'}.`)
+      continue
+    }
+    if (!(first.y > 0 && last.y > 0 && periods > 0)) {
+      warnings.push(`${cagrName(a)}: not drawn, ${periods > 0 ? 'a growth rate needs two positive values' : 'no period between its ends'} (${first.y} → ${last.y}).`)
+      continue
+    }
     const rate = (last.y / first.y) ** (1 / periods) - 1
     const lift = (labelled ? 16 : 0) + 10
     const xa = cx(first.x)

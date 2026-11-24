@@ -21,6 +21,7 @@ import { publishDomain, withdrawDomain, unionFor, breakFor, useSameScaleVersion,
 import { targetMark } from './useWheelPlacement'
 import { lineMarks } from './barPlacement.js'
 import { beginStep, endStep } from './chartPrefs'
+import { devWarn } from './devWarn.js'
 import BarhView from './BarhView.jsx'
 import ChartFigure from './ChartFigure.jsx'
 import { Swatch } from './chartMarks.jsx'
@@ -207,6 +208,8 @@ export default function ChartView({
     // sameV: the union changed elsewhere on the page.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [natural, same, sameV, xSame, full, all, width, height, fmt, fmtAxis, legend])
+  // Development: say why a requested annotation is not drawn (once per message).
+  useEffect(() => { for (const w of scene?.warnings ?? []) devWarn(`chart "${spec.id}": ${w}`) }, [scene, spec.id])
   // The drawn plot width is republished: the other members match their density to it.
   const drawnW = scene?.plot?.width ? Math.round(scene.plot.width * 100) / 100 : null
   useEffect(() => {
