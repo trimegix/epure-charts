@@ -152,6 +152,12 @@ Figure props: `scene`, `responsive` (width="100%", ratio kept), `dataTable` (the
 a visually hidden table, for screen readers), `label`. Every SVG has a `viewBox`, and a
 `<title>` and `<desc>` taken from the spec.
 
+**Same chart, static or live.** `buildScene` and `buildWaterfallScene` read a spec exactly as
+`ChartView` and `WaterfallChart` do in `readOnly` (+ `applyPrefs`): the same defaults (colors,
+bar mode, `version` / `kind` of a bridge), the same decimals, the same validation, reported in
+`scene.errors` instead of being accepted silently (never thrown). The parity test
+(`src/parity.test.mjs`) draws every spec of `examples/specs.js` both ways and compares the scenes.
+
 The interactive views take the same options, plus:
 
 | Prop | |

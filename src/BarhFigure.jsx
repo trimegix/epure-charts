@@ -17,6 +17,7 @@
 //   · labelStyle: CSS spread on the value labels (the user's label font, size, color);
 //   · patternScope: the id prefix of the fill patterns (unique per chart on a page).
 import FigureSvg from './FigureSvg.jsx'
+import { sceneDrawn } from './sceneProbe.js'
 import PatternDefs from './patterns.jsx'
 import { tok, fs, fsNote, colorId } from './customStyle.js'
 
@@ -43,6 +44,7 @@ function barhTable(scene) {
 }
 
 export default function BarhFigure({ scene, label, responsive = false, dataTable = false, labelStyle = null, part = none, patternScope = 'barh', className = 'chart-barh', children = null, ...rest }) {
+  sceneDrawn(scene)
   if (!scene || scene.empty) return null
   const fill = b => (b.pattern ? `url(#${patternScope}-pt-${b.pattern}-${colorId(b.color)})` : tok(b.color))
   return (

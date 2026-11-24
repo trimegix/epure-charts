@@ -28,6 +28,8 @@ import { dateAxisTicks, DATE_UNITS } from './dateTicks.js'
 import { roundToSum, formatDateCodes, consistentRound } from './numberStyle.js'
 import { isHex, isLightHex, isFont, isPt, sizePx, labelMetrics, baseToken } from './customStyle.js'
 import { autoDecimals, autoDecimalsByUnit } from './decimals.js'
+import { withDefaults } from './defaults.js'
+import { validateChartSpec } from './spec.js'
 import { localeOf, localizedFormat, localizeNumber, t } from './locale.js'
 import { accentColor, accentInk, accentSeriesColor, accentPoints, singleAccent, NEUTRAL, ACCENT } from './accent.js'
 import { stamp } from './figureMeta.js'
@@ -296,8 +298,16 @@ export function snapDateLo(lo, hi, unit = null, weekStart = 0) {
  * scene.labelCap = { asked, used } gives the size actually drawn, scene.noRoom the number
  * of labels still removed for lack of room.
  */
-export function buildScene(spec, resolved = [], opts = {}) {
-  const sc = buildSceneAt(spec, resolved, opts)
+const isObj = v => v != null && typeof v === 'object' && !Array.isArray(v)
+const withErrors = (sc, errors) => { if (sc && typeof sc === 'object') sc.errors = errors; return sc }
+
+export function buildScene(specIn, resolved = [], opts = {}) {
+  // The spec as the live view reads it (ChartView): the defaults of its data (colors by role,
+  // bar mode, axes) filled in, and the same validation, reported in scene.errors (never thrown).
+  const spec = isObj(specIn) ? withDefaults(specIn, resolved) : specIn
+  // A spec the validation refuses still draws what it can (a malformed chart renders as such).
+  const errors = validateChartSpec(spec, { resolved })
+  const sc = withErrors(buildSceneAt(spec, resolved, opts), errors)
   const LO = spec?.format?.labels ?? {}
   if (!isPt(LO.size) || sc.empty || spec?.format?.transpose) return stamp(sc, 'chart', spec)
   const ok = s => !s.labelsWanted || (s.labelsWanted - s.noRoom) * 2 >= s.labelsWanted
@@ -308,7 +318,7 @@ export function buildScene(spec, resolved = [], opts = {}) {
     if (s2.noRoom < best.noRoom || best === sc) best = Object.assign(s2, { labelCap: { asked: LO.size, used: pt } })
     if (ok(s2)) break
   }
-  return stamp(best, 'chart', spec)
+  return stamp(withErrors(best, errors), 'chart', spec)
 }
 
 function buildSceneAt(spec, resolved = [], opts = {}) {
