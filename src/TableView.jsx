@@ -18,7 +18,7 @@ import { buildTableScene, nextInsertKey, markEdit, resizeTableWidths, resizeTabl
 import { setCell } from './sheetModel.js'
 import { colorName } from './colorNames.js'
 import TableFigure from './TableFigure.jsx'
-import { Seg, Check, Line, Field } from './ChartWheel'
+import { Seg, Check, Line, Field } from './wheelControls.jsx'
 import FormatBar from './FormatBar'
 import { useViewPrefs } from './useViewPrefs.js'
 import { useFormatPick } from './useFormatPick.js'

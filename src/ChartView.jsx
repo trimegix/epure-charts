@@ -1274,9 +1274,9 @@ function ChartViewBody({
           <rect key={`yh-${side}`} x={side === 'left' ? 0 : ax.x} y={Math.min(...ys) - 8} width={Math.max(8, side === 'left' ? ax.x : scene.width - ax.x)} height={Math.max(...ys) - Math.min(...ys) + 16} fill="transparent"
             className={`chart-engine-clickable${isAxisSel(side) ? ' is-selected' : ''}`}
             // (event handlers: the compiler cannot tell they never run during render)
-            // eslint-disable-next-line react-hooks/refs
+             
             onClick={e => axisClick(side, e)} onContextMenu={e => axisClick(side, e)} onPointerDown={e => axisDrag(side, e)}
-            // eslint-disable-next-line react-hooks/refs
+             
             tabIndex={0} role="button" aria-label={side === 'left' ? tr('Left value axis') : tr('Right value axis')} onKeyDown={e => onObjKey(e, { tab: 'yaxis', side })} />
         )
       })}

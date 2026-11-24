@@ -16,7 +16,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { IconChevronDown, IconPlus, IconX, IconCheck } from '@tabler/icons-react'
-import { ActionMenu, Pop } from './ChartWheel'
+import { ActionMenu, Pop } from './wheelControls.jsx'
 import { useWheelPlacement } from './useWheelPlacement'
 import { undoLast, canUndo as canUndoPrefs } from './chartPrefs'
 import { useCompactLevel, compactList, compactValue } from './compactBar.jsx'
