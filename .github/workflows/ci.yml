@@ -18,7 +18,8 @@ jobs:
     if: github.ref == 'refs/heads/main'
     needs: check
     runs-on: ubuntu-latest
-    permissions: { pages: write, id-token: write }
+    # actions: read lets deploy-pages list the run's artifacts ("Found 0 artifact(s)" without it).
+    permissions: { pages: write, id-token: write, actions: read, contents: read }
     environment: { name: github-pages, url: '${{ steps.deploy.outputs.page_url }}' }
     # One deployment at a time: merges in a row queue up instead of colliding.
     concurrency: { group: pages, cancel-in-progress: false }
