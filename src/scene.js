@@ -1686,6 +1686,12 @@ function buildSceneAt(spec, resolved = [], opts = {}) {
       warnings.push(`${cagrName(a)}: not drawn, ${periods > 0 ? 'a growth rate needs two positive values' : 'no period between its ends'} (${first.y} → ${last.y}).`)
       continue
     }
+    // A rate over a small base (11 → 14) reads as spectacular and says nothing: under
+    // minBase at either end, no arrow. Both ends are positive here, so no absolute value.
+    if (a.minBase > 0 && Math.min(first.y, last.y) < a.minBase) {
+      warnings.push(`${cagrName(a)}: not drawn, ${first.y < a.minBase ? 'its start' : 'its end'} is below minBase (${first.y} → ${last.y}, minBase ${a.minBase}).`)
+      continue
+    }
     const rate = (last.y / first.y) ** (1 / periods) - 1
     const lift = (labelled ? 16 : 0) + 10
     const xa = cx(first.x)

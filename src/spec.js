@@ -294,6 +294,7 @@ export function validateSpec(spec, opts = {}) {
       if (!isObj(a) || !oneOf(ANNOTATION_TYPES, a.type)) { err(`annotations[${i}].type`, `one of ${ANNOTATION_TYPES.join(', ')}`); return }
       if (a.type === 'cagr') {
         const ids = Array.isArray(spec.series) ? spec.series.map(x => x?.id) : []
+        if (a.minBase != null && !(Number.isFinite(a.minBase) && a.minBase >= 0)) err(`annotations[${i}].minBase`, 'a finite number >= 0')
         if (waterfall) err(`annotations[${i}]`, "a CAGR belongs on a cartesian chart")
         else if (a.from != null || a.to != null) {
           if (!isObj(a.from) || a.from.key == null || !isObj(a.to) || a.to.key == null) err(`annotations[${i}]`, 'from and to need a key')
