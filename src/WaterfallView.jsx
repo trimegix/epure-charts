@@ -18,7 +18,7 @@ import { useIsoLayoutEffect } from './useIsoLayoutEffect.js'
 import { applyBridgeEdits } from './bridgeEdits'
 import { useCharts } from './useCharts'
 import ChartHeader from './ChartHeader'
-import { validateSpec } from './spec'
+import { validateBridgeSpec, withBridgeDefaults } from './spec'
 import { buildWaterfallScene } from './waterfallScene'
 import WaterfallFigure from './WaterfallFigure.jsx'
 import { BridgeBar, BridgeBarButton } from './BridgeBar'
@@ -53,7 +53,9 @@ function useWidth(ref, fixed) {
 // (with applyPrefs: the host's settings and the sheet edits drawn, still no control).
 // responsive: the SVG scales to its container (width="100%", ratio kept).
 // dataTable: the figure's numbers as a visually hidden table next to the SVG.
-export default function WaterfallView({ bridge: providedBridge, spec, currentId, scope, context, selectedStep, onSelectStep, bare = false, headerSlot, height: fixedHeight, api: apiIn, floatMenu = false, width: widthProp, readOnly = false, responsive = false, dataTable = false, applyPrefs = false }) {
+export default function WaterfallView({ bridge: providedBridge, spec: specIn, currentId, scope, context, selectedStep, onSelectStep, bare = false, headerSlot, height: fixedHeight, api: apiIn, floatMenu = false, width: widthProp, readOnly = false, responsive = false, dataTable = false, applyPrefs = false }) {
+  // version and kind filled when left out (a bridge has no other kind).
+  const spec = useMemo(() => withBridgeDefaults(specIn), [specIn])
   const boxRef = useRef(null)
   const width = useWidth(boxRef, widthProp)
   // readOnly + applyPrefs: the host's settings (api) and the sheet edits drawn, no control.
@@ -90,7 +92,7 @@ export default function WaterfallView({ bridge: providedBridge, spec, currentId,
     if (vlDrag != null) sp = { ...sp, valueLine: vlDrag }
     return sp
   }, [spec, bridge, linkDrag, vlDrag])
-  const errors = useMemo(() => validateSpec(spec), [spec])
+  const errors = useMemo(() => validateBridgeSpec(spec, { bridge: providedBridge }), [spec, providedBridge])
   const height = fixedHeight ?? Math.round(Math.min(300, Math.max(240, width * 0.34)))
   // The value axis number format (axis format bar), on top of the host's.
   const ax = api?.prefs

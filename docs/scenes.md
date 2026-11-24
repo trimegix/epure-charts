@@ -31,7 +31,8 @@ from real scenes. This page gives the conventions they share.
 - Off the browser, resolve a token with `LIGHT_TOKENS` / `DARK_TOKENS` and `baseToken()`
   (`epure-charts/core`), or let `sceneToSVGString(scene, { tokens })` do it.
 - `spec.accent: 'single'` + `spec.emphasis: [keys]`: every mark is `chart-neutral` except the
-  emphasized ones, in `chart-accent`.
+  emphasized ones, in `chart-accent`. A cartesian `emphasis` key that names no series is a
+  category (its points in `chart-accent`); a de-emphasized series keeps a gray `style.color`.
 
 ## Text and type
 
@@ -58,6 +59,17 @@ Every scene carries `meta`:
 The figure never draws the provenance: the page writes the title and the footer from it (and
 a deck exporter the source line), so it travels with the data instead of being baked into
 the drawing.
+
+## Annotations left out
+
+A cartesian scene (`buildScene`) lists in `scene.warnings` (strings) every annotation it was
+asked for and did not draw, with the reason: a CAGR whose end has no value, whose values are
+not both positive, or a first-to-last CAGR on a category axis; a difference arrow whose start is
+zero. Nothing is hidden for lack of room. `ChartView` logs these warnings once in development
+(`process.env.NODE_ENV !== 'production'`), and also warns when stored or published settings hide
+an arrow the spec asks for (settings saved whole by an earlier version), or when several charts
+share one settings key (the same `spec.id` with different specs: they share the user's changes;
+give each chart its own id).
 
 ## Empty scenes
 

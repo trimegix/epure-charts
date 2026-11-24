@@ -26,3 +26,7 @@ jobs:
       - name: Publish the release
         env: { GH_TOKEN: '${{ github.token }}' }
         run: gh release create "$GITHUB_REF_NAME" "epure-charts-${GITHUB_REF_NAME#v}.tgz" --title "$GITHUB_REF_NAME" --notes-file notes.md
+      # The asset URL answers 404 for a few seconds after the release is created: the workflow
+      # ends only once the archive downloads, identical to the one built here.
+      - name: The archive is downloadable
+        run: node scripts/wait-for-asset.mjs "https://github.com/$GITHUB_REPOSITORY/releases/download/$GITHUB_REF_NAME/epure-charts-${GITHUB_REF_NAME#v}.tgz" "epure-charts-${GITHUB_REF_NAME#v}.tgz" --tries 30 --delay 5000

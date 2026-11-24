@@ -68,6 +68,31 @@ function validateWaterfall(spec, err) {
 }
 
 /**
+ * A bridge spec as the engine reads it: `version` and `kind: 'waterfall'` filled when left out
+ * (a bridge has no other kind), as withDataDefaults does for a chart whose series are passed in.
+ * A spec that already carries them is returned unchanged.
+ */
+export function withBridgeDefaults(spec) {
+  if (!isObj(spec) || (spec.version != null && spec.kind != null)) return spec
+  return { version: SPEC_VERSION, kind: 'waterfall', ...spec }
+}
+
+/**
+ * Validates the spec of a bridge: the one validation of the live (WaterfallView,
+ * WaterfallChart) and the static (buildWaterfallScene → scene.errors) entries. `version` and
+ * `kind` may be left out (withBridgeDefaults); with the bridge's data passed in (`bridge`), the
+ * spec needs no catalog reference (spec.bridge) nor id. Messages speak of a bridge, never of an
+ * x axis or series.
+ */
+export function validateBridgeSpec(spec, { bridge = null } = {}) {
+  if (!isObj(spec)) return ['spec: not an object']
+  if (spec.kind != null && spec.kind !== 'waterfall') return [`kind: a bridge is kind 'waterfall', not '${spec.kind}'`]
+  const full = withBridgeDefaults(spec)
+  const errors = validateSpec(bridge != null ? { id: 'bridge', ...full, bridge: full.bridge ?? { id: 'data' } } : full)
+  return bridge == null ? errors.map(e => (e.startsWith('bridge:') ? "bridge: pass the bridge's data (bridge prop), or spec.bridge.id for the host's catalog" : e)) : errors
+}
+
+/**
  * Returns the visual role of a series reference, looked up from its source.
  * @param {{ source?: string }} ref
  * @param {Record<string, string>} [sourceRoles] source → role table (defaults to DEFAULT_SOURCE_ROLES)
@@ -124,6 +149,14 @@ export function withDataDefaults(spec) {
     version: SPEC_VERSION, kind: 'cartesian', ...spec,
     series: series.map(s => (s && typeof s === 'object' && s.ref == null ? { ...s, ref: { metric: String(s.id), source: 'data' } } : s)),
   }
+}
+
+/**
+ * Validates the spec of a chart whose series are passed in (`resolved`), as ChartView and
+ * buildScene read it: the one validation of the live and the static entries (scene.errors).
+ */
+export function validateChartSpec(spec, { resolved = null, ...opts } = {}) {
+  return validateSpec(resolved ? withDataDefaults(spec) : spec, { ...opts, ...(resolved ? { resolved } : {}) })
 }
 
 export function validateSpec(spec, opts = {}) {

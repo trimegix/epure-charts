@@ -4,7 +4,8 @@
 //     epure-chart-read-<id>;
 //   · the wheel API (ChartWheel): the settings button and a click on a
 //     series open the same wheel and adjust the same preferences.
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
+import { devWarn, isDev } from './devWarn.js'
 import { useChartPrefs } from './chartPrefs'
 import { buildSheet, emptyEdits, hasEdits } from './sheetModel'
 import { readingDefaults, applyReading } from './reading'
@@ -90,6 +91,15 @@ function applySheet(spec, resolved, sheetIn, edits, fmt = {}) {
   return { spec: { ...spec, x, series }, resolved: out }
 }
 
+/** The spec's CAGR and difference arrows that the stored settings leave out (descriptions). */
+export function specArrowsHidden(spec, prefs) {
+  const d = readingDefaults(spec)
+  const out = []
+  for (const c of d.cagrs) if (!(prefs.cagrs ?? []).some(p => p?.from === c.from && p?.to === c.to)) out.push(`CAGR ${c.from} → ${c.to}`)
+  if (d.diffFrom && !(prefs.diffFrom === d.diffFrom && prefs.diffTo === d.diffTo)) out.push(`difference arrow ${d.diffFrom} → ${d.diffTo}`)
+  return out
+}
+
 /**
  * Reading preferences for a cartesian chart.
  * @returns {[object, object]} [effective spec, api for the format wheel and menus]
@@ -97,6 +107,12 @@ function applySheet(spec, resolved, sheetIn, edits, fmt = {}) {
 export function useReadingPrefs(spec, resolved = []) {
   const [prefs, setPref, reset, update, latest] = useChartPrefs(`epure-chart-read-${spec.id}`, readingDefaults(spec))
   const [sheetOpen, setSheetOpen] = useState(false)
+  // Development: a CAGR or difference arrow the spec asks for, hidden by stored settings
+  // (localStorage, or a published seed saved before the arrow was added to the spec).
+  const hiddenBySettings = isDev() ? specArrowsHidden(spec, prefs) : []
+  useEffect(() => {
+    for (const what of hiddenBySettings) devWarn(`chart "${spec.id}": the spec's ${what} is hidden by the stored settings "epure-chart-read-${spec.id}" (saved without it). Reset the chart's settings, or publish them again.`)
+  }, [spec.id, hiddenBySettings.join('|')]) // eslint-disable-line react-hooks/exhaustive-deps
   const allKeys = keysOf(spec, resolved)
   // The sheet: the base is recomputed from the host series; edits are a view
   // preference (never the collected data).

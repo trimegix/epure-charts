@@ -26,6 +26,7 @@ import { pie as d3pie, arc as d3arc } from 'd3-shape'
 import { estimateWidth, defaultFormat } from './scene.js'
 import { roundToSum } from './numberStyle.js'
 import { inkOn, labelMetrics } from './customStyle.js'
+import { autoDecimals } from './decimals.js'
 import { localeOf, localizedFormat, localizeNumber, t } from './locale.js'
 import { accentColor, accentInk } from './accent.js'
 import { stamp } from './figureMeta.js'
@@ -54,7 +55,10 @@ export function buildPieScene(spec = {}, slicesIn = [], opts = {}) {
   const width = Math.max(200, Math.round(opts.width ?? 480))
   const height = Math.max(160, Math.round(opts.height ?? 280))
   const L = localeOf(spec)
-  const format = localizedFormat(opts.format ?? defaultFormat, L)
+  const format0 = localizedFormat(opts.format ?? defaultFormat, L)
+  // Default decimals of the values (two significant digits, decimals.js); shares keep spec.decimals.
+  const pDec = autoDecimals(slicesIn.map(s => s?.value))
+  const format = v => format0(v, undefined, pDec)
   const LM = labelMetrics(opts.labelStyle ?? spec, LABEL)
   const LS = LM.size
   // Baseline of a label centered on y (4 px at the default size).
