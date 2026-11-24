@@ -74,3 +74,16 @@ test('the live view (readOnly + applyPrefs) draws or refuses exactly like buildS
   })
   configurePrefs()
 })
+
+test('the CAGR of a stacked total takes minBase too, static and live', () => {
+  configurePrefs({ local: false })
+  const two = ys => [{ label: 'a', points: KEYS.map((x, i) => ({ x, y: ys[i] / 2, type: 'actual' })) }, { label: 'b', points: KEYS.map((x, i) => ({ x, y: ys[i] / 2, type: 'actual' })) }]
+  const st = (minBase, id) => ({ id, x: { grain: 'year', keys: KEYS }, bars: 'stacked', series: [{ id: 'a', mark: 'bar' }, { id: 'b', mark: 'bar' }], format: { legend: 'none' }, annotations: [{ type: 'cagr', of: 'total', ...(minBase ? { minBase } : {}) }] })
+  const small = buildScene(st(50), two(SMALL), { width: 400, height: 220 })
+  assert.equal(cagrTexts(small).length, 0)
+  assert.ok(small.warnings.some(w => /CAGR of the total: not drawn, its start is below minBase/.test(w)), small.warnings.join(' | '))
+  assert.equal(cagrTexts(buildScene(st(null), two(SMALL), { width: 400, height: 220 })).length, 1, 'without minBase: drawn')
+  const html = renderToString(h(E.ChartView, { width: 400, readOnly: true, applyPrefs: true, spec: st(50, 'mb-total'), resolved: two(SMALL), format: (v, _u, d) => v.toFixed(d ?? 0) }))
+  assert.doesNotMatch(html, /CAGR [+-−]/, 'the live view keeps minBase on the total')
+  configurePrefs()
+})

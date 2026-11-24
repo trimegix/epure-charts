@@ -4,7 +4,7 @@
 // (or sceneToSVGString, or a deck exporter) then needs nothing but the scene.
 // Pure: no React, no DOM.
 import { provenanceOf } from './spec.js'
-import { localeOf } from './locale.js'
+import { localeOf, t } from './locale.js'
 
 export const FIGURES = ['chart', 'waterfall', 'barh', 'pie', 'scatter', 'mekko', 'gantt', 'table', 'slope', 'funnel']
 
@@ -13,7 +13,10 @@ export function describe(spec) {
   if (typeof spec?.description === 'string' && spec.description) return spec.description
   const p = provenanceOf(spec)
   const base = p.base ? Object.values(p.base).join(', ') : ''
-  return [p.source && `Source: ${p.source}`, base, p.note].filter(Boolean).join('. ') || null
+  const L = localeOf(spec)
+  // French puts a non-breaking space before the colon (« Source : … »).
+  const source = p.source && `${t('Source', L)}${L === 'fr' ? '\u00a0:' : ':'} ${p.source}`
+  return [source, base, p.note].filter(Boolean).join('. ') || null
 }
 
 /** scene.meta for a figure kind and its spec. */

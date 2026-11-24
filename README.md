@@ -103,6 +103,12 @@ No bundler setting is needed, server rendering included (Astro, Next.js, Remix):
 
 Every chart has a data sheet (`DataSheet`) and the same interaction model.
 
+A few reading defaults worth knowing:
+
+- **Direct legend.** `format: { legend: 'direct' }` names each series right of its segment in the last column (stacked columns) instead of a legend on top; the names are spread so they never overlap. It is the default of stacked columns with 2 to 5 series, each present in the last column, on a chart at least 480 px wide; `legend: 'top'` keeps the legend on top.
+- **Bridges.** When every step carries its figure (`labels: 'all'`, the default), the value axis and its gridlines are left out; `yAxis: { labels: true, grid: 'solid' }` brings them back.
+- **Horizontal bars.** A row label too long for its gutter wraps onto two lines before it is shortened with an ellipsis; the rows grow to hold them.
+
 ## Interaction model
 
 | Gesture | Effect |
@@ -117,7 +123,7 @@ Every chart has a data sheet (`DataSheet`) and the same interaction model.
 | Tab / Alt + arrows | Moves the selection to the next element of the same kind |
 | Ctrl + Z | Undo |
 
-**Annotations.** Difference arrows (between any two points, or to a value line), level differences, CAGR arrows that know the real number of years even when some are hidden, value and average lines, totals, error bars, connectors. A CAGR annotation takes an optional `minBase` (a number ≥ 0): when its start or its end is below it, the arrow is not drawn and `scene.warnings` says why, since a rate over a small base (11 → 14) reads as spectacular and means little. Both ends of a CAGR are already positive, so the values are compared as they are; a value equal to `minBase` is drawn. Without `minBase`, nothing changes.
+**Annotations.** Difference arrows (between any two points, or to a value line), level differences, CAGR arrows that know the real number of years even when some are hidden (on a stacked chart, a CAGR that names no series, or `{ type: 'cagr', of: 'total' }`, measures the column total; one that names a series measures it, from its own segment), value and average lines, totals, error bars, connectors. A CAGR annotation takes an optional `minBase` (a number ≥ 0): when its start or its end is below it, the arrow is not drawn and `scene.warnings` says why, since a rate over a small base (11 → 14) reads as spectacular and means little. Both ends of a CAGR are already positive, so the values are compared as they are; a value equal to `minBase` is drawn. Without `minBase`, nothing changes.
 
 **Axes.** Drag the bounds, axis breaks, log scale, date axes in years, quarters, months or weeks, the same scale across several charts.
 
@@ -146,6 +152,12 @@ Figure props: `scene`, `responsive` (width="100%", ratio kept), `dataTable` (the
 a visually hidden table, for screen readers), `label`. Every SVG has a `viewBox`, and a
 `<title>` and `<desc>` taken from the spec.
 
+**Same chart, static or live.** `buildScene` and `buildWaterfallScene` read a spec exactly as
+`ChartView` and `WaterfallChart` do in `readOnly` (+ `applyPrefs`): the same defaults (colors,
+bar mode, `version` / `kind` of a bridge), the same decimals, the same validation, reported in
+`scene.errors` instead of being accepted silently (never thrown). The parity test
+(`src/parity.test.mjs`) draws every spec of `examples/specs.js` both ways and compares the scenes.
+
 The interactive views take the same options, plus:
 
 | Prop | |
@@ -163,7 +175,27 @@ conventions and [docs/scene-shapes.md](docs/scene-shapes.md) for every field.
 French, decimal comma, no-break space before % and units (« 12,5 % », « 1 234 M€ »).
 
 **Single accent.** `spec.accent: 'single'` with `spec.emphasis: [keys]`: everything neutral
-but the emphasized series, steps, rows or slices.
+but the emphasized series, steps, rows or slices. On a cartesian chart a key that names no
+series is a category: `emphasis: ['2024']` puts that column forward. A de-emphasized series
+whose `style.color` is a gray (`gray-300`, `gray-500`…) keeps it, so series stay apart.
+
+**Default number format.** Without `format`, values print as bare numbers with the locale's
+thousands separator (`8,617`, « 8 617 »): the page states the unit, or passes `format`.
+Decimals default to two significant digits (`0.6`, `7.4`, `117`).
+
+**`format`: an object, or a function.** The simplest is declarative: say what the number
+carries, the engine writes it in the chart's language with its own decimals.
+
+```jsx
+<WaterfallChart spec={{ locale: 'fr', labels: 'all' }} bridge={bridge} format={{ unit: 'M€' }} />
+// « 7,4 M€ », « +0,6 M€ »; in English '7.4 M€'
+// { prefix: '€', suffix: 'M' } → '€7.4M' / « 7,4 M€ »; { suffix: 'x', decimals: 1 } → '2.1x'
+```
+
+A function `format(value, unit, decimals)` stays supported: it must return the number in
+English punctuation (`'1,234.5'`, `'€7.4M'`) and honour `decimals` when given; the engine
+then rewrites it for the chart's language. Do not localise inside the function: pass an
+object instead.
 
 **More forms.** `buildSlopeScene` (before / after for N items), `buildFunnelScene`
 (selection funnel with named filters and pass rates), `spec.index: 100` on a waterfall (a

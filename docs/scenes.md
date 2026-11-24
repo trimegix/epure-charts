@@ -31,7 +31,8 @@ from real scenes. This page gives the conventions they share.
 - Off the browser, resolve a token with `LIGHT_TOKENS` / `DARK_TOKENS` and `baseToken()`
   (`epure-charts/core`), or let `sceneToSVGString(scene, { tokens })` do it.
 - `spec.accent: 'single'` + `spec.emphasis: [keys]`: every mark is `chart-neutral` except the
-  emphasized ones, in `chart-accent`.
+  emphasized ones, in `chart-accent`. A cartesian `emphasis` key that names no series is a
+  category (its points in `chart-accent`); a de-emphasized series keeps a gray `style.color`.
 
 ## Text and type
 

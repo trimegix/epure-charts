@@ -3,82 +3,12 @@
 // in place (click, right-click, settings button).
 import { ChartView, WaterfallChart, BarhView, PieView, ScatterView, MekkoView, GanttView, ChartHeader } from '../src/index.js'
 import { TableView } from '../src/index.js'
+import { columns, forecast, bridge, navA, navB, bridgeBudget, ranking, football, stacked, grouped } from '../examples/specs.js'
 
 const card = { minWidth: 0, background: 'var(--white)', border: '1px solid var(--gray-200)', borderRadius: 'var(--radius, 12px)', padding: '18px 20px', position: 'relative' }
 // The host formatter honours the requested decimals (an axis imposes a single value for all its ticks).
 const fmt = (v, unit, dec) => `€${v.toFixed(dec ?? (Math.abs(v) >= 100 ? 0 : 1))}M`
 
-const columns = {
-  spec: { id: 'demo-columns', version: 1, title: 'Revenue and EBITDA', scope: 'shared', kind: 'cartesian', x: { grain: 'year', range: 'all' },
-    series: [
-      { id: 'rev', ref: { metric: 'sales', source: 'actual' }, mark: 'bar', labels: 'all', style: { color: 'gray-700' } },
-      { id: 'ebitda', ref: { metric: 'ebitda', source: 'actual' }, mark: 'bar', style: { color: 'cat-2' } },
-      { id: 'plan', ref: { metric: 'sales', source: 'bp' }, mark: 'line' },
-    ] },
-  resolved: [
-    { label: 'Revenue', unit: 'M', role: 'actual', points: [['2020', 112], ['2021', 124], ['2022', 136], ['2023', 149], ['2024', 161], ['2025', 173]].map(([x, y]) => ({ x, y })) },
-    { label: 'EBITDA', unit: 'M', role: 'actual', points: [['2020', 18], ['2021', 21], ['2022', 24], ['2023', 27], ['2024', 30], ['2025', 33]].map(([x, y]) => ({ x, y })) },
-    { label: 'Plan', unit: 'M', role: 'plan', points: [['2020', 110], ['2021', 125], ['2022', 140], ['2023', 155], ['2024', 170], ['2025', 185]].map(([x, y]) => ({ x, y })) },
-  ],
-}
-// Actuals then forecast (fictional data): forecast bars can be hatched
-// (click a bar, then Fill, then "Hatch forecast bars").
-const forecast = {
-  spec: { id: 'demo-forecast', version: 1, title: 'EBITDA: actuals and management case', scope: 'shared', kind: 'cartesian', x: { grain: 'year', range: 'all' },
-    series: [
-      { id: 'ebitda', ref: { metric: 'ebitda', source: 'actual' }, mark: 'bar', labels: 'all', style: { color: 'cat-2' } },
-      { id: 'capex', ref: { metric: 'capex', source: 'actual' }, mark: 'bar', style: { color: 'gray-600' } },
-    ] },
-  resolved: [
-    { label: 'EBITDA', unit: 'M', role: 'actual', points: [['2021', 21, 'actual'], ['2022', 24, 'actual'], ['2023', 27, 'actual'], ['2024', 30, 'actual'], ['2025', 34, 'forecast'], ['2026', 38, 'forecast'], ['2027', 42, 'forecast']].map(([x, y, type]) => ({ x, y, type })) },
-    { label: 'Capex', unit: 'M', role: 'actual', points: [['2021', 6, 'actual'], ['2022', 7, 'actual'], ['2023', 7, 'actual'], ['2024', 8, 'actual'], ['2025', 9, 'forecast'], ['2026', 9, 'forecast'], ['2027', 10, 'forecast']].map(([x, y, type]) => ({ x, y, type })) },
-  ],
-}
-const bridge = {
-  spec: { id: 'demo-bridge', version: 1, title: 'EBITDA bridge, 2023 to 2025', scope: 'shared', kind: 'waterfall', bridge: { id: 'demo' } },
-  bridge: { unit: 'M', steps: [
-    { key: 'entry', label: '2023', value: 78, kind: 'anchor', tone: 'anchor' },
-    { key: 'growth', label: 'Revenue growth', value: 22, kind: 'delta', tone: 'positive' },
-    { key: 'margin', label: 'Pricing', value: 14, kind: 'delta', tone: 'positive' },
-    { key: 'multiple', label: 'FX', value: -6, kind: 'delta', tone: 'negative' },
-    { key: 'debt', label: 'Cost savings', value: 9, kind: 'delta', tone: 'positive' },
-    { key: 'today', label: '2025', value: 117, kind: 'anchor', tone: 'anchor' },
-  ] },
-}
-// Two line charts on a date axis (fictional data), with different ranges: right-click the
-// X axis and choose "Set same scale as other charts" on both, or click one X axis then
-// Ctrl + click the other; both then cover the same date range.
-const navLine = (id, title, pairs) => ({
-  spec: { id, version: 1, title, scope: 'shared', kind: 'cartesian', x: { grain: 'category' },
-    series: [{ id: 'nav', ref: { metric: 'nav', source: 'actual' }, mark: 'line', labels: 'last', style: { color: 'cat-2', marker: true } }] },
-  resolved: [{ label: 'NAV', unit: 'M', role: 'actual', points: pairs.map(([x, y]) => ({ x, y })) }],
-})
-const navA = navLine('demo-nav-a', 'Portfolio NAV, Fund I', [['2024-01-15', 120], ['2024-04-30', 128], ['2024-09-30', 134], ['2025-01-31', 141], ['2025-06-30', 150]])
-const navB = navLine('demo-nav-b', 'Portfolio NAV, Fund II', [['2024-07-01', 62], ['2024-12-31', 66], ['2025-06-30', 71], ['2025-12-31', 75], ['2026-03-31', 79]])
-// Two-series bridge: actuals stacked, budget as net lines (one stroke at its level on each column).
-// Click a stroke, then right-click: "Show Budget as segments"; the datasheet keeps both columns.
-const bridgeBudget = {
-  spec: { id: 'demo-bridge-budget', version: 1, title: 'EBITDA bridge, actual vs budget', scope: 'shared', kind: 'waterfall', bridge: { id: 'demo-budget' }, netLines: ['budget'] },
-  bridge: { unit: 'M', steps: [
-    { key: 'ly', label: 'Last year', value: 30, kind: 'anchor', tone: 'anchor', parts: [{ key: 'actual', label: 'Actual', value: 30 }, { key: 'budget', label: 'Budget', value: 30 }] },
-    { key: 'vol', label: 'Volume', value: 6, kind: 'delta', tone: 'positive', parts: [{ key: 'actual', label: 'Actual', value: 6 }, { key: 'budget', label: 'Budget', value: 8 }] },
-    { key: 'price', label: 'Price', value: 4, kind: 'delta', tone: 'positive', parts: [{ key: 'actual', label: 'Actual', value: 4 }, { key: 'budget', label: 'Budget', value: 3 }] },
-    { key: 'cost', label: 'Cost inflation', value: -3, kind: 'delta', tone: 'negative', parts: [{ key: 'actual', label: 'Actual', value: -3 }, { key: 'budget', label: 'Budget', value: -2 }] },
-    { key: 'ty', label: 'This year', value: 37, kind: 'anchor', tone: 'anchor', parts: [{ key: 'actual', label: 'Actual', value: 37 }, { key: 'budget', label: 'Budget', value: 39 }] },
-  ] },
-}
-const ranking = {
-  spec: { series: [{ id: 'v', label: 'Gross MOIC', color: 'cat-2' }], labels: 'end', sort: 'desc', annotations: [{ type: 'valueLine', value: 2.0, label: 'Hurdle 2.0x', tone: 'gold', dash: 'dash', side: 'right' }] },
-  rows: [['Alpha', 2.4], ['Beta', 1.8], ['Gamma', 3.1], ['Delta', 1.2], ['Epsilon', 2.0]].map(([label, v]) => ({ key: label, label, values: { v } })),
-}
-// Valuation summary ("football field"): one floating bar per method, enterprise value in €M.
-const football = {
-  spec: { series: [{ id: 'ev', label: 'Enterprise value', color: 'cat-2' }], labels: 'end', annotations: [{ type: 'valueLine', value: 520, label: 'Offer', tone: 'gold', dash: 'dash', side: 'right' }] },
-  rows: [
-    ['52-week trading range', 380, 470], ['Trading comparables', 420, 560], ['Precedent transactions', 480, 640],
-    ['DCF (WACC 8 to 10%)', 450, 610], ['LBO (20 to 25% IRR)', 400, 520],
-  ].map(([label, lo, hi]) => ({ key: label, label, range: [lo, hi], values: {} })),
-}
 const slices = [['Industrials', 42], ['Healthcare', 27], ['Software', 18], ['Consumer', 9], ['Other', 4]].map(([label, value]) => ({ key: label, label, value }))
 const points = [
   ['Alpha', 8, 18, 120, 'Region A'], ['Beta', 12, 22, 80, 'Region A'], ['Gamma', 5, 11, 60, 'Region B'], ['Delta', 15, 25, 150, 'Region B'],
@@ -150,6 +80,8 @@ export default function Gallery() {
       <p style={{ margin: 0, color: 'var(--gray-600)', fontSize: 15 }}>The charts of a pitch book, a board deck or a strategy review, live in your React app. Click any part of a chart to format it, right-click to add annotations, double-click to edit the numbers.</p>
       <div className="card chart-card" style={card}><ChartView spec={columns.spec} resolved={columns.resolved} format={fmt} /></div>
       <div className="card chart-card" style={card}><ChartView spec={forecast.spec} resolved={forecast.resolved} format={fmt} /></div>
+      <div className="card chart-card" style={card}><ChartView spec={stacked.spec} resolved={stacked.resolved} format={fmt} /></div>
+      <div className="card chart-card" style={card}><ChartView spec={grouped.spec} resolved={grouped.resolved} format={fmt} /></div>
       <div className="card chart-card" style={card}><ChartHeader title="EBITDA bridge, 2023 to 2025" /><WaterfallChart spec={bridge.spec} bridge={bridge.bridge} bare /></div>
       <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0,1fr) minmax(0,1fr)', gap: 18, alignItems: 'start' }}>
         <div className="card chart-card" style={card}><ChartView spec={navA.spec} resolved={navA.resolved} format={fmt} /></div>

@@ -9,7 +9,7 @@ import { useIsoLayoutEffect } from './useIsoLayoutEffect.js'
 import { createPortal } from 'react-dom'
 import { useCharts } from './useCharts'
 import ChartHeader from './ChartHeader'
-import { validateSpec, withDataDefaults } from './spec'
+import { validateChartSpec, withDataDefaults } from './spec'
 import { withDefaults } from './defaults'
 import { buildScene, buildProfileScene, formatX, ROLE_TOKEN, estimateWidth, snapDateLo } from './scene'
 import { useReadingPrefs } from './useReadingPrefs'
@@ -134,8 +134,9 @@ export default function ChartView({
   const fmtAxis = useMemo(() => (ax ? makeFormatter(format, ax.decimals ?? null, ax.magnitude ?? null, ax.num ?? null) : null), [format, ax])
   // The real formatters, for the format preview in the format bar.
   const formatters = useMemo(() => ({ value: fmt, axis: fmtAxis ?? fmt }), [fmt, fmtAxis])
-  const errors = useMemo(() => validateSpec(spec, { resolved: all }), [spec, all])
   const full = useMemo(() => withDefaults(spec, all), [spec, all])
+  // The one validation of the live and the static entries (buildScene → scene.errors).
+  const errors = useMemo(() => validateChartSpec(full, { resolved: all }), [full, all])
   // Fluid height: follows the width within a readable range.
   const height = fixedHeight ?? Math.round(Math.min(320, Math.max(220, width * 0.4)))
   // The settings button floats in the plot corner (chart without header or slot): its area is reserved.

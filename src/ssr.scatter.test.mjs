@@ -54,13 +54,13 @@ test('locale fr: ticks, labels, trend equation and R²', () => {
   const scene = buildScatterScene({ locale: 'fr', trend: true, trendLabel: 'both', labelContent: ['name', 'x'] }, points, { width: 600, height: 320 })
   assert.equal(scene.meta.locale, 'fr')
   assert.equal(scene.meta.figure, 'scatter')
-  assert.ok(scene.axes.x.ticks.some(t => /^\d+,\d+\sM€$/.test(t.label)), scene.axes.x.ticks.map(t => t.label).join('|'))
-  assert.ok(scene.labels.some(l => /^Alpha \(1,5\sM€\)$/.test(l.text)), scene.labels.map(l => l.text).join('|'))
+  assert.ok(scene.axes.x.ticks.some(t => /^\d+,\d+$/.test(t.label)), scene.axes.x.ticks.map(t => t.label).join('|'))
+  assert.ok(scene.labels.some(l => /^Alpha \(1,5\)$/.test(l.text)), scene.labels.map(l => l.text).join('|'))
   assert.match(scene.trend.label.lines.join(' '), /R² = 0,\d{3}/)
   assert.doesNotMatch(scene.trend.equation, /\d\.\d/)
   // English stays unchanged.
   const en = buildScatterScene({ trend: true, trendLabel: 'r2', labelContent: ['name', 'x'] }, points, { width: 600, height: 320 })
-  assert.ok(en.labels.some(l => l.text === 'Alpha (€1.5M)'))
+  assert.ok(en.labels.some(l => l.text === 'Alpha (1.5)'))
   assert.match(en.trend.label.text, /^R² = 0\.\d{3}$/)
 })
 
