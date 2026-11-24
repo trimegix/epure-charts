@@ -468,9 +468,19 @@ function buildSceneAt(spec, resolved = [], opts = {}) {
 
   // ── Legend (on top, rows that wrap) ──────────────────────────────────────
   const withData = series.filter(s => s.points.length)
-  // Series labels on the chart: the names of the
-  // bars right of the last column, at the height of their segment, instead of the legend.
-  const seriesOnChart = F.legend === 'series' && opts.legend !== false && withData.some(s => s.mark === 'bar')
+  // Direct legend (format.legend: 'direct', alias 'series'): the names of the bars right of the
+  // last column, at the height of their segment (stacked), spread so they never overlap,
+  // instead of the legend on top. By default (format.legend unset) on stacked columns of 2 to 5
+  // series with room on the right (≥ 480 px): the reader no longer matches colors. 'top' keeps
+  // the legend on top.
+  const barCount = withData.filter(s => s.mark === 'bar').length
+  // Only when every bar series has a segment in the last column (a name always sits by its
+  // segment) and labels are not placed outside the bars (they would meet the names).
+  const barEnds = withData.filter(s => s.mark === 'bar').map(s => s.points.at(-1))
+  const autoDirect = F.legend == null && stacked && barCount >= 2 && barCount <= 5 && width >= 480
+    && F.labels?.position !== 'outside'
+    && barEnds.every(p => p && p.y && String(p.x) === String(barEnds[0].x))
+  const seriesOnChart = (F.legend === 'direct' || F.legend === 'series' || autoDirect) && opts.legend !== false && barCount > 0
   const direct = opts.legend !== false && spec?.endLabels !== false && F.endLabels !== false && withData.length > 0 && (seriesOnChart || withData.length <= 4)
     && (seriesOnChart || withData.some(s => s.mark !== 'bar'))
   const onChart = s => s.mark !== 'bar' || seriesOnChart
