@@ -1,10 +1,28 @@
 // ─── Chart display preferences: a small store, one key per chart ────────────
 // A VIEW preference, per browser (localStorage) by default. It is never a fact about
 // the underlying data. A host can publish it instead (configurePrefs: seed + onChange).
-import { useSyncExternalStore } from 'react'
+//
+// What is stored (localStorage, onChange, snapshotPrefs) is only what the user CHANGED: the
+// settings that differ from the chart's defaults. The defaults are recomputed from the spec at
+// every render, so an annotation added to the spec later still shows on a published chart, and
+// two charts sharing a key each keep their own defaults. A stored object saved whole by an
+// earlier version still applies (every key it holds wins), and shrinks to its changes at the
+// next write.
+import { useEffect, useId, useSyncExternalStore } from 'react'
+import { devWarn, isDev } from './devWarn.js'
 
 const listeners = new Set()
+// key → the user's changes (stored and seeded), loaded once.
 const cache = new Map()
+// `${key}\u0000${defaults as JSON}` → { own, value }: one stable merged object per chart's
+// defaults (useSyncExternalStore needs the same object while nothing changed).
+const merged = new Map()
+const forget = key => { for (const k of merged.keys()) if (k.startsWith(`${key}\u0000`)) merged.delete(k) }
+const same = (a, b) => a === b || JSON.stringify(a) === JSON.stringify(b)
+/** The keys of `next` that differ from `defaults`: what the user changed. */
+export function changesOf(next, defaults = {}) {
+  return Object.fromEntries(Object.entries(next ?? {}).filter(([k, v]) => v !== undefined && !same(v, defaults?.[k])))
+}
 
 function subscribe(fn) { listeners.add(fn); return () => listeners.delete(fn) }
 
@@ -24,6 +42,7 @@ export function configurePrefs({ seed = {}, local = true, onChange = null } = {}
   const prev = config
   config = { seed: seed ?? {}, local: local !== false, onChange }
   cache.clear()
+  merged.clear()
   undoStack.clear(); redoStack.clear(); lastKey = null
   for (const fn of listeners) fn()
   return prev
@@ -37,15 +56,23 @@ export function snapshotPrefs(prefix = 'epure-chart-') {
   return out
 }
 
-function read(key, defaults) {
+function ownOf(key) {
   if (!cache.has(key)) {
     let stored = {}
     // Server rendering (no window): the defaults, the browser reads its own on hydration.
     if (config.local && typeof window !== 'undefined') try { stored = JSON.parse(window.localStorage.getItem(key) ?? '{}') ?? {} } catch { /* private mode */ }
     const seeded = config.seed[key]
-    cache.set(key, { ...defaults, ...stored, ...(seeded && typeof seeded === 'object' ? seeded : {}) })
+    cache.set(key, { ...stored, ...(seeded && typeof seeded === 'object' ? seeded : {}) })
   }
   return cache.get(key)
+}
+
+function read(key, defaults) {
+  const own = ownOf(key)
+  const id = `${key}\u0000${JSON.stringify(defaults ?? {})}`
+  let m = merged.get(id)
+  if (!m || m.own !== own) { m = { own, value: { ...defaults, ...own } }; merged.set(id, m) }
+  return m.value
 }
 
 // Undo / redo (Ctrl+Z, Ctrl+Shift+Z or Ctrl+Y): one history per chart; the
@@ -65,17 +92,20 @@ export function endStep() { gesture = null; lastPush = { key: null, at: 0 } }
 
 function persist(key, next) {
   cache.set(key, next)
+  forget(key)
   if (config.local && typeof window !== 'undefined') try { window.localStorage.setItem(key, JSON.stringify(next)) } catch { /* quota / private mode */ }
   for (const fn of listeners) fn()
   try { config.onChange?.(key, next) } catch { /* the host's saving never breaks the chart */ }
 }
 
-function write(key, next) {
+// `next`: the full settings; only their changes from `defaults` are kept.
+function write(key, nextFull, defaults) {
+  const next = changesOf(nextFull, defaults)
   const now = Date.now()
   const grouped = gesture ? gesture.has(key) : lastPush.key === key && now - lastPush.at < 400
-  if (cache.has(key) && !grouped) {
+  if (!grouped) {
     const st = undoStack.get(key) ?? []
-    st.push(cache.get(key))
+    st.push(ownOf(key))
     if (st.length > 50) st.shift()
     undoStack.set(key, st)
     redoStack.delete(key)
@@ -121,15 +151,32 @@ if (typeof document !== 'undefined' && !globalThis.__epureChartsUndo) {
   })
 }
 
+// Development: two charts mounted on the same key with different defaults (two specs sharing an
+// id, small multiples built from one spec) share ONE set of user changes (each keeps its own defaults).
+const owners = new Map() // key → Map(instance → defaults as JSON)
+function useSharedKeyCheck(key, defaults) {
+  const me = useId()
+  const sig = isDev() ? JSON.stringify(defaults) : null
+  useEffect(() => {
+    if (sig == null) return undefined
+    const mine = owners.get(key) ?? new Map()
+    owners.set(key, mine)
+    mine.set(me, sig)
+    if (new Set(mine.values()).size > 1) devWarn(`several charts share the settings key "${key}" with different specs: they share the user's changes. Give each spec its own id.`)
+    return () => { mine.delete(me); if (!mine.size) owners.delete(key) }
+  }, [key, me, sig])
+}
+
 /** Returns `[prefs, setPref, reset, update, latest]`: prefs persisted under `key`, completed by `defaults`; `reset` restores the defaults; `update(name, fn)` writes from the most recent state. */
 export function useChartPrefs(key, defaults) {
+  useSharedKeyCheck(key, defaults)
   // The same snapshot on the server side (static rendering, tests): the store is process-local.
   const prefs = useSyncExternalStore(subscribe, () => read(key, defaults), () => read(key, defaults))
-  const setPref = (name, value) => write(key, { ...read(key, defaults), [name]: value })
-  const reset = () => write(key, { ...defaults })
+  const setPref = (name, value) => write(key, { ...read(key, defaults), [name]: value }, defaults)
+  const reset = () => write(key, { ...defaults }, defaults)
   // Writes from the most recent STORED state (not the rendered one):
   // several writes within the same click accumulate instead of overwriting each other.
-  const update = (name, fn) => { const cur = read(key, defaults); write(key, { ...cur, [name]: fn(cur[name]) }) }
+  const update = (name, fn) => { const cur = read(key, defaults); write(key, { ...cur, [name]: fn(cur[name]) }, defaults) }
   const latest = () => read(key, defaults)
   return [prefs, setPref, reset, update, latest]
 }

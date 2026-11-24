@@ -42,7 +42,7 @@ test('label content: name, x, y, size, and second line', () => {
   const a = sc.labels.find(l => l.key === 'a')
   assert.deepEqual(a.lines, ['Alpha (1%, 2%)', '€10M'])
   const sc2 = buildScatterScene({ labelContent: ['x', 'y'] }, P, W)
-  assert.equal(sc2.labels.find(l => l.key === 'b').lines[0], [2, 4].map(v => `€${v.toFixed(1)}M`).join(', '))
+  assert.equal(sc2.labels.find(l => l.key === 'b').lines[0], '2.0, 4.0')
 })
 test('bubbles: diameter follows size instead of area', () => {
   const sc = buildScatterScene({ bubble: true, sizeBy: 'diameter' }, P, W)

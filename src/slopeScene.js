@@ -24,6 +24,7 @@
 import { scaleLinear } from 'd3-scale'
 import { defaultFormat } from './scene.js'
 import { labelMetrics } from './customStyle.js'
+import { autoDecimals } from './decimals.js'
 import { localeOf, localizedFormat, localizeNumber, t } from './locale.js'
 import { accentColor, emphasisOf } from './accent.js'
 import { stamp } from './figureMeta.js'
@@ -82,7 +83,9 @@ export function buildSlopeScene(spec = {}, itemsIn = [], opts = {}) {
   const height = Math.max(140, Math.round(opts.height ?? 320))
   const L = localeOf(spec)
   const format = localizedFormat(opts.format ?? defaultFormat, L)
-  const fmt = v => format(v, spec.unit, spec.decimals ?? null)
+  // Default decimals: two significant digits (decimals.js), the same static and live.
+  const sDec = spec.decimals ?? (spec.unit === 'pct' ? null : autoDecimals(itemsIn.flatMap(it => [it?.before, it?.after])))
+  const fmt = v => format(v, spec.unit, sDec)
   const LM = labelMetrics(opts.labelStyle ?? spec, LABEL)
   const LS = LM.size
   const BL = Math.round(LS * 0.35)

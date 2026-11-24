@@ -2,6 +2,8 @@
 // Rewrites a number ALREADY formatted by the host: thousands and decimal
 // separators, currency symbol, negatives in parentheses, prefix / suffix.
 // Pure, tested under node --test.
+import { asFormatter } from './locale.js'
+
 const THOUSANDS = { comma: ',', space: '\u202F', dot: '.', apostrophe: '’', none: '' }
 
 /** Rewrites an already formatted number according to the "Number format" settings. */
@@ -102,12 +104,15 @@ export function roundToSum(values, decimals = 0) {
 const MAGNITUDE = { k: 1e3, M: 1e6, B: 1e9 }
 
 /** A chart's formatter: the host's, then decimals, magnitude and "Number format". */
-export function makeFormatter(format, dec, mag, num) {
+export function makeFormatter(formatIn, dec, mag, num) {
+  // A declarative format ({ unit, decimals… }) is turned into its formatter (locale.js).
+  const format = asFormatter(formatIn)
   // A computed line in % or as a multiple carries its own format.
   const base = (v, unit, d) => (unit === 'calc%' ? `${(v * 100).toFixed(d ?? 1)}%` : unit === 'calcx' ? `${v.toFixed(d ?? 2)}x` : format(v, unit, d))
   const withDec = dec == null ? base
     // Decimals change, the thousands separator stays (€1,234M → €1,234.0M).
-    : (v, unit, d) => String(base(v, unit, d)).replace(/\d[\d,]*(\.\d+)?/, m => Number(m.replace(/,/g, '')).toLocaleString('en-US', { minimumFractionDigits: dec, maximumFractionDigits: dec }))
+    // The host is asked for the chosen decimals first, so the rewrite never pads a rounded figure.
+    : (v, unit) => String(base(v, unit, dec)).replace(/\d[\d,]*(\.\d+)?/, m => Number(m.replace(/,/g, '')).toLocaleString('en-US', { minimumFractionDigits: dec, maximumFractionDigits: dec }))
   // Prime notation: ′ for millions, ″ for billions (€12′, €1.2″).
   if (mag === 'prime') {
     const primed = (v, unit, d) => {
