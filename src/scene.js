@@ -28,7 +28,7 @@ import { dateAxisTicks, DATE_UNITS } from './dateTicks.js'
 import { roundToSum, formatDateCodes, consistentRound } from './numberStyle.js'
 import { isHex, isLightHex, isFont, isPt, sizePx, labelMetrics, baseToken } from './customStyle.js'
 import { localeOf, localizedFormat, localizeNumber, t } from './locale.js'
-import { accentColor, accentInk, singleAccent, NEUTRAL, ACCENT } from './accent.js'
+import { accentColor, accentInk, accentSeriesColor, accentPoints, singleAccent, NEUTRAL, ACCENT } from './accent.js'
 import { stamp } from './figureMeta.js'
 
 // Role colors, as semantic tokens (themable as --chart-*): by default actual in
@@ -102,15 +102,17 @@ export function ordinal(n) {
 }
 
 /**
- * Default format (tests, or a view without formatter): 'M' → €12M, 'x' → 8.5x,
- * 'pct' → 12% (decimal value 0–1). `decimals` null = automatic.
+ * Default format (a view or a scene without formatter): the number alone, with thousands
+ * separators (8,617; « 8 617 » in French), no currency nor magnitude: the page states the unit
+ * (subtitle, axis title) or passes its own `format`. 'x' → 8.5x, 'pct' → 12% (decimal value
+ * 0–1). `decimals` null = automatic.
  */
 export function defaultFormat(value, unit, decimals = null) {
   if (value == null || !Number.isFinite(value)) return '—'
   if (unit === 'pct') return `${(value * 100).toFixed(decimals ?? 0)}%`
   if (unit === 'x') return `${value.toFixed(decimals ?? 1)}x`
   const d = decimals ?? (Math.abs(value) >= 100 ? 0 : 1)
-  return `€${value.toFixed(d)}M`
+  return value.toLocaleString('en-US', { minimumFractionDigits: d, maximumFractionDigits: d })
 }
 
 /** '2024-Q3' → continuous quarter index (to measure a duration in years). */
@@ -372,8 +374,8 @@ function buildSceneAt(spec, resolved = [], opts = {}) {
       smooth: !!s.style?.smooth,
       step: s.style?.step === 'lines' || s.style?.step === 'steps' ? s.style.step : null,
       // Point color: set (style.points), otherwise carried by the data (point.color).
-      // (single-accent mode: none, the series is neutral or the accent as a whole)
-      pointColors: singleAccent(spec) ? {} : { ...Object.fromEntries((r.points ?? []).filter(p => p?.color).map(p => [String(p.x), p.color])), ...(s.style?.points ?? {}) },
+      // (single-accent mode: the categories `emphasis` names, in the accent; nothing else)
+      pointColors: singleAccent(spec) ? accentPoints(spec, (spec?.series ?? []).map((x, j) => x.id ?? `s${j}`)) : { ...Object.fromEntries((r.points ?? []).filter(p => p?.color).map(p => [String(p.x), p.color])), ...(s.style?.points ?? {}) },
       // Stack group (stacked clustered): series with the same `stack` are stacked,
       // groups are placed side by side.
       stack: s.stack ?? null,
@@ -382,7 +384,7 @@ function buildSceneAt(spec, resolved = [], opts = {}) {
       forecastStyle: s.style?.forecast ?? null,
       // Fill pattern: hatched, crosshatch, dots, lines.
       pattern: PATTERNS.includes(F.patterns?.[s.id]) ? F.patterns[s.id] : null,
-      color: accentColor(spec, s.id ?? `s${i}`, colorToken(s.style, r.role, ranks[i])),
+      color: accentSeriesColor(spec, s.id ?? `s${i}`, colorToken(s.style, r.role, ranks[i]), s.style?.color),
       role: r.role ?? 'actual',
       label: r.label ?? s.id,
       unit: r.unit ?? 'M',
@@ -468,7 +470,9 @@ function buildSceneAt(spec, resolved = [], opts = {}) {
     && (seriesOnChart || withData.some(s => s.mark !== 'bar'))
   const onChart = s => s.mark !== 'bar' || seriesOnChart
   const legendSeries = (direct ? series.filter(s => !onChart(s) || !s.points.length) : series).filter(s => !s.maskedOut)
-  const legendPos = F.legend === 'none' || F.legend === 'bottom' ? F.legend : 'top'
+  // A single series: no legend by default (the title names it); format.legend set brings it back.
+  const singleSeries = F.legend == null && series.filter(s => !s.maskedOut).length <= 1
+  const legendPos = F.legend === 'none' || F.legend === 'bottom' ? F.legend : singleSeries ? 'none' : 'top'
   // The legend follows its own size, otherwise the chart text size (drawing and layout).
   const legendScale = SIZE_STEP[F.legendSize] ?? FS
   // CAGR in the series name (label content → CAGR in the series label).
