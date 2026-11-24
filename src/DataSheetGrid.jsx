@@ -29,7 +29,7 @@ const LAYOUT_KEYS = ['base100Row', 'sheetFormat', 'sheetFont', 'tableAll', 'gaps
 // Colors offered for cell fills (design system tokens).
 const FILLS = ['cat-1', 'cat-2', 'cat-3', 'cat-4', 'cat-5', 'cat-6', 'cat-7', 'cat-8', 'gray-500', null]
 import { colLetter } from './formula'
-import { ActionMenu } from './ChartWheel'
+import { ActionMenu } from './wheelControls.jsx'
 import { colorName } from './colorNames'
 import { IconArrowBackUp, IconArrowForwardUp, IconDots } from '@tabler/icons-react'
 import { tok } from './customStyle.js'

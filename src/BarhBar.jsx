@@ -9,7 +9,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { IconPalette, IconChevronDown, IconPlus, IconX, IconCheck, IconChartBar, IconTag, IconArrowsExchange, IconLayoutRows, IconRuler2 } from '@tabler/icons-react'
-import { Seg, Check, Line, Swatches, Field, ActionMenu, NumberFormatFields, Pop } from './ChartWheel'
+import { Seg, Check, Line, Swatches, Field, ActionMenu, NumberFormatFields, Pop } from './wheelControls.jsx'
 import { useWheelPlacement } from './useWheelPlacement'
 import { cardGeometry } from './cardGeometry'
 import { separatorOf } from './numberStyle'
