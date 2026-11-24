@@ -120,7 +120,7 @@ test('undo: a whole drag (even a long one) is a single step', async () => {
   let api
   const React = await import('react')
   const { renderToString } = await import('react-dom/server')
-  // eslint-disable-next-line react-hooks/globals -- test probe: captures the hook's API outside React
+   
   const Probe = () => { api = useChartPrefs('t-undo', { format: {} }); return null }
   renderToString(React.createElement(Probe))
   const [, setPref, , , latest] = api

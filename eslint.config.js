@@ -8,7 +8,15 @@ export default defineConfig([
   globalIgnores(['dist', 'demo-dist']),
   {
     files: ['**/*.{js,jsx,mjs}'],
-    extends: [js.configs.recommended, reactHooks.configs.flat.recommended, reactRefresh.configs.vite],
+    extends: [js.configs.recommended, reactRefresh.configs.vite],
+    plugins: { 'react-hooks': reactHooks },
+    // The two classic hooks rules only: the React Compiler rules of eslint-plugin-react-hooks 7
+    // took 90 % of the lint time (36 s of 40 s, ChartWheel.jsx alone 14 s) for 3 findings in
+    // 57 commits. The project does not use the React Compiler.
+    rules: {
+      'react-hooks/rules-of-hooks': 'error',
+      'react-hooks/exhaustive-deps': 'warn',
+    },
     languageOptions: {
       globals: { ...globals.browser, ...globals.node },
       parserOptions: { ecmaFeatures: { jsx: true } },
