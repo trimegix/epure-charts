@@ -9,7 +9,7 @@ import { useIsoLayoutEffect } from './useIsoLayoutEffect.js'
 import { createPortal } from 'react-dom'
 import { useCharts } from './useCharts'
 import ChartHeader from './ChartHeader'
-import { validateSpec, withDataDefaults } from './spec'
+import { validateChartSpec, withDataDefaults } from './spec'
 import { withDefaults } from './defaults'
 import { buildScene, buildProfileScene, formatX, ROLE_TOKEN, estimateWidth, snapDateLo } from './scene'
 import { useReadingPrefs } from './useReadingPrefs'
@@ -21,6 +21,7 @@ import { publishDomain, withdrawDomain, unionFor, breakFor, useSameScaleVersion,
 import { targetMark } from './useWheelPlacement'
 import { lineMarks } from './barPlacement.js'
 import { beginStep, endStep } from './chartPrefs'
+import { devWarn } from './devWarn.js'
 import BarhView from './BarhView.jsx'
 import ChartFigure from './ChartFigure.jsx'
 import { Swatch } from './chartMarks.jsx'
@@ -88,6 +89,10 @@ function useWidth(ref, fixed) {
 // container (ratio kept); `dataTable` adds the numbers as a visually hidden table.
 // `applyPrefs` (with readOnly): the figure as its stored view settings and sheet edits
 // draw it (a published format, see configurePrefs), still without any editing control.
+//
+// Small multiples (SmallMultiplesView): `basePrefs` layers this chart's view settings over
+// a block's (useReadingPrefs `base`); `settingsButton={false}` leaves the settings icon to
+// the block, a click on the chart still formats it alone.
 // The interface (menus, format bar, messages) speaks the spec's language (spec.locale).
 export default function ChartView(props) {
   return <SpecLocale spec={props.spec}><ChartViewBody {...props} /></SpecLocale>
@@ -97,6 +102,7 @@ function ChartViewBody({
   spec: specIn, currentId, onSelectSeries, selectedId, headerSlot, reading: readingIn = true,
   resolved: provided, format: formatProp, bare = false, height: fixedHeight, legend = true, menuSlot = null,
   width: widthProp, readOnly = false, responsive = false, dataTable = false, applyPrefs = false,
+  basePrefs, settingsButton = true,
 }) {
   const tr = useT()
   // Series passed in: the spec needs no catalog fields (version, kind, refs).
@@ -116,7 +122,7 @@ function ChartViewBody({
   const Header = charts.Header ?? ChartHeader
   const resolved = useMemo(() => provided ?? charts.resolveSeries(baseSpec, { currentId }), [provided, baseSpec, currentId, charts])
   // View settings touch neither the series nor their references: `resolved` holds for both.
-  const [readSpec, readingApi] = useReadingPrefs(baseSpec, resolved)
+  const [readSpec, readingApi] = useReadingPrefs(baseSpec, resolved, { base: basePrefs })
   const external = reading && typeof reading === 'object' ? reading : null
   const spec = external ? external.spec : applied ? readSpec : baseSpec
   const api = external ? external.api : applied ? readingApi : null
@@ -140,12 +146,13 @@ function ChartViewBody({
   const fmtAxis = useMemo(() => (ax ? makeFormatter(format, ax.decimals ?? null, ax.magnitude ?? null, ax.num ?? null) : null), [format, ax])
   // The real formatters, for the format preview in the format bar.
   const formatters = useMemo(() => ({ value: fmt, axis: fmtAxis ?? fmt }), [fmt, fmtAxis])
-  const errors = useMemo(() => validateSpec(spec, { resolved: all }), [spec, all])
   const full = useMemo(() => withDefaults(spec, all), [spec, all])
+  // The one validation of the live and the static entries (buildScene → scene.errors).
+  const errors = useMemo(() => validateChartSpec(full, { resolved: all }), [full, all])
   // Fluid height: follows the width within a readable range.
   const height = fixedHeight ?? Math.round(Math.min(320, Math.max(220, width * 0.4)))
   // The settings button floats in the plot corner (chart without header or slot): its area is reserved.
-  const floatMenu = bare && reading === true && !menuSlot
+  const floatMenu = bare && reading === true && settingsButton && !menuSlot
   const natural = useMemo(
     () => (width > 0 ? buildScene(full, all, { width, height, format: fmt, formatAxis: fmtAxis, legend, ...(floatMenu ? { menuBox: { w: 34, h: 30 } } : {}) }) : null),
     [full, all, width, height, fmt, fmtAxis, legend, floatMenu],
@@ -213,6 +220,8 @@ function ChartViewBody({
     // sameV: the union changed elsewhere on the page.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [natural, same, sameV, xSame, full, all, width, height, fmt, fmtAxis, legend])
+  // Development: say why a requested annotation is not drawn (once per message).
+  useEffect(() => { for (const w of scene?.warnings ?? []) devWarn(`chart "${spec.id}": ${w}`) }, [scene, spec.id])
   // The drawn plot width is republished: the other members match their density to it.
   const drawnW = scene?.plot?.width ? Math.round(scene.plot.width * 100) / 100 : null
   useEffect(() => {
@@ -770,7 +779,7 @@ function ChartViewBody({
       <div className="chart-engine" onContextMenu={api ? e => { if (!e.defaultPrevented) open(e, { tab: 'chart' }) } : undefined}>
         {!bare && (
           <Header title={spec.title} sub={subtitle}
-            menu={reading ? <>{headerSlot}<ChartWheelButton api={api} formatters={formatters} /></> : headerSlot} />
+            menu={reading && settingsButton ? <>{headerSlot}<ChartWheelButton api={api} formatters={formatters} /></> : headerSlot} />
         )}
         <div ref={boxRef} className="chart-engine-box">
           <ChartFigure scene={P} interactive={!readOnly} scope={clipId} label={spec.title} responsive={responsive} dataTable={dataTable} part={profilePart}
@@ -802,7 +811,7 @@ function ChartViewBody({
       <div className="chart-engine" onContextMenu={e => { e.preventDefault(); open(e, { tab: 'chart' }) }}>
         {!bare && (
           <Header title={spec.title} sub={subtitle}
-            menu={reading ? <>{headerSlot}<ChartWheelButton api={api} formatters={formatters} /></> : headerSlot} />
+            menu={reading && settingsButton ? <>{headerSlot}<ChartWheelButton api={api} formatters={formatters} /></> : headerSlot} />
         )}
         {/* The measured box stays the same: the width follows, and switching back to columns is immediate. */}
         <div ref={boxRef} className="chart-engine-box chart-engine-clickable" onClickCapture={e => { e.stopPropagation(); open(e, { tab: 'chart' }) }}>
@@ -1336,7 +1345,7 @@ function ChartViewBody({
     <div className="chart-engine" onContextMenu={api ? e => { if (!e.defaultPrevented) open(e, { tab: 'chart' }) } : undefined}>
       {!bare && (
         <Header title={spec.title} sub={subtitle}
-          menu={reading ? <>{headerSlot}<ChartWheelButton api={api} formatters={formatters} /></> : headerSlot} />
+          menu={reading && settingsButton ? <>{headerSlot}<ChartWheelButton api={api} formatters={formatters} /></> : headerSlot} />
       )}
       {errors.length > 0 && (
         <div className="chart-engine-error" role="alert">
@@ -1348,7 +1357,7 @@ function ChartViewBody({
       <div ref={boxRef} className="chart-engine-box">
         {/* Without its own header (bare) and without host-provided view settings, the
             settings icon sits in the plot corner: no chart is left without settings. */}
-        {bare && reading === true && (menuSlot
+        {bare && reading === true && settingsButton && (menuSlot
           ? createPortal(<ChartWheelButton api={api} formatters={formatters} />, menuSlot)
           : <div className="chart-engine-float-menu"><ChartWheelButton api={api} formatters={formatters} /></div>)}
         {/* Empty chart: the data sheet opens with one click. */}

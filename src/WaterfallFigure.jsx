@@ -13,6 +13,7 @@
 //   · children: drawn over the figure;
 //   · labelStyle: CSS spread on the value labels (the user's label font, size, color).
 import FigureSvg from './FigureSvg.jsx'
+import { sceneDrawn } from './sceneProbe.js'
 import { tok, fs, fsNote } from './customStyle.js'
 import { t } from './locale.js'
 
@@ -41,6 +42,7 @@ function LegendMark({ it }) {
 }
 
 export default function WaterfallFigure({ scene, label, responsive = false, dataTable = false, labelStyle = null, part = none, slot = none, className = 'chart-waterfall', children = null, ...rest }) {
+  sceneDrawn(scene)
   if (!scene || scene.empty) return null
   const vl = scene.valueLine
   return (

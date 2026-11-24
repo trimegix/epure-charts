@@ -17,6 +17,7 @@
 //   · labelStyle: CSS spread on the value labels (the user's label font, size, color);
 //   · patternScope: the id prefix of the fill patterns (unique per chart on a page).
 import FigureSvg from './FigureSvg.jsx'
+import { sceneDrawn } from './sceneProbe.js'
 import PatternDefs from './patterns.jsx'
 import { tok, fs, fsNote, colorId } from './customStyle.js'
 import { t } from './locale.js'
@@ -38,13 +39,16 @@ function barhTable(scene) {
     }
   }
   const ids = [...new Set(scene.bars.map(b => b.seriesId))]
+  const cols = scene.columns ?? []
   return {
-    head: ['', ...ids.map(id => scene.legend.find(l => l.key === id)?.label ?? id)],
-    rows: scene.rows.map(r => [r.full, ...ids.map(id => scene.bars.find(b => b.key === r.key && b.seriesId === id)?.value ?? '')]),
+    head: ['', ...ids.map(id => scene.legend.find(l => l.key === id)?.label ?? id), ...cols.map(c => c.label)],
+    rows: scene.rows.map(r => [r.full, ...ids.map(id => scene.bars.find(b => b.key === r.key && b.seriesId === id)?.value ?? ''),
+      ...cols.map(c => c.cells.find(cell => cell.rowKey === r.key)?.text ?? '')]),
   }
 }
 
 export default function BarhFigure({ scene, label, responsive = false, dataTable = false, labelStyle = null, part = none, patternScope = 'barh', className = 'chart-barh', children = null, ...rest }) {
+  sceneDrawn(scene)
   if (!scene || scene.empty) return null
   const fill = b => (b.pattern ? `url(#${patternScope}-pt-${b.pattern}-${colorId(b.color)})` : tok(b.color))
   return (
@@ -102,13 +106,29 @@ export default function BarhFigure({ scene, label, responsive = false, dataTable
       {/* Row labels, left-aligned (centered on a butterfly). */}
       <g className="chart-engine-axis">
         {scene.rows.map(r => (
-          <text key={`l-${r.key}`} x={r.center ? scene.plot.center : 0} y={r.y + 4} textAnchor={r.center ? 'middle' : 'start'}
+          <text key={`l-${r.key}`} x={r.center ? scene.plot.center : 0} y={r.lines ? r.y - 2.5 : r.y + 4} textAnchor={r.center ? 'middle' : 'start'}
             style={{ fontSize: fs(11), fontWeight: r.emphasis ? 600 : 400, fill: r.emphasis ? 'var(--black)' : undefined }}
             {...part('rowLabel', r)}>
-            <title>{r.full}</title>{r.label}
+            <title>{r.full}</title>
+            {/* A long label wraps onto two lines (scene row.lines) before being shortened. */}
+            {r.lines ? r.lines.map((l, i) => <tspan key={i} x={r.center ? scene.plot.center : 0} dy={i ? 13 : 0}>{l}</tspan>) : r.label}
           </text>
         ))}
       </g>
+
+      {/* Extra value columns (spec.columns): header above the rows, figures right-aligned. */}
+      {(scene.columns ?? []).length > 0 && (
+        <g className="chart-engine-columns" pointerEvents="none">
+          {scene.columns.map(c => (
+            <g key={`c-${c.key}`}>
+              {c.header && <text x={c.header.x} y={c.header.y} textAnchor="end" fill={tok('gray-500')} style={{ fontSize: fs(10), fontWeight: 600 }}>{c.header.text}</text>}
+              {c.cells.map(cell => (
+                <text key={cell.rowKey} x={cell.x} y={cell.y} textAnchor="end" fill={tok('gray-700')} style={{ fontSize: fs(10.5), fontFamily: 'var(--font-mono)' }}>{cell.text}</text>
+              ))}
+            </g>
+          ))}
+        </g>
+      )}
 
       <g pointerEvents="none" {...part('values', scene)}>
         {scene.labels.map(l => (

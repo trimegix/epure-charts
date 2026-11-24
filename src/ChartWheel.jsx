@@ -543,7 +543,7 @@ function ChartWheelInner({ api, pick = {}, anchor, onClose, onMode, extra = [], 
       '-',
       { label: tr('Add text label'), onSelect: () => (onAddNote ? onAddNote() : api.setFmt('notes', [...(F.notes ?? []), { fx: pick.atFx ?? 0.5, fy: pick.atFy ?? 0.1, text: tr('Text') }])), keepOpen: !!onAddNote },
       canUndo() && { label: tr('Undo'), shortcut: 'Ctrl+Z', onSelect: () => undoLast() },
-      { label: tr('Open data sheet'), onSelect: () => api.setSheetOpen(true), shortcut: tr('Double-click') },
+      api.setSheetOpen && { label: tr('Open data sheet'), onSelect: () => api.setSheetOpen(true), shortcut: tr('Double-click') },
       formatItem(tr('Format chart…')),
       '-',
       { label: tr('Reset formatting'), reset: true, onSelect: resetAll, keepOpen: true },
@@ -652,7 +652,13 @@ function ChartWheelInner({ api, pick = {}, anchor, onClose, onMode, extra = [], 
       formatItem(tr('Format labels…')),
     ],
     legend: [
-      pick.seriesLabels && { label: tr('Remove series labels'), onSelect: () => api.setFmt(F.legend === 'series' ? 'legend' : 'endLabels', F.legend === 'series' ? null : false) },
+      pick.seriesLabels && { label: tr('Remove series labels'), onSelect: () => {
+        // Bar names (direct legend, the default on stacked columns) go back to a legend on top;
+        // line end names are switched off.
+        const onBars = ['series', 'direct'].includes(F.legend)
+        if (onBars || F.legend == null) api.setFmt('legend', 'top')
+        if (!onBars) api.setFmt('endLabels', false)
+      } },
       { label: tr('Remove legend'), onSelect: () => api.setFmt('legend', 'none') },
       '-',
       formatItem(tr('Format legend…')),
@@ -669,7 +675,7 @@ function ChartWheelInner({ api, pick = {}, anchor, onClose, onMode, extra = [], 
   }
   // The data sheet from any object (series, axes, labels, legend).
   for (const k of ['series', 'yaxis', 'xaxis', 'labels', 'legend']) {
-    if (Array.isArray(menus[k])) menus[k] = [...menus[k], '-', { label: tr('Open data sheet'), shortcut: tr('Double-click'), onSelect: () => api.setSheetOpen(true) }]
+    if (Array.isArray(menus[k]) && api.setSheetOpen) menus[k] = [...menus[k], '-', { label: tr('Open data sheet'), shortcut: tr('Double-click'), onSelect: () => api.setSheetOpen(true) }]
   }
   // Rotated view (horizontal bars): only the actions visible there remain.
   if (F.horizontal) {
@@ -1100,10 +1106,10 @@ function ChartWheelInner({ api, pick = {}, anchor, onClose, onMode, extra = [], 
     legend: [
       ['position', IconLayoutList, { bottom: tr('Bottom'), none: tr('Hidden'), series: tr('On chart') }[F.legend] ?? tr('Top'), tr('Legend position'), (
         <>
-          <Line label={tr('Position')}><Seg label={tr('Legend position')} value={F.legend ?? null} onPick={v => api.setFmt('legend', v)} items={[[null, tr('Top')], ['bottom', tr('Bottom')], ['series', tr('On chart')], ['none', tr('Hidden')]]} /></Line>
-          {(F.legend ?? null) !== 'none' && F.legend !== 'series' && <Line label=""><Check on={!!F.legendFrame} onClick={() => api.setFmt('legendFrame', F.legendFrame ? null : true)}>{tr('Frame')}</Check></Line>}
+          <Line label={tr('Position')}><Seg label={tr('Legend position')} value={F.legend ?? null} onPick={v => api.setFmt('legend', v)} items={[['top', tr('Top')], ['bottom', tr('Bottom')], ['direct', tr('On chart')], ['none', tr('Hidden')]]} /></Line>
+          {(F.legend ?? null) !== 'none' && !['series', 'direct'].includes(F.legend) && <Line label=""><Check on={!!F.legendFrame} onClick={() => api.setFmt('legendFrame', F.legendFrame ? null : true)}>{tr('Frame')}</Check></Line>}
           {/* The frame line style of the legend. */}
-          {F.legendFrame && F.legend !== 'series' && <Line label={tr('Frame')}><Seg label={tr('Legend frame style')} value={F.legendFrameStyle ?? null} onPick={v => api.setFmt('legendFrameStyle', v)} items={DASHES.map(([v, l, d]) => [v === 'solid' ? null : v, l, () => lineGlyph(d)])} /></Line>}
+          {F.legendFrame && !['series', 'direct'].includes(F.legend) && <Line label={tr('Frame')}><Seg label={tr('Legend frame style')} value={F.legendFrameStyle ?? null} onPick={v => api.setFmt('legendFrameStyle', v)} items={DASHES.map(([v, l, d]) => [v === 'solid' ? null : v, l, () => lineGlyph(d)])} /></Line>}
           {F.legendOffset && <Line label=""><button type="button" className="chart-pop__link" onClick={() => api.setFmt('legendOffset', null)}>{tr('Put the legend back in place')}</button></Line>}
         </>
       )],
@@ -1256,8 +1262,10 @@ function ChartWheelInner({ api, pick = {}, anchor, onClose, onMode, extra = [], 
         <button type="button" className="chart-bar__icon" onClick={() => { removeAnn(); onClose() }} title={tr('Remove (Del)')} aria-label={tr('Remove')}><IconTrash size={14} /></button>
       )}
       {obj === 'chart' && <>
-        <button type="button" className="chart-bar__text" onClick={() => { api.setSheetOpen(true); onClose() }} title={tr('Open the data sheet (or double-click the chart)')}>{tr('Data')}</button>
-        <span className="chart-wheel__sep" aria-hidden="true" />
+        {api.setSheetOpen && <>
+          <button type="button" className="chart-bar__text" onClick={() => { api.setSheetOpen(true); onClose() }} title={tr('Open the data sheet (or double-click the chart)')}>{tr('Data')}</button>
+          <span className="chart-wheel__sep" aria-hidden="true" />
+        </>}
         {undo
           ? <button type="button" className="chart-bar__undo" onClick={() => { api.restore(undo); setUndo(null) }}>{tr('Undo reset')}</button>
           : <button type="button" className="chart-bar__text" onClick={resetAll} title={tr('Remove every format change on this chart (you can undo)')}>{tr('Reset')}</button>}

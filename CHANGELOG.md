@@ -1,5 +1,16 @@
 # Changelog
 
+## Unreleased
+
+- **Small multiples, one settings bar.** `SmallMultiplesView` draws a block of cartesian
+  panels with a single settings icon; its settings apply to every panel, a click on a panel
+  formats that panel alone. `readOnly` + `applyPrefs` draws both layers.
+- `useReadingPrefs(spec, resolved, { base })`: layered view settings. The chart stores only
+  what it changes over `base` (`api.own`); `layerPrefs` / `prunePrefs` are exported.
+- `ChartView`: `basePrefs` (passed to `useReadingPrefs` as `base`) and `settingsButton={false}`
+  (no settings icon; a click on the chart still formats it).
+- The settings bar hides its data sheet entries when the api has no `setSheetOpen`.
+
 ## 0.3.1
 
 - **CAGR arrows on short year keys.** A category axis written `'22'`, `'FY24'`, `"'23"` or

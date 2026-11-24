@@ -37,7 +37,7 @@ test('difference arrows: several at once, one overlapping another moves up', () 
   const wide = d.find(a => a.fromKey === '2021'), narrow = d.find(a => a.fromKey === '2022')
   assert.equal(wide.fi, 0)
   assert.ok(wide.yTop <= narrow.yTop - 20, 'the widest goes above')
-  assert.equal(narrow.text, '+€2.4M')
+  assert.equal(narrow.text, '+2.4')
 })
 
 test('level difference arrow: between two points of two series, beside the elements', () => {
@@ -48,7 +48,7 @@ test('level difference arrow: between two points of two series, beside the eleme
     [res('A', YEARS), res('B', [['2021', 8], ['2024', 20]])], OPTS)
   const d = withLevel.annotations.find(a => a.type === 'diff')
   assert.equal(d.style, 'level')
-  assert.equal(d.text, '+€2.7M')
+  assert.equal(d.text, '+2.7')
   const bar = withLevel.bars.find(b => b.key === '2024')
   assert.ok(d.xr > bar.x + bar.width, 'the arrow is to the right of the bar')
   assert.ok(Math.abs(d.ya - bar.y) < 0.01)
@@ -103,7 +103,7 @@ test('table column: the category leaves the plot, its numbers read on the right'
   assert.equal(sc.tableCols.length, 1)
   const t = sc.tableCols[0]
   assert.equal(t.header, '2024')
-  assert.deepEqual(t.items.map(i => i.text).sort(), ['€17.3M', '€40.0M'].sort())
+  assert.deepEqual(t.items.map(i => i.text).sort(), ['17', '40'].sort())
   assert.ok(t.x0 >= sc.plot.right)
   assert.ok(sc.axes.left.domain[1] < 40, 'the scale no longer counts the moved-out column')
 })
@@ -256,7 +256,7 @@ test('arrow to a value line, pill beside a short arrow, CAGR color, single-segme
     },
   }), [res('A', YEARS)], OPTS)
   const [toTarget] = sc.annotations.filter(a => a.type === 'diff' && a.style === 'level')
-  assert.equal(toTarget.text, '+€2.7M', '20 − 17.28')
+  assert.equal(toTarget.text, '+2.7', '20 − 17.28')
   const vl = sc.annotations.find(a => a.type === 'valueLine')
   assert.ok(Math.abs(toTarget.yb - vl.y) < 0.01, 'the arrow ends on the value line')
   const narrow = sc.annotations.find(a => a.type === 'diff' && a.style === 'bridge')

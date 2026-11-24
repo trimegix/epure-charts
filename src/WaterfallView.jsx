@@ -19,7 +19,7 @@ import { useIsoLayoutEffect } from './useIsoLayoutEffect.js'
 import { applyBridgeEdits } from './bridgeEdits'
 import { useCharts } from './useCharts'
 import ChartHeader from './ChartHeader'
-import { validateSpec } from './spec'
+import { validateBridgeSpec, withBridgeDefaults } from './spec'
 import { buildWaterfallScene } from './waterfallScene'
 import WaterfallFigure from './WaterfallFigure.jsx'
 import { BridgeBar, BridgeBarButton } from './BridgeBar'
@@ -60,8 +60,10 @@ function useWidth(ref, fixed) {
 // in the plot corner when the view has no header of its own (bare); false hides it.
 // The interface (menus, format bar, messages) speaks the spec's language (spec.locale).
 export default function WaterfallView(props) {
+  // version and kind filled when left out (a bridge has no other kind), before the settings read it.
+  const spec = useMemo(() => withBridgeDefaults(props.spec), [props.spec])
   const own = !(props.api !== undefined || (props.readOnly && !props.applyPrefs))
-  return <SpecLocale spec={props.spec}>{own ? <WaterfallOwnPrefs {...props} /> : <WaterfallBody {...props} />}</SpecLocale>
+  return <SpecLocale spec={spec}>{own ? <WaterfallOwnPrefs {...props} spec={spec} /> : <WaterfallBody {...props} spec={spec} />}</SpecLocale>
 }
 
 function WaterfallOwnPrefs(props) {
@@ -107,7 +109,7 @@ function WaterfallBody({ bridge: providedBridge, spec, currentId, scope, context
     if (vlDrag != null) sp = { ...sp, valueLine: vlDrag }
     return sp
   }, [spec, bridge, linkDrag, vlDrag])
-  const errors = useMemo(() => validateSpec(spec), [spec])
+  const errors = useMemo(() => validateBridgeSpec(spec, { bridge: providedBridge }), [spec, providedBridge])
   const height = fixedHeight ?? Math.round(Math.min(300, Math.max(240, width * 0.34)))
   // The value axis number format (axis format bar), on top of the host's.
   const ax = api?.prefs

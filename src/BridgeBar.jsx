@@ -72,8 +72,10 @@ function BridgeBarInner({ api, pick = {}, anchor, onClose, axisPreview, axisSamp
   // Value axis: scale, ticks, gridlines, format (as for columns).
   const ya = p.yAxis ?? {}
   const manual = Number.isFinite(ya.min) || Number.isFinite(ya.max) || Number.isFinite(ya.step)
-  const tickOn = ya.labels !== false
-  const gridOn = ya.grid !== 'none'
+  // Figures on every bar: no axis nor gridlines by default (waterfallScene); explicit otherwise.
+  const figures = p.labels !== false
+  const tickOn = ya.labels ?? !figures
+  const gridOn = ya.grid != null ? ya.grid !== 'none' : !figures
   const axisPrev = axisSample != null && axisPreview ? axisPreview(axisSample) : '—'
   // Selected connector: from bar stepKey to bar connTo (or rerouted from an earlier bar).
   const connTo = pick.connTo ?? null
@@ -119,8 +121,8 @@ function BridgeBarInner({ api, pick = {}, anchor, onClose, axisPreview, axisSamp
       '-', format(tr('Format values…')),
     ],
     axis: [
-      { label: tickOn ? tr('Remove tick labels') : tr('Add tick labels'), onSelect: () => api.setAxis('labels', tickOn ? false : null) },
-      { label: gridOn ? tr('Remove gridlines') : tr('Add gridlines'), onSelect: () => api.setAxis('grid', gridOn ? 'none' : null) },
+      { label: tickOn ? tr('Remove tick labels') : tr('Add tick labels'), onSelect: () => api.setAxis('labels', !tickOn) },
+      { label: gridOn ? tr('Remove gridlines') : tr('Add gridlines'), onSelect: () => api.setAxis('grid', gridOn ? 'none' : 'solid') },
       manual && { label: tr('Fit scale to data'), onSelect: () => api.autoScale() },
       '-', format(tr('Format axis…')),
     ],
@@ -254,8 +256,8 @@ function BridgeBarInner({ api, pick = {}, anchor, onClose, axisPreview, axisSamp
       )],
       ['show', IconEye, tr('Tick labels: {ticks} · gridlines: {grid}', { ticks: tickOn ? tr('on') : tr('off'), grid: gridOn ? tr('on') : tr('off') }), tr('Tick labels and gridlines'), (
         <Line label="">
-          <Check on={tickOn} onClick={() => api.setAxis('labels', tickOn ? false : null)}>{tr('Tick labels')}</Check>
-          <Check on={gridOn} onClick={() => api.setAxis('grid', gridOn ? 'none' : null)}>{tr('Gridlines')}</Check>
+          <Check on={tickOn} onClick={() => api.setAxis('labels', !tickOn)}>{tr('Tick labels')}</Check>
+          <Check on={gridOn} onClick={() => api.setAxis('grid', gridOn ? 'none' : 'solid')}>{tr('Gridlines')}</Check>
         </Line>
       )],
       ['numbers', null, tr('Format: {value}', { value: axisPrev }), tr('Number format of the axis'), (
