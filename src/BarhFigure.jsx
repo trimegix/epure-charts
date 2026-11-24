@@ -37,9 +37,11 @@ function barhTable(scene) {
     }
   }
   const ids = [...new Set(scene.bars.map(b => b.seriesId))]
+  const cols = scene.columns ?? []
   return {
-    head: ['', ...ids.map(id => scene.legend.find(l => l.key === id)?.label ?? id)],
-    rows: scene.rows.map(r => [r.full, ...ids.map(id => scene.bars.find(b => b.key === r.key && b.seriesId === id)?.value ?? '')]),
+    head: ['', ...ids.map(id => scene.legend.find(l => l.key === id)?.label ?? id), ...cols.map(c => c.label)],
+    rows: scene.rows.map(r => [r.full, ...ids.map(id => scene.bars.find(b => b.key === r.key && b.seriesId === id)?.value ?? ''),
+      ...cols.map(c => c.cells.find(cell => cell.rowKey === r.key)?.text ?? '')]),
   }
 }
 
@@ -111,6 +113,20 @@ export default function BarhFigure({ scene, label, responsive = false, dataTable
           </text>
         ))}
       </g>
+
+      {/* Extra value columns (spec.columns): header above the rows, figures right-aligned. */}
+      {(scene.columns ?? []).length > 0 && (
+        <g className="chart-engine-columns" pointerEvents="none">
+          {scene.columns.map(c => (
+            <g key={`c-${c.key}`}>
+              {c.header && <text x={c.header.x} y={c.header.y} textAnchor="end" fill={tok('gray-500')} style={{ fontSize: fs(10), fontWeight: 600 }}>{c.header.text}</text>}
+              {c.cells.map(cell => (
+                <text key={cell.rowKey} x={cell.x} y={cell.y} textAnchor="end" fill={tok('gray-700')} style={{ fontSize: fs(10.5), fontFamily: 'var(--font-mono)' }}>{cell.text}</text>
+              ))}
+            </g>
+          ))}
+        </g>
+      )}
 
       <g pointerEvents="none" {...part('values', scene)}>
         {scene.labels.map(l => (

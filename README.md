@@ -200,7 +200,9 @@ object instead.
 **More forms.** `buildSlopeScene` (before / after for N items), `buildFunnelScene`
 (selection funnel with named filters and pass rates), `spec.index: 100` on a waterfall (a
 bridge indexed to 100: orders of magnitude without the figures), range markers on
-horizontal bars (`spec.rangeMarker: 'median' | 'mean'`, or `marker` per row), and
+horizontal bars (`spec.rangeMarker: 'median' | 'mean'`, or `marker` per row), extra value
+columns on horizontal bars (`spec.columns: [{ key, label?, value: 'share' | 'cumShare' | fn,
+format? }]`, or a host value per row in `rows[].columns[key]`), and
 `smallMultiples(build, panels, { columns, same })` to share one scale across several scenes.
 
 ## Theming

@@ -56,6 +56,7 @@ const WORDS = {
     Change: 'Variation',
     'Pass rate': 'Taux de passage',
     Share: 'Part',
+    'Cumulative share': 'Part cumulée',
     Low: 'Bas',
     High: 'Haut',
     Marker: 'Repère',
