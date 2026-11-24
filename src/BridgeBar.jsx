@@ -22,8 +22,9 @@ import BarBoundary from './BarBoundary.jsx'
 import { tok, schemeMap, styleSummary, baseToken } from './customStyle.js'
 import { SchemeTools, TextStyle } from './CustomStyle.jsx'
 import { TONE_TOKEN } from './waterfallScene.js'
+import { useT } from './uiLocale.js'
 
-const TONE_NAMES = { anchor: 'Anchors', positive: 'Value created', negative: 'Drag', upside: 'Upside to exit' }
+const toneNames = tr => ({ anchor: tr('Anchors'), positive: tr('Value created'), negative: tr('Drag'), upside: tr('Upside to exit') })
 
 /**
  * api    : the useWaterfallPrefs API
@@ -33,6 +34,8 @@ const TONE_NAMES = { anchor: 'Anchors', positive: 'Value created', negative: 'Dr
  * axisPreview(v) / axisSample : preview of the value-axis format
  */
 function BridgeBarInner({ api, pick = {}, anchor, onClose, axisPreview, axisSample }) {
+  const tr = useT()
+  const TONE_NAMES = toneNames(tr)
   const ref = useRef(null)
   const [mode, setMode] = useState(pick.mode === 'menu' ? 'menu' : 'bar')
   const [obj, setObj] = useState(pick.obj ?? 'bridge')
@@ -64,8 +67,8 @@ function BridgeBarInner({ api, pick = {}, anchor, onClose, axisPreview, axisSamp
   const resetAll = () => { setUndo({ ...p }); api.reset(); setObj('bridge'); setMode('bar') }
   const restore = () => { for (const [k, v] of Object.entries(undo ?? {})) api.setPref(k, v); setUndo(null) }
   const dot = c => <span className="chart-bar__dot" style={{ background: tok(c ?? 'gray-400') }} />
-  const format = name => ({ label: `Format ${name}…`, onSelect: () => setMode('bar'), keepOpen: true })
-  const sheet = { label: 'Open data sheet', onSelect: () => api.setSheetOpen(true), shortcut: 'Double-click' }
+  const format = label => ({ label, format: true, onSelect: () => setMode('bar'), keepOpen: true })
+  const sheet = { label: tr('Open data sheet'), onSelect: () => api.setSheetOpen(true), shortcut: tr('Double-click') }
   // Value axis: scale, ticks, gridlines, format (as for columns).
   const ya = p.yAxis ?? {}
   const manual = Number.isFinite(ya.min) || Number.isFinite(ya.max) || Number.isFinite(ya.step)
@@ -84,108 +87,108 @@ function BridgeBarInner({ api, pick = {}, anchor, onClose, axisPreview, axisSamp
   // ── Actions (right-click): add, remove, group ──
   const partName = pick.part != null ? (step?.parts ?? []).find(q => String(q.key) === String(pick.part))?.label ?? pick.part : ''
   const diffItems = api.canDiff ? [
-    { label: p.diff ? 'Remove difference arrow' : 'Add difference arrow', onSelect: () => api.toggle('diff') },
+    { label: p.diff ? tr('Remove difference arrow') : tr('Add difference arrow'), onSelect: () => api.toggle('diff') },
   ] : []
   const menus = {
     bridge: [
       ...diffItems,
-      { label: 'Value labels', checked: !!p.labels, onSelect: () => api.toggle('labels') },
-      { label: 'Connector lines', checked: !!p.connectors, onSelect: () => api.toggle('connectors') },
-      { label: p.table ? 'Move values to chart' : 'Move values to table', onSelect: () => api.setPref('table', p.table ? null : 'values') },
-      { label: p.valueLine != null ? 'Remove value line' : 'Add value line', onSelect: () => api.setPref('valueLine', p.valueLine != null ? null : true) },
-      typeof p.valueLine === 'number' && { label: 'Value line back to the start level', onSelect: () => api.setPref('valueLine', true) },
-      Object.keys(p.links ?? {}).length > 0 && { label: 'Reconnect all bars in order', onSelect: () => api.setPref('links', {}) },
-      (p.netLines ?? []).length > 0 && { label: `Show net lines as segments (${p.netLines.length})`, onSelect: () => api.setPref('netLines', []) },
-      api.canWhisker && { label: 'High scenario', checked: !!p.whiskers, onSelect: () => api.toggle('whiskers') },
-      '-', canUndo() && { label: 'Undo', shortcut: 'Ctrl+Z', onSelect: () => undoLast() }, sheet, format('bridge'), '-',
-      { label: 'Reset formatting', onSelect: resetAll, keepOpen: true },
+      { label: tr('Value labels'), checked: !!p.labels, onSelect: () => api.toggle('labels') },
+      { label: tr('Connector lines'), checked: !!p.connectors, onSelect: () => api.toggle('connectors') },
+      { label: p.table ? tr('Move values to chart') : tr('Move values to table'), onSelect: () => api.setPref('table', p.table ? null : 'values') },
+      { label: p.valueLine != null ? tr('Remove value line') : tr('Add value line'), onSelect: () => api.setPref('valueLine', p.valueLine != null ? null : true) },
+      typeof p.valueLine === 'number' && { label: tr('Value line back to the start level'), onSelect: () => api.setPref('valueLine', true) },
+      Object.keys(p.links ?? {}).length > 0 && { label: tr('Reconnect all bars in order'), onSelect: () => api.setPref('links', {}) },
+      (p.netLines ?? []).length > 0 && { label: tr('Show net lines as segments ({n})', { n: p.netLines.length }), onSelect: () => api.setPref('netLines', []) },
+      api.canWhisker && { label: tr('High scenario'), checked: !!p.whiskers, onSelect: () => api.toggle('whiskers') },
+      '-', canUndo() && { label: tr('Undo'), shortcut: 'Ctrl+Z', onSelect: () => undoLast() }, sheet, format(tr('Format bridge…')), '-',
+      { label: tr('Reset formatting'), reset: true, onSelect: resetAll, keepOpen: true },
     ],
     step: step ? [
-      pick.onDetail && { label: `Show breakdown of ${step.label}`, onSelect: () => pick.onDetail(), shortcut: 'Double-click' },
+      pick.onDetail && { label: tr('Show breakdown of {name}', { name: step.label }), onSelect: () => pick.onDetail(), shortcut: tr('Double-click') },
       // Multi-series waterfall: one series as a net line, or back to segments.
-      pick.part != null && api.toggleNetLine && { label: pick.net ? `Show ${partName} as segments` : `Show ${partName} as net line`, onSelect: () => api.toggleNetLine(pick.part) },
-      step.kind === 'delta' && step.key !== lastDelta && { label: subtotals.has(step.key) ? 'Remove subtotal after' : 'Add subtotal after', onSelect: () => api.toggleSubtotal(step.key) },
-      lever?.hideable && { label: hidden.has(step.key) ? 'Show separately' : 'Group into “Other levers”', onSelect: () => api.toggleHidden(step.key) },
-      (p.links ?? {})[step.key] && { label: 'Reconnect to the previous bar', onSelect: () => api.setLink(step.key, null) },
-      steps.indexOf(step) < steps.length - 1 && { label: (p.connectorsOff ?? []).includes(step.key) ? 'Add connector after this bar' : 'Remove connector after this bar', onSelect: () => api.toggleConnector(step.key) },
-      isLevel && api.canDiff && { label: 'Difference arrow from here', onSelect: () => api.setDiffEnd('from', step.key) },
-      isLevel && api.canDiff && { label: 'Difference arrow to here', onSelect: () => api.setDiffEnd('to', step.key) },
-      '-', format('bar'), sheet,
+      pick.part != null && api.toggleNetLine && { label: pick.net ? tr('Show {name} as segments', { name: partName }) : tr('Show {name} as net line', { name: partName }), onSelect: () => api.toggleNetLine(pick.part) },
+      step.kind === 'delta' && step.key !== lastDelta && { label: subtotals.has(step.key) ? tr('Remove subtotal after') : tr('Add subtotal after'), onSelect: () => api.toggleSubtotal(step.key) },
+      lever?.hideable && { label: hidden.has(step.key) ? tr('Show separately') : tr('Group into “Other levers”'), onSelect: () => api.toggleHidden(step.key) },
+      (p.links ?? {})[step.key] && { label: tr('Reconnect to the previous bar'), onSelect: () => api.setLink(step.key, null) },
+      steps.indexOf(step) < steps.length - 1 && { label: (p.connectorsOff ?? []).includes(step.key) ? tr('Add connector after this bar') : tr('Remove connector after this bar'), onSelect: () => api.toggleConnector(step.key) },
+      isLevel && api.canDiff && { label: tr('Difference arrow from here'), onSelect: () => api.setDiffEnd('from', step.key) },
+      isLevel && api.canDiff && { label: tr('Difference arrow to here'), onSelect: () => api.setDiffEnd('to', step.key) },
+      '-', format(tr('Format bar…')), sheet,
     ] : [],
     values: [
-      { label: p.labels ? 'Remove value labels' : 'Add value labels', onSelect: () => api.toggle('labels') },
-      { label: p.table ? 'Move values to chart' : 'Move values to table', onSelect: () => api.setPref('table', p.table ? null : 'values') },
-      '-', format('values'),
+      { label: p.labels ? tr('Remove value labels') : tr('Add value labels'), onSelect: () => api.toggle('labels') },
+      { label: p.table ? tr('Move values to chart') : tr('Move values to table'), onSelect: () => api.setPref('table', p.table ? null : 'values') },
+      '-', format(tr('Format values…')),
     ],
     axis: [
-      { label: tickOn ? 'Remove tick labels' : 'Add tick labels', onSelect: () => api.setAxis('labels', !tickOn) },
-      { label: gridOn ? 'Remove gridlines' : 'Add gridlines', onSelect: () => api.setAxis('grid', gridOn ? 'none' : 'solid') },
-      manual && { label: 'Fit scale to data', onSelect: () => api.autoScale() },
-      '-', format('axis'),
+      { label: tickOn ? tr('Remove tick labels') : tr('Add tick labels'), onSelect: () => api.setAxis('labels', !tickOn) },
+      { label: gridOn ? tr('Remove gridlines') : tr('Add gridlines'), onSelect: () => api.setAxis('grid', gridOn ? 'none' : 'solid') },
+      manual && { label: tr('Fit scale to data'), onSelect: () => api.autoScale() },
+      '-', format(tr('Format axis…')),
     ],
     connector: [
-      { label: connOn ? 'Remove connector' : 'Add connector', onSelect: () => api.toggleConnector(stepKey) },
-      connLinked && { label: 'Reconnect to the previous bar', onSelect: () => api.setLink(connTo, null) },
-      '-', format('connector'),
+      { label: connOn ? tr('Remove connector') : tr('Add connector'), onSelect: () => api.toggleConnector(stepKey) },
+      connLinked && { label: tr('Reconnect to the previous bar'), onSelect: () => api.setLink(connTo, null) },
+      '-', format(tr('Format connector…')),
     ],
   }
 
   // ── Format-bar controls: [id, icon, value, name, menu] ──
   const levelName = k => api.levelOptions.find(o => o.value === k)?.label ?? k
   const shownCount = api.levers.filter(l => !hidden.has(l.key)).length
-  const showSummary = [p.labels && !p.table && 'values', p.table && 'table', p.valueLine != null && 'value line', p.connectors && 'connectors', api.canWhisker && p.whiskers && 'high scenario'].filter(Boolean).join(', ') || 'nothing'
-  const tableSeg = <Line label="Table"><Seg label="Data table under the axis" value={p.table ?? null} onPick={v => api.setPref('table', v)} items={[[null, 'Off'], ['values', 'Values'], ['running', 'Values + running total']]} /></Line>
+  const showSummary = [p.labels && !p.table && tr('values'), p.table && tr('table'), p.valueLine != null && tr('value line'), p.connectors && tr('connectors'), api.canWhisker && p.whiskers && tr('high scenario')].filter(Boolean).join(', ') || tr('nothing')
+  const tableSeg = <Line label={tr('Table')}><Seg label={tr('Data table under the axis')} value={p.table ?? null} onPick={v => api.setPref('table', v)} items={[[null, tr('Off')], ['values', tr('Values')], ['running', tr('Values + running total')]]} /></Line>
   const controls = {
     bridge: [
-      ['show', null, `Show: ${showSummary}`, 'What the bridge shows', (
+      ['show', null, tr('Show: {list}', { list: showSummary }), tr('What the bridge shows'), (
         <Line label="">
           <div className="chart-pop__stack">
-            <Check on={!!p.labels} onClick={() => api.toggle('labels')}>Value labels</Check>
-            <Check on={!!p.connectors} onClick={() => api.toggle('connectors')}>Connector lines</Check>
-            {api.canWhisker && <Check on={!!p.whiskers} onClick={() => api.toggle('whiskers')}>High scenario</Check>}
+            <Check on={!!p.labels} onClick={() => api.toggle('labels')}>{tr('Value labels')}</Check>
+            <Check on={!!p.connectors} onClick={() => api.toggle('connectors')}>{tr('Connector lines')}</Check>
+            {api.canWhisker && <Check on={!!p.whiskers} onClick={() => api.toggle('whiskers')}>{tr('High scenario')}</Check>}
           </div>
         </Line>
       )],
-      ['table', null, `Table: ${{ values: 'values', running: 'values + running total' }[p.table] ?? 'off'}${p.valueLine != null ? ' · value line' : ''}`, 'Data table and value line', (
+      ['table', null, `${tr('Table: {state}', { state: { values: tr('values'), running: tr('values + running total') }[p.table] ?? tr('off') })}${p.valueLine != null ? ` · ${tr('value line')}` : ''}`, tr('Data table and value line'), (
         <>
           {tableSeg}
-          <Line label=""><Check on={p.valueLine != null} onClick={() => api.setPref('valueLine', p.valueLine != null ? null : true)}>Value line (drag to move)</Check></Line>
-          <div className="chart-pop__note">Drag a connector onto an earlier bar to start a bar from that level.</div>
+          <Line label=""><Check on={p.valueLine != null} onClick={() => api.setPref('valueLine', p.valueLine != null ? null : true)}>{tr('Value line (drag to move)')}</Check></Line>
+          <div className="chart-pop__note">{tr('Drag a connector onto an earlier bar to start a bar from that level.')}</div>
         </>
       )],
-      api.canDiff && ['diff', null, p.diff ? `Difference: ${levelName(api.diffFrom)} → ${levelName(api.diffTo)}` : 'Difference: off', 'Difference arrow between two levels', (
+      api.canDiff && ['diff', null, p.diff ? tr('Difference: {from} → {to}', { from: levelName(api.diffFrom), to: levelName(api.diffTo) }) : tr('Difference: off'), tr('Difference arrow between two levels'), (
         <>
-          <Line label=""><Check on={!!p.diff} onClick={() => api.toggle('diff')}>Difference arrow</Check></Line>
+          <Line label=""><Check on={!!p.diff} onClick={() => api.toggle('diff')}>{tr('Difference arrow')}</Check></Line>
           {p.diff && <>
-            <Line label="From"><Seg label="From" value={api.diffFrom} onPick={v => api.setPref('diffFrom', v)} items={api.levelOptions.map(o => [o.value, o.label])} /></Line>
-            <Line label="To"><Seg label="To" value={api.diffTo} onPick={v => api.setPref('diffTo', v)} items={api.levelOptions.filter(o => o.value !== api.diffFrom).map(o => [o.value, o.label])} /></Line>
+            <Line label={tr('From')}><Seg label={tr('From')} value={api.diffFrom} onPick={v => api.setPref('diffFrom', v)} items={api.levelOptions.map(o => [o.value, o.label])} /></Line>
+            <Line label={tr('To')}><Seg label={tr('To')} value={api.diffTo} onPick={v => api.setPref('diffTo', v)} items={api.levelOptions.filter(o => o.value !== api.diffFrom).map(o => [o.value, o.label])} /></Line>
           </>}
-          <div className="chart-pop__note">Or right-click a level bar: “Difference arrow from / to here”.</div>
+          <div className="chart-pop__note">{tr('Or right-click a level bar: “Difference arrow from / to here”.')}</div>
         </>
       )],
-      ['dir', null, `Direction: ${p.direction === 'down' ? 'down' : 'up'}${p.backCalc ? ' · start computed' : ''}`, 'Direction and start of the bridge', (
+      ['dir', null, `${tr('Direction: {dir}', { dir: p.direction === 'down' ? tr('down') : tr('up') })}${p.backCalc ? ` · ${tr('start computed')}` : ''}`, tr('Direction and start of the bridge'), (
         <>
-          <Line label="Direction"><Seg label="Bridge direction" value={p.direction === 'down' ? 'down' : 'up'} onPick={v => api.setPref('direction', v === 'down' ? 'down' : null)} items={[['up', 'Up (build)'], ['down', 'Down (break down)']]} /></Line>
-          <Line label=""><Check on={!!p.backCalc} onClick={() => api.toggle('backCalc')} title="The first column is computed back from the last one">Compute the start from the end</Check></Line>
-          {api.hasParts && <Line label="Segments"><Seg label="Segment order in a step" value={p.partOrder ?? null} onPick={v => api.setPref('partOrder', v)} items={[[null, 'Sheet'], ['posFirst', 'Positives first'], ['negFirst', 'Negatives first']]} /></Line>}
-          {api.canDiff && p.diff && <Line label="Diff %"><Seg label="Difference percentage of" value={p.diffBase ?? null} onPick={v => api.setPref('diffBase', v)} items={[[null, 'Its start'], ['start', 'First column (100%)'], ...(p.labelContent && p.pctBase ? [['pctBase', 'Label 100%']] : []), ...api.levelOptions.slice(1).map(o => [o.value, `${o.label} (100%)`])]} /></Line>}
+          <Line label={tr('Direction')}><Seg label={tr('Bridge direction')} value={p.direction === 'down' ? 'down' : 'up'} onPick={v => api.setPref('direction', v === 'down' ? 'down' : null)} items={[['up', tr('Up (build)')], ['down', tr('Down (break down)')]]} /></Line>
+          <Line label=""><Check on={!!p.backCalc} onClick={() => api.toggle('backCalc')} title={tr('The first column is computed back from the last one')}>{tr('Compute the start from the end')}</Check></Line>
+          {api.hasParts && <Line label={tr('Segments')}><Seg label={tr('Segment order in a step')} value={p.partOrder ?? null} onPick={v => api.setPref('partOrder', v)} items={[[null, tr('Sheet')], ['posFirst', tr('Positives first')], ['negFirst', tr('Negatives first')]]} /></Line>}
+          {api.canDiff && p.diff && <Line label={tr('Diff %')}><Seg label={tr('Difference percentage of')} value={p.diffBase ?? null} onPick={v => api.setPref('diffBase', v)} items={[[null, tr('Its start')], ['start', tr('First column (100%)')], ...(p.labelContent && p.pctBase ? [['pctBase', tr('Label 100%')]] : []), ...api.levelOptions.slice(1).map(o => [o.value, `${o.label} (100%)`])]} /></Line>}
         </>
       )],
-      api.levers.length > 0 && ['levers', null, `Levers: ${shownCount}/${api.levers.length} shown`, 'Levers shown and subtotals', (
+      api.levers.length > 0 && ['levers', null, tr('Levers: {shown}/{total} shown', { shown: shownCount, total: api.levers.length }), tr('Levers shown and subtotals'), (
         <table className="chart-pop__table">
-          <thead><tr><th />{api.levers.some(l => l.hideable) && <th title="Unticked levers are grouped into “Other levers”; the total does not move">Shown</th>}<th>Subtotal after</th></tr></thead>
+          <thead><tr><th />{api.levers.some(l => l.hideable) && <th title={tr('Unticked levers are grouped into “Other levers”; the total does not move')}>{tr('Shown')}</th>}<th>{tr('Subtotal after')}</th></tr></thead>
           <tbody>
             {api.levers.map(l => (
               <tr key={l.key}>
                 <td>{l.label}</td>
-                {api.levers.some(x => x.hideable) && <td>{l.hideable && <Check on={!hidden.has(l.key)} onClick={() => api.toggleHidden(l.key)} title={`Show ${l.label} separately`} />}</td>}
-                <td><Check on={subtotals.has(l.key)} onClick={() => api.toggleSubtotal(l.key)} title={`Subtotal after ${l.label}`} /></td>
+                {api.levers.some(x => x.hideable) && <td>{l.hideable && <Check on={!hidden.has(l.key)} onClick={() => api.toggleHidden(l.key)} title={tr('Show {name} separately', { name: l.label })} />}</td>}
+                <td><Check on={subtotals.has(l.key)} onClick={() => api.toggleSubtotal(l.key)} title={tr('Subtotal after {name}', { name: l.label })} /></td>
               </tr>
             ))}
           </tbody>
         </table>
       )],
-      api.tones.length > 0 && ['colors', <>{api.tones.slice(0, 3).map(([t]) => <span key={t}>{dot(p.toneColors?.[t] ?? null)}</span>)}</>, 'Colors', 'Color of each family', (
+      api.tones.length > 0 && ['colors', <>{api.tones.slice(0, 3).map(([t]) => <span key={t}>{dot(p.toneColors?.[t] ?? null)}</span>)}</>, tr('Colors'), tr('Color of each family'), (
         <>
           {api.tones.map(([t, l]) => (
             <Line key={t} label={l}><Swatches palette={api.palette} value={p.toneColors?.[t]} onPick={c => api.setToneColor(t, c)} /></Line>
@@ -198,89 +201,89 @@ function BridgeBarInner({ api, pick = {}, anchor, onClose, axisPreview, axisSamp
       )],
     ],
     step: step ? [
-      ['fill', dot(p.stepColors?.[step.key] ?? p.toneColors?.[step.tone] ?? pick.color), `Fill: ${scope === 'bar' ? 'this bar' : TONE_NAMES[step.tone]?.toLowerCase() ?? 'family'}`, 'Fill color', (
+      ['fill', dot(p.stepColors?.[step.key] ?? p.toneColors?.[step.tone] ?? pick.color), tr('Fill: {what}', { what: scope === 'bar' ? tr('this bar') : TONE_NAMES[step.tone]?.toLowerCase() ?? tr('family') }), tr('Fill color'), (
         <>
-          <Line label="Apply to"><Seg label="Fill scope" value={scope} onPick={setScope} items={[['bar', `${step.label} only`], ['tone', `All “${TONE_NAMES[step.tone] ?? step.tone}”`]]} /></Line>
+          <Line label={tr('Apply to')}><Seg label={tr('Fill scope')} value={scope} onPick={setScope} items={[['bar', tr('{name} only', { name: step.label })], ['tone', tr('All “{name}”', { name: TONE_NAMES[step.tone] ?? step.tone })]]} /></Line>
           <Swatches palette={api.palette} value={scope === 'bar' ? p.stepColors?.[step.key] : p.toneColors?.[step.tone]}
             onPick={c => (scope === 'bar' ? api.setStepColor(step.key, c) : api.setToneColor(step.tone, c))} />
         </>
       )],
-      step.kind === 'delta' && step.key !== lastDelta && ['subtotal', null, `Subtotal after: ${subtotals.has(step.key) ? 'on' : 'off'}`, 'Subtotal after this lever', (
-        <Line label=""><Check on={subtotals.has(step.key)} onClick={() => api.toggleSubtotal(step.key)}>Subtotal after {step.label}</Check></Line>
+      step.kind === 'delta' && step.key !== lastDelta && ['subtotal', null, tr('Subtotal after: {state}', { state: subtotals.has(step.key) ? tr('on') : tr('off') }), tr('Subtotal after this lever'), (
+        <Line label=""><Check on={subtotals.has(step.key)} onClick={() => api.toggleSubtotal(step.key)}>{tr('Subtotal after {name}', { name: step.label })}</Check></Line>
       )],
-      lever?.hideable && ['shown', null, hidden.has(step.key) ? 'In “Other levers”' : 'Shown separately', 'Show this lever or group it', (
-        <Line label=""><Check on={!hidden.has(step.key)} onClick={() => api.toggleHidden(step.key)} title="Unticked: grouped into “Other levers”; the total does not move">Show separately</Check></Line>
+      lever?.hideable && ['shown', null, hidden.has(step.key) ? tr('In “Other levers”') : tr('Shown separately'), tr('Show this lever or group it'), (
+        <Line label=""><Check on={!hidden.has(step.key)} onClick={() => api.toggleHidden(step.key)} title={tr('Unticked: grouped into “Other levers”; the total does not move')}>{tr('Show separately')}</Check></Line>
       )],
-      steps.indexOf(step) < steps.length - 1 && ['connector', null, `Connector after: ${(p.connectorsOff ?? []).includes(step.key) ? 'off' : 'on'}`, 'Connector line after this bar', (
+      steps.indexOf(step) < steps.length - 1 && ['connector', null, tr('Connector after: {state}', { state: (p.connectorsOff ?? []).includes(step.key) ? tr('off') : tr('on') }), tr('Connector line after this bar'), (
         <>
-          <Line label=""><Check on={!(p.connectorsOff ?? []).includes(step.key)} onClick={() => api.toggleConnector(step.key)}>Connector after this bar</Check></Line>
-          {(p.links ?? {})[step.key] && <Line label=""><button type="button" className="chart-pop__link" onClick={() => api.setLink(step.key, null)}>Reconnect to the previous bar</button></Line>}
-          {step.kind === 'delta' && <Line label=""><Check on={(p.toBaseline ?? []).includes(step.key)} onClick={() => api.toggleBaseline(step.key)} title="Drawn from zero; the running total still adds it">Draw from the baseline</Check></Line>}
-          {step.kind === 'delta' && <Line label=""><Check on={(p.toBaselineTop ?? []).includes(step.key)} onClick={() => api.toggleBaselineTop(step.key)} title="The top of the bar sits on the baseline; the running total still adds it">Hang from the baseline</Check></Line>}
+          <Line label=""><Check on={!(p.connectorsOff ?? []).includes(step.key)} onClick={() => api.toggleConnector(step.key)}>{tr('Connector after this bar')}</Check></Line>
+          {(p.links ?? {})[step.key] && <Line label=""><button type="button" className="chart-pop__link" onClick={() => api.setLink(step.key, null)}>{tr('Reconnect to the previous bar')}</button></Line>}
+          {step.kind === 'delta' && <Line label=""><Check on={(p.toBaseline ?? []).includes(step.key)} onClick={() => api.toggleBaseline(step.key)} title={tr('Drawn from zero; the running total still adds it')}>{tr('Draw from the baseline')}</Check></Line>}
+          {step.kind === 'delta' && <Line label=""><Check on={(p.toBaselineTop ?? []).includes(step.key)} onClick={() => api.toggleBaselineTop(step.key)} title={tr('The top of the bar sits on the baseline; the running total still adds it')}>{tr('Hang from the baseline')}</Check></Line>}
         </>
       )],
-      isLevel && api.canDiff && ['diff', null, p.diff && (api.diffFrom === step.key || api.diffTo === step.key) ? `Difference: ${api.diffFrom === step.key ? 'from here' : 'to here'}` : 'Difference: off', 'Difference arrow', (
-        <Line label="Arrow"><Seg label="Difference arrow" value={p.diff ? (api.diffFrom === step.key ? 'from' : api.diffTo === step.key ? 'to' : null) : null}
-          onPick={v => (v ? api.setDiffEnd(v, step.key) : api.setPref('diff', false))} items={[[null, 'Off'], ['from', 'From here'], ['to', 'To here']]} /></Line>
+      isLevel && api.canDiff && ['diff', null, p.diff && (api.diffFrom === step.key || api.diffTo === step.key) ? tr('Difference: {end}', { end: api.diffFrom === step.key ? tr('from here') : tr('to here') }) : tr('Difference: off'), tr('Difference arrow'), (
+        <Line label={tr('Arrow')}><Seg label={tr('Difference arrow')} value={p.diff ? (api.diffFrom === step.key ? 'from' : api.diffTo === step.key ? 'to' : null) : null}
+          onPick={v => (v ? api.setDiffEnd(v, step.key) : api.setPref('diff', false))} items={[[null, tr('Off')], ['from', tr('From here')], ['to', tr('To here')]]} /></Line>
       )],
     ] : [],
     values: [
-      ['textstyle', null, styleSummary(p), 'Label color, font and size', <TextStyle font={p.labelFont} pt={p.labelPt} color={p.labelColor} onFont={v => api.setPref('labelFont', v)} onPt={v => api.setPref('labelPt', v)} onColor={v => api.setPref('labelColor', v)} />],
-      ['show', null, `Values: ${p.table ? 'in table' : p.labels ? 'on' : 'off'}`, 'Value labels', (
+      ['textstyle', null, styleSummary(p), tr('Label color, font and size'), <TextStyle font={p.labelFont} pt={p.labelPt} color={p.labelColor} onFont={v => api.setPref('labelFont', v)} onPt={v => api.setPref('labelPt', v)} onColor={v => api.setPref('labelColor', v)} />],
+      ['show', null, tr('Values: {state}', { state: p.table ? tr('in table') : p.labels ? tr('on') : tr('off') }), tr('Value labels'), (
         <>
-          <Line label=""><Check on={!!p.labels} onClick={() => api.toggle('labels')}>Value labels</Check></Line>
+          <Line label=""><Check on={!!p.labels} onClick={() => api.toggle('labels')}>{tr('Value labels')}</Check></Line>
           {tableSeg}
         </>
       )],
-      p.labels && ['content', null, `Content: ${{ pct: '% of base', both: 'value + %' }[p.labelContent] ?? 'value'}`, 'Label content', (
+      p.labels && ['content', null, tr('Content: {what}', { what: { pct: tr('% of base'), both: tr('value + %') }[p.labelContent] ?? tr('value') }), tr('Label content'), (
         <>
-          <Line label="Content"><Seg label="Label content" value={p.labelContent ?? null} onPick={v => api.setPref('labelContent', v)}
-            items={[[null, 'Value'], ['pct', '% of base'], ['both', 'Value + %']]} /></Line>
-          {p.labelContent && <Line label="100% is"><Seg label="Percent base" value={p.pctBase ?? null} onPick={v => api.setPref('pctBase', v)} items={[[null, 'First column'], ...api.levelOptions.slice(1).map(o => [o.value, o.label])]} /></Line>}
+          <Line label={tr('Content')}><Seg label={tr('Label content')} value={p.labelContent ?? null} onPick={v => api.setPref('labelContent', v)}
+            items={[[null, tr('Value')], ['pct', tr('% of base')], ['both', tr('Value + %')]]} /></Line>
+          {p.labelContent && <Line label={tr('100% is')}><Seg label={tr('Percent base')} value={p.pctBase ?? null} onPick={v => api.setPref('pctBase', v)} items={[[null, tr('First column')], ...api.levelOptions.slice(1).map(o => [o.value, o.label])]} /></Line>}
         </>
       )],
     ],
     axis: [
-      ['scale', IconRuler2, manual ? `Scale: ${Number.isFinite(ya.min) ? ya.min : 'auto'} – ${Number.isFinite(ya.max) ? ya.max : 'auto'}` : 'Scale: auto', 'Scale', (
+      ['scale', IconRuler2, manual ? tr('Scale: {min} – {max}', { min: Number.isFinite(ya.min) ? ya.min : tr('auto'), max: Number.isFinite(ya.max) ? ya.max : tr('auto') }) : tr('Scale: auto'), tr('Scale'), (
         <>
-          <Line label="Range">
-            <Field label="Min" numeric value={ya.min ?? ''} placeholder="Auto" onCommit={v => api.setAxis('min', v)} />
-            <Field label="Max" numeric value={ya.max ?? ''} placeholder="Auto" onCommit={v => api.setAxis('max', v)} />
-            <Field label="Step" numeric value={ya.step ?? ''} placeholder="Auto" onCommit={v => api.setAxis('step', v != null && v > 0 ? v : null)} />
+          <Line label={tr('Range')}>
+            <Field label={tr('Min')} numeric value={ya.min ?? ''} placeholder={tr('Auto')} onCommit={v => api.setAxis('min', v)} />
+            <Field label={tr('Max')} numeric value={ya.max ?? ''} placeholder={tr('Auto')} onCommit={v => api.setAxis('max', v)} />
+            <Field label={tr('Step')} numeric value={ya.step ?? ''} placeholder={tr('Auto')} onCommit={v => api.setAxis('step', v != null && v > 0 ? v : null)} />
           </Line>
-          {manual && <Line label=""><button type="button" className="chart-pop__link" onClick={() => api.autoScale()}>Reset to automatic scale</button></Line>}
+          {manual && <Line label=""><button type="button" className="chart-pop__link" onClick={() => api.autoScale()}>{tr('Reset to automatic scale')}</button></Line>}
         </>
       )],
-      ['show', IconEye, `Tick labels: ${tickOn ? 'on' : 'off'} · gridlines: ${gridOn ? 'on' : 'off'}`, 'Tick labels and gridlines', (
+      ['show', IconEye, tr('Tick labels: {ticks} · gridlines: {grid}', { ticks: tickOn ? tr('on') : tr('off'), grid: gridOn ? tr('on') : tr('off') }), tr('Tick labels and gridlines'), (
         <Line label="">
-          <Check on={tickOn} onClick={() => api.setAxis('labels', !tickOn)}>Tick labels</Check>
-          <Check on={gridOn} onClick={() => api.setAxis('grid', gridOn ? 'none' : 'solid')}>Gridlines</Check>
+          <Check on={tickOn} onClick={() => api.setAxis('labels', !tickOn)}>{tr('Tick labels')}</Check>
+          <Check on={gridOn} onClick={() => api.setAxis('grid', gridOn ? 'none' : 'solid')}>{tr('Gridlines')}</Check>
         </Line>
       )],
-      ['numbers', null, `Format: ${axisPrev}`, 'Number format of the axis', (
+      ['numbers', null, tr('Format: {value}', { value: axisPrev }), tr('Number format of the axis'), (
         <NumberFormatFields preview={axisPrev} decimals={p.axisDec ?? null} magnitude={p.axisMag ?? null} num={p.axisNum ?? {}} sep={separatorOf(p.axisNum)}
           setDec={v => api.setPref('axisDec', v)} setMag={v => api.setPref('axisMag', v)} setNum={api.setAxisNum} showMagnitude money />
       )],
     ],
     connector: [
-      ['conn', null, `Connector: ${connOn ? 'on' : 'off'}`, 'Connector line', (
-        <Line label=""><Check on={connOn} onClick={() => api.toggleConnector(stepKey)}>Connector after {step?.label ?? 'this bar'}</Check></Line>
+      ['conn', null, tr('Connector: {state}', { state: connOn ? tr('on') : tr('off') }), tr('Connector line'), (
+        <Line label=""><Check on={connOn} onClick={() => api.toggleConnector(stepKey)}>{tr('Connector after {name}', { name: step?.label ?? tr('this bar') })}</Check></Line>
       )],
-      connTo && earlier.length > 0 && ['from', null, `Starts from: ${connLinked ? steps.find(s => s.key === connLinked)?.label ?? connLinked : 'previous bar'}`, 'Bar the next column starts from', (
+      connTo && earlier.length > 0 && ['from', null, tr('Starts from: {bar}', { bar: connLinked ? steps.find(s => s.key === connLinked)?.label ?? connLinked : tr('previous bar') }), tr('Bar the next column starts from'), (
         <>
-          <Line label="From"><Seg label="Starts from" value={connLinked || null} onPick={v => api.setLink(connTo, v)} items={[[null, 'Previous bar'], ...earlier.map(s => [s.key, s.label])]} /></Line>
-          <div className="chart-pop__note">Or drag the connector onto an earlier bar.</div>
+          <Line label={tr('From')}><Seg label={tr('Starts from')} value={connLinked || null} onPick={v => api.setLink(connTo, v)} items={[[null, tr('Previous bar')], ...earlier.map(s => [s.key, s.label])]} /></Line>
+          <div className="chart-pop__note">{tr('Or drag the connector onto an earlier bar.')}</div>
         </>
       )],
     ],
   }
 
-  const NAMES = { step: step?.label ?? 'Bar', values: 'Values', axis: 'Value axis', connector: 'Connector', bridge: 'Bridge' }
-  const objName = NAMES[obj] ?? 'Bridge'
+  const NAMES = { step: step?.label ?? tr('Bar'), values: tr('Values'), axis: tr('Value axis'), connector: tr('Connector'), bridge: tr('Bridge') }
+  const objName = NAMES[obj] ?? tr('Bridge')
   const objIcon = { step: IconChartBar, values: IconTag, axis: IconArrowsVertical, connector: IconLink }[obj] ?? IconLayoutColumns
-  const objectCtl = ['object', objIcon, objName, 'Object being formatted (click to switch)', (
+  const objectCtl = ['object', objIcon, objName, tr('Object being formatted (click to switch)'), (
     <div className="chart-pop__objects" role="menu">
-      {[['bridge', 'Bridge'], ['values', 'Values'], ['axis', 'Value axis'], ...(connTo ? [['connector', 'Connector']] : []), ...steps.map(s => [`step:${s.key}`, s.label])].map(([v, l]) => {
+      {[['bridge', tr('Bridge')], ['values', tr('Values')], ['axis', tr('Value axis')], ...(connTo ? [['connector', tr('Connector')]] : []), ...steps.map(s => [`step:${s.key}`, s.label])].map(([v, l]) => {
         const on = v === obj || v === `step:${stepKey}` && obj === 'step'
         return (
           <button key={v} type="button" role="menuitemradio" aria-checked={on} className="chart-menu__item"
@@ -291,11 +294,11 @@ function BridgeBarInner({ api, pick = {}, anchor, onClose, axisPreview, axisSamp
       })}
     </div>
   )]
-  const addItems = (menus[obj] ?? []).filter(it => it && it !== '-' && !String(it.label).startsWith('Format ') && it.label !== 'Reset formatting')
-  const fullList = [objectCtl, ...(controls[obj] ?? []).filter(Boolean), ...(addItems.length ? [['more', IconPlus, '', 'Add or remove an element (also on right-click)', <ActionMenu items={addItems} onClose={() => setOpenCtl(null)} />]] : [])]
+  const addItems = (menus[obj] ?? []).filter(it => it && it !== '-' && !it.format && !it.reset)
+  const fullList = [objectCtl, ...(controls[obj] ?? []).filter(Boolean), ...(addItems.length ? [['more', IconPlus, '', tr('Add or remove an element (also on right-click)'), <ActionMenu items={addItems} onClose={() => setOpenCtl(null)} />]] : [])]
   // Width is measured: values only, then controls folded behind "⋯" (never a cut word).
   const level = useCompactLevel(ref, String(obj))
-  const list = compactList(fullList, level, { head: 1, tail: addItems.length ? 1 : 0, display: (t, v) => v, pin: openCtl })
+  const list = compactList(fullList, level, { head: 1, tail: addItems.length ? 1 : 0, display: (t, v) => v, pin: openCtl, tr })
 
   const onBarKey = e => {
     if (!e.target.classList?.contains('chart-bar__ctl')) return
@@ -308,7 +311,7 @@ function BridgeBarInner({ api, pick = {}, anchor, onClose, axisPreview, axisSamp
   const isComp = I => typeof I === 'function' || I?.$$typeof === Symbol.for('react.forward_ref')
 
   const bar = (
-    <div className="chart-bar" role="toolbar" aria-label={`Format: ${objName}`} onKeyDown={onBarKey}>
+    <div className="chart-bar" role="toolbar" aria-label={tr('Format: {name}', { name: objName })} onKeyDown={onBarKey}>
       {list.map(([id, Icon, value, title, body], i) => (
         <div key={id} className={`chart-bar__slot${i === 0 ? ' is-object' : ''}`}>
           <button type="button" className={`chart-bar__ctl${value === '' ? ' is-icon' : ''}${openCtl === id ? ' is-open' : ''}`} aria-haspopup="true" aria-expanded={openCtl === id}
@@ -320,13 +323,13 @@ function BridgeBarInner({ api, pick = {}, anchor, onClose, axisPreview, axisSamp
         </div>
       ))}
       {obj === 'bridge' && <>
-        <button type="button" className="chart-bar__text" onClick={() => { api.setSheetOpen(true); onClose() }} title="Open the data sheet (or double-click the bridge)">Data</button>
+        <button type="button" className="chart-bar__text" onClick={() => { api.setSheetOpen(true); onClose() }} title={tr('Open the data sheet (or double-click the bridge)')}>{tr('Data')}</button>
         <span className="chart-wheel__sep" aria-hidden="true" />
         {undo
-          ? <button type="button" className="chart-bar__undo" onClick={restore}>Undo reset</button>
-          : <button type="button" className="chart-bar__text" onClick={resetAll} title="Remove every format change on this bridge (you can undo)">Reset</button>}
+          ? <button type="button" className="chart-bar__undo" onClick={restore}>{tr('Undo reset')}</button>
+          : <button type="button" className="chart-bar__text" onClick={resetAll} title={tr('Remove every format change on this bridge (you can undo)')}>{tr('Reset')}</button>}
       </>}
-      <button type="button" className="chart-bar__icon" onClick={onClose} aria-label="Close" title="Close (Esc)"><IconX size={13} /></button>
+      <button type="button" className="chart-bar__icon" onClick={onClose} aria-label={tr('Close')} title={tr('Close (Esc)')}><IconX size={13} /></button>
     </div>
   )
 
@@ -341,6 +344,7 @@ function BridgeBarInner({ api, pick = {}, anchor, onClose, axisPreview, axisSamp
 
 /** The header settings button: the format bar for the whole bridge. */
 export function BridgeBarButton({ api }) {
+  const tr = useT()
   const [anchor, setAnchor] = useState(null)
   const btnRef = useRef(null)
   if (!api) return null
@@ -353,7 +357,7 @@ export function BridgeBarButton({ api }) {
   return (
     <>
       <button type="button" ref={btnRef} data-wheel-anchor className="chart-opts-btn" onClick={toggle}
-        title="Bridge format: colours, labels, subtotals and sort. Tip: click or right-click any part of the bridge" aria-label="Bridge format" aria-expanded={!!anchor}>
+        title={tr('Bridge format: colours, labels, subtotals and sort. Tip: click or right-click any part of the bridge')} aria-label={tr('Bridge format')} aria-expanded={!!anchor}>
         <IconPalette size={13} />
       </button>
       {anchor && <BridgeBar api={api} pick={{ obj: 'bridge', mode: 'bar' }} anchor={anchor} onClose={() => setAnchor(null)} />}

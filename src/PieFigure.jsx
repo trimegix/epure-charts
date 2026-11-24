@@ -8,12 +8,13 @@
 //   · labelStyle: CSS spread on the labels (the user's label font, size, color).
 import FigureSvg from './FigureSvg.jsx'
 import { tok, fs } from './customStyle.js'
+import { t } from './locale.js'
 
 const none = () => null
 
 /** The figure's numbers, for the hidden data table. */
 function pieTable(scene) {
-  return { head: ['', 'Value', 'Share'], rows: scene.arcs.map(a => [a.label, a.value, `${(a.share * 100).toFixed(1)}%`]) }
+  return { head: ['', t('Value', scene.meta?.locale), t('Share', scene.meta?.locale)], rows: scene.arcs.map(a => [a.label, a.value, `${(a.share * 100).toFixed(1)}%`]) }
 }
 
 export default function PieFigure({ scene, label, responsive = false, dataTable = false, labelStyle = null, part = none, className = 'chart-pie', children = null, ...rest }) {

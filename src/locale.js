@@ -70,6 +70,15 @@ const WORDS = {
     Checked: 'Coché',
     Crossed: 'Barré',
     Unchecked: 'Non coché',
+    Text: 'Texte',
+    Size: 'Taille',
+    Group: 'Groupe',
+    Event: 'Événement',
+    Milestone: 'Jalon',
+    'No value': 'Sans valeur',
+    'Invalid value in the data sheet': 'Valeur non valide dans la feuille de données',
+    'Connector conflict: {text}': 'Conflit de connecteur : {text}',
+    'Overwritten: no longer linked to the data sheet': 'Remplacé : n’est plus lié à la feuille de données',
   },
 }
 
@@ -80,10 +89,27 @@ export const getDefaultLocale = () => defaultLocale
 /** The language a spec reads in. */
 export const localeOf = spec => (spec?.locale === 'en' || WORDS[spec?.locale] ? spec.locale : defaultLocale)
 
-/** An engine word in the chart's language (unknown words are kept). */
-export function t(word, locale = defaultLocale) {
-  return WORDS[locale]?.[word] ?? word
+/**
+ * A word or a sentence in the chart's language (unknown words are kept). The engine's
+ * words and the editing interface's (menus, format bars, messages: src/localeUi.js, added
+ * by the editor with addWords) share this one dictionary. `vars` fills the {name} slots:
+ * t('Hide {name}', 'fr', { name: 'Q3' }) → 'Masquer Q3'.
+ */
+export function t(word, locale = defaultLocale, vars) {
+  const s = WORDS[locale]?.[word] ?? word
+  return vars ? s.replace(/\{(\w+)\}/g, (m, k) => (vars[k] != null ? String(vars[k]) : m)) : s
 }
+
+/**
+ * Adds words to a language: { 'English text': 'translation' }. The editor adds its own
+ * (the static entry stays light without them); an application can complete a language
+ * or add one (then usable as spec.locale).
+ */
+export function addWords(locale, words) {
+  WORDS[locale] = { ...WORDS[locale], ...words }
+}
+/** Whether a word has its own entry in that language ('en' has them all). */
+export const hasWord = (word, locale) => locale === 'en' || WORDS[locale]?.[word] != null
 
 // A formatted number in English punctuation: optional sign and currency, digits with ','
 // thousands and '.' decimals, then an optional magnitude or unit.

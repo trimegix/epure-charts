@@ -8,6 +8,7 @@
 //   · labelStyle: CSS spread on the labels (the user's label font, size, color).
 import FigureSvg from './FigureSvg.jsx'
 import { tok, fs } from './customStyle.js'
+import { t } from './locale.js'
 
 const none = () => null
 
@@ -16,7 +17,7 @@ function slopeTable(scene) {
   const [b, a] = scene.axes.map(x => x.label)
   const withChange = scene.lines.some(l => l.change)
   return {
-    head: ['', b, a, ...(withChange ? ['Change'] : [])],
+    head: ['', b, a, ...(withChange ? [t('Change', scene.meta?.locale)] : [])],
     rows: scene.lines.map(l => [l.label, l.before, l.after, ...(withChange ? [l.change ?? ''] : [])]),
   }
 }

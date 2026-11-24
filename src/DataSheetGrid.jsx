@@ -33,10 +33,12 @@ import { ActionMenu } from './ChartWheel'
 import { colorName } from './colorNames'
 import { IconArrowBackUp, IconArrowForwardUp, IconDots } from '@tabler/icons-react'
 import { tok } from './customStyle.js'
+import { useT } from './uiLocale.js'
 
 // layout: { fixedCols?: true (columns are the chart's fields: no add or remove),
 //           rowsLabel?: 'Slices' | 'Points'..., title? }. The same sheet serves every chart type.
 export default function DataSheet({ api, onClose, layout = {}, colors = {} }) {
+  const tr = useT()
   const fixedCols = !!layout.fixedCols
   // Bar chart rotated to horizontal: categories become sheet rows;
   // rotated AND transposed, the sheet is back upright.
@@ -146,7 +148,7 @@ export default function DataSheet({ api, onClose, layout = {}, colors = {} }) {
         // Accessibility: grid cells (row / column headers included).
         td.setAttribute('role', gy === 0 ? 'columnheader' : gx === 0 ? 'rowheader' : 'gridcell')
         td.classList.toggle('is-hidden', !!(row?.hidden || (xi > 0 && sh.cols[xi - 1]?.hidden)))
-        td.title = cell?.error ? `${cell.error}: this value is ignored by the chart` : cell?.warning ? cell.warning : td.classList.contains('readonly') ? (td.title || 'Read-only: computed by the chart') : ''
+        td.title = cell?.error ? tr('{error}: this value is ignored by the chart', { error: cell.error }) : cell?.warning ? cell.warning : td.classList.contains('readonly') ? (td.title || tr('Read-only: computed by the chart')) : ''
         // Column header left empty in the grid (column just inserted): the name given by the model.
         if (yi === 0 && xi > 0 && !td.textContent.trim() && sh.cols[xi - 1]?.name) td.textContent = sh.cols[xi - 1].name
         // An error cell shows what was typed (in red), never the previous value.
@@ -178,6 +180,20 @@ export default function DataSheet({ api, onClose, layout = {}, colors = {} }) {
     const guardRows = rows => !rows.some(i => i === 0)
     const guardCols = cols => !cols.some(i => i === 0)
 
+    // The grid's own words (its right-click menu, its confirmations) in the chart's language.
+    // Its dictionary is page-wide: every key is set again, to itself in English.
+    jspreadsheet.setDictionary?.({
+      'Insert a new column before': tr('Insert a new column before'), 'Insert a new column after': tr('Insert a new column after'),
+      'Insert a new row before': tr('Insert a new row before'), 'Insert a new row after': tr('Insert a new row after'),
+      'Delete selected columns': tr('Delete selected columns'), 'Delete selected rows': tr('Delete selected rows'),
+      'Rename this column': tr('Rename this column'), 'Column name': tr('Column name'),
+      Copy: tr('Copy'), Paste: tr('Paste'), 'Save as': tr('Save as'), About: tr('About'),
+      'Order ascending': tr('Order ascending'), 'Order descending': tr('Order descending'),
+      Comments: tr('Comments'), 'Clear comments': tr('Clear comments'), 'Merge the selected cells': tr('Merge the selected cells'),
+      'Are you sure to delete the selected columns?': tr('Are you sure to delete the selected columns?'),
+      'Are you sure to delete the selected rows?': tr('Are you sure to delete the selected rows?'),
+      'No cells selected': tr('No cells selected'),
+    })
     const [sheet] = jspreadsheet(el, {
       worksheets: [{
         data: g.matrix,
@@ -256,7 +272,7 @@ export default function DataSheet({ api, onClose, layout = {}, colors = {} }) {
       if (td) sheet.openEditor(td, true)
     }
     return () => { jspreadsheet.destroy(el, true); el.innerHTML = ''; ws.current = null }
-  }, [generation, fixedCols, transposed])
+  }, [generation, fixedCols, transposed, tr])
 
   // After a button, the grid takes focus back on the cell to name (otherwise the
   // first keystroke is lost: focus stayed on the button).
@@ -324,43 +340,49 @@ export default function DataSheet({ api, onClose, layout = {}, colors = {} }) {
     for (const k of ks) { if (allOn) cur.delete(k); else cur.add(k) }
     api.setFmt('pctCols', cur.size ? [...cur] : null)
   }
+  // The row is named by the chart type (row, slice, point, step, task, series).
+  const rowName = layout.rowName ?? 'row'
+  const insertLabel = { row: tr('Insert row above'), slice: tr('Insert slice above'), point: tr('Insert point above'), step: tr('Insert step above'), task: tr('Insert task above'), series: tr('Insert series above') }[rowName]
+    ?? tr('Insert {row} above', { row: rowName })
+  const deleteLabel = { row: tr('Delete selected rows'), slice: tr('Delete selected slices'), point: tr('Delete selected points'), step: tr('Delete selected steps'), task: tr('Delete selected tasks'), series: tr('Delete selected series') }[rowName]
+    ?? tr('Delete selected {rows}', { rows: plural(rowName) })
   const menuItems = [
-    { label: `Insert ${layout.rowName ?? 'row'} above`, onSelect: () => addRow() },
-    !fixedCols && { label: 'Insert column left', onSelect: () => addCol() },
+    { label: insertLabel, onSelect: () => addRow() },
+    !fixedCols && { label: tr('Insert column left'), onSelect: () => addCol() },
     // Waterfall: one more column = one more segment in each step (stacked waterfall).
-    layout.segmentCols && { label: 'Add a segment column', onSelect: () => { document.activeElement?.blur?.(); ws.current?.insertColumn(1, api.sheet.cols.length, false) } },
-    { label: `Delete selected ${plural(layout.rowName ?? 'row')}`, onSelect: () => { const a = firstRow(); if (a >= 1) ws.current?.deleteRow(a - 1, lastRow() - a + 1) } },
-    !fixedCols && { label: 'Delete selected columns', onSelect: () => { const a = firstCol(); if (a >= 1) ws.current?.deleteColumn(a, lastCol() - a + 1) } },
+    layout.segmentCols && { label: tr('Add a segment column'), onSelect: () => { document.activeElement?.blur?.(); ws.current?.insertColumn(1, api.sheet.cols.length, false) } },
+    { label: deleteLabel, onSelect: () => { const a = firstRow(); if (a >= 1) ws.current?.deleteRow(a - 1, lastRow() - a + 1) } },
+    !fixedCols && { label: tr('Delete selected columns'), onSelect: () => { const a = firstCol(); if (a >= 1) ws.current?.deleteColumn(a, lastCol() - a + 1) } },
     '-',
-    { label: 'Cut', shortcut: 'Ctrl+X', onSelect: () => ws.current?.copy?.(true) },
-    { label: 'Copy whole sheet', onSelect: () => navigator.clipboard?.writeText(toTSV(api.sheet)) },
-    { label: 'Hide / show selected rows or columns', onSelect: () => toggleHide() },
+    { label: tr('Cut'), shortcut: 'Ctrl+X', onSelect: () => ws.current?.copy?.(true) },
+    { label: tr('Copy whole sheet'), onSelect: () => navigator.clipboard?.writeText(toTSV(api.sheet)) },
+    { label: tr('Hide / show selected rows or columns'), onSelect: () => toggleHide() },
     // Sort (the sheet order is the chart order).
-    { label: 'Sort rows by this column, ascending', onSelect: () => sortBy('asc') },
-    { label: 'Sort rows by this column, descending', onSelect: () => sortBy('desc') },
-    api.edits?.rowOrder && { label: 'Original row order', onSelect: () => sortBy(null) },
+    { label: tr('Sort rows by this column, ascending'), onSelect: () => sortBy('asc') },
+    { label: tr('Sort rows by this column, descending'), onSelect: () => sortBy('desc') },
+    api.edits?.rowOrder && { label: tr('Original row order'), onSelect: () => sortBy(null) },
     '-',
-    api.setFmt && { label: 'Transpose (series in columns)', checked: !!fmt.transpose, onSelect: () => api.setFmt('transpose', fmt.transpose ? null : true) },
-    api.setFmt && { label: 'Reverse rows', checked: fmt.seriesOrder === 'reverse', onSelect: () => api.setFmt('seriesOrder', fmt.seriesOrder === 'reverse' ? null : 'reverse') },
-    api.setFmt && { label: 'Reverse columns', checked: fmt.catOrder === 'reverse', onSelect: () => api.setFmt('catOrder', fmt.catOrder === 'reverse' ? null : 'reverse') },
-    api.setFmt && { label: 'Empty cells make a gap', checked: fmt.gaps === 'break', onSelect: () => { api.setFmt('emptyZero', null); api.setFmt('gaps', fmt.gaps === 'break' ? null : 'break') } },
-    api.setFmt && { label: 'Empty cells count as zero', checked: !!fmt.emptyZero, onSelect: () => { api.setFmt('gaps', null); api.setFmt('emptyZero', fmt.emptyZero ? null : true) } },
-    api.setFmt && { label: '% entry for selected columns', checked: (fmt.pctCols ?? []).length > 0, disabled: !api.bars || api.bars === 'clustered', title: 'Stacked charts only: the column reads as % of its 100%= row', onSelect: () => togglePct() },
-    api.setFmt && { label: 'Use the sheet number and date format on labels', checked: !!fmt.sheetFormat, onSelect: () => api.setFmt('sheetFormat', fmt.sheetFormat ? null : true) },
+    api.setFmt && { label: tr('Transpose (series in columns)'), checked: !!fmt.transpose, onSelect: () => api.setFmt('transpose', fmt.transpose ? null : true) },
+    api.setFmt && { label: tr('Reverse rows'), checked: fmt.seriesOrder === 'reverse', onSelect: () => api.setFmt('seriesOrder', fmt.seriesOrder === 'reverse' ? null : 'reverse') },
+    api.setFmt && { label: tr('Reverse columns'), checked: fmt.catOrder === 'reverse', onSelect: () => api.setFmt('catOrder', fmt.catOrder === 'reverse' ? null : 'reverse') },
+    api.setFmt && { label: tr('Empty cells make a gap'), checked: fmt.gaps === 'break', onSelect: () => { api.setFmt('emptyZero', null); api.setFmt('gaps', fmt.gaps === 'break' ? null : 'break') } },
+    api.setFmt && { label: tr('Empty cells count as zero'), checked: !!fmt.emptyZero, onSelect: () => { api.setFmt('gaps', null); api.setFmt('emptyZero', fmt.emptyZero ? null : true) } },
+    api.setFmt && { label: tr('% entry for selected columns'), checked: (fmt.pctCols ?? []).length > 0, disabled: !api.bars || api.bars === 'clustered', title: tr('Stacked charts only: the column reads as % of its 100%= row'), onSelect: () => togglePct() },
+    api.setFmt && { label: tr('Use the sheet number and date format on labels'), checked: !!fmt.sheetFormat, onSelect: () => api.setFmt('sheetFormat', fmt.sheetFormat ? null : true) },
     // "Use Datasheet Bold/Italic, Font Color, Alignment, Border": the cells' text styling applied to labels.
-    api.setFmt && { label: 'Use the sheet font on labels (bold, italic, color, alignment, border)', checked: !!fmt.sheetFont, onSelect: () => api.setFmt('sheetFont', fmt.sheetFont ? null : true) },
-    api.setFmt && { label: 'Second label row', checked: !!fmt.subRow, onSelect: () => api.setFmt('subRow', fmt.subRow ? null : true) },
+    api.setFmt && { label: tr('Use the sheet font on labels (bold, italic, color, alignment, border)'), checked: !!fmt.sheetFont, onSelect: () => api.setFmt('sheetFont', fmt.sheetFont ? null : true) },
+    api.setFmt && { label: tr('Second label row'), checked: !!fmt.subRow, onSelect: () => api.setFmt('subRow', fmt.subRow ? null : true) },
     // Layout ("Edit Data Layout"): optional sheet rows and columns.
-    api.setFmt && api.bars && api.bars !== 'clustered' && { label: '100%= row', checked: fmt.base100Row ?? api.bars === 'stacked100', onSelect: () => api.setFmt('base100Row', !(fmt.base100Row ?? api.bars === 'stacked100')) },
-    api.setFmt && { label: 'Series names shown on the chart', checked: fmt.legend !== 'none', onSelect: () => api.setFmt('legend', fmt.legend === 'none' ? null : 'none') },
-    api.setFmt && { label: 'Category labels shown on the chart', checked: fmt.xAxis?.labels !== false, onSelect: () => api.setFmt('xAxis.labels', fmt.xAxis?.labels === false ? null : false) },
+    api.setFmt && api.bars && api.bars !== 'clustered' && { label: tr('100%= row'), checked: fmt.base100Row ?? api.bars === 'stacked100', onSelect: () => api.setFmt('base100Row', !(fmt.base100Row ?? api.bars === 'stacked100')) },
+    api.setFmt && { label: tr('Series names shown on the chart'), checked: fmt.legend !== 'none', onSelect: () => api.setFmt('legend', fmt.legend === 'none' ? null : 'none') },
+    api.setFmt && { label: tr('Category labels shown on the chart'), checked: fmt.xAxis?.labels !== false, onSelect: () => api.setFmt('xAxis.labels', fmt.xAxis?.labels === false ? null : false) },
     // "Enable Data Tables": every series except the first goes below the axis, as a table;
     // kept as the default layout, it applies to future charts.
-    api.setFmt && { label: 'Data table: all series but the first', checked: !!fmt.tableAll, onSelect: () => api.setFmt('tableAll', fmt.tableAll ? null : true) },
+    api.setFmt && { label: tr('Data table: all series but the first'), checked: !!fmt.tableAll, onSelect: () => api.setFmt('tableAll', fmt.tableAll ? null : true) },
     // The user's default layout: applied to sheets that have none of their own.
-    api.setFmt && { label: 'Use this layout as my default', onSelect: () => { try { localStorage.setItem('epure-chart-sheet-layout', JSON.stringify(Object.fromEntries(LAYOUT_KEYS.map(k => [k, fmt[k] ?? null])))) } catch { /* private mode */ } } },
+    api.setFmt && { label: tr('Use this layout as my default'), onSelect: () => { try { localStorage.setItem('epure-chart-sheet-layout', JSON.stringify(Object.fromEntries(LAYOUT_KEYS.map(k => [k, fmt[k] ?? null])))) } catch { /* private mode */ } } },
     api.setFmt && '-',
-    { label: 'Reset to source', disabled: !api.sheetEdited, onSelect: () => { api.resetSheet(); setGeneration(n => n + 1) } },
+    { label: tr('Reset to source'), disabled: !api.sheetEdited, onSelect: () => { api.resetSheet(); setGeneration(n => n + 1) } },
   ]
   const errorCount = (api.sheet?.rows ?? []).reduce((t, r) => t + r.cells.filter(c => c.error).length, 0)
   const warning = (api.sheet?.rows ?? []).flatMap(r => r.cells.filter(c => c.warning).map(c => c.warning))[0]
@@ -391,21 +413,21 @@ export default function DataSheet({ api, onClose, layout = {}, colors = {} }) {
   }
 
   return (
-    <div ref={rootRef} className="chart-datasheet" role="region" aria-label="Data sheet" onKeyDown={onKey} style={sheetW ? { width: sheetW } : undefined}>
+    <div ref={rootRef} className="chart-datasheet" role="region" aria-label={tr('Data sheet')} onKeyDown={onKey} style={sheetW ? { width: sheetW } : undefined}>
       <div className="chart-datasheet__head">
         {/* Help as the title tooltip; the state (edited or not) in one word. */}
-        <span className="chart-datasheet__title" title="Type values or formulas (=B2*2, =IF(B2>10,1,0), =SUMIF(B2:F2,&quot;>0&quot;), =VLOOKUP(&quot;EBITDA&quot;,A2:F9,3,FALSE)); paste from Excel; right-click a header to insert or delete. Edits here are not the reported data.">{layout.title ?? 'Sheet · series'}</span>
-        <span className="chart-datasheet__note">{api.sheetEdited ? 'Edited' : 'Reported data'}{transposed ? ' · transposed' : ''}{errorCount > 0 && <span className="chart-engine-edited-err"> · {errorCount} error{errorCount > 1 ? 's' : ''} (ignored)</span>}{warning && <span className="chart-engine-edited-warn" title={warning}> · check: {warning.split(':')[0]}</span>}</span>
-        <button type="button" className="chart-editor-pill is-icon" title="Undo (Ctrl+Z)" aria-label="Undo" onClick={() => ws.current?.undo()}><IconArrowBackUp size={14} /></button>
-        <button type="button" className="chart-editor-pill is-icon" title="Redo (Ctrl+Y)" aria-label="Redo" onClick={() => ws.current?.redo()}><IconArrowForwardUp size={14} /></button>
+        <span className="chart-datasheet__title" title={tr('Type values or formulas (=B2*2, =IF(B2>10,1,0), =SUMIF(B2:F2,">0"), =VLOOKUP("EBITDA",A2:F9,3,FALSE)); paste from Excel; right-click a header to insert or delete. Edits here are not the reported data.')}>{tr(layout.title ?? 'Sheet · series')}</span>
+        <span className="chart-datasheet__note">{api.sheetEdited ? tr('Edited') : tr('Reported data')}{transposed ? ` · ${tr('transposed')}` : ''}{errorCount > 0 && <span className="chart-engine-edited-err"> · {errorCount > 1 ? tr('{n} errors (ignored)', { n: errorCount }) : tr('{n} error (ignored)', { n: errorCount })}</span>}{warning && <span className="chart-engine-edited-warn" title={warning}> · {tr('check: {what}', { what: warning.split(':')[0] })}</span>}</span>
+        <button type="button" className="chart-editor-pill is-icon" title={tr('Undo (Ctrl+Z)')} aria-label={tr('Undo')} onClick={() => ws.current?.undo()}><IconArrowBackUp size={14} /></button>
+        <button type="button" className="chart-editor-pill is-icon" title={tr('Redo (Ctrl+Y)')} aria-label={tr('Redo')} onClick={() => ws.current?.redo()}><IconArrowForwardUp size={14} /></button>
         {/* Fill color of the selected cells (column A = the whole row): it colors the chart. */}
         <span className="chart-datasheet__fill">
-          <button type="button" className={`chart-editor-pill${fillOpen ? ' is-on' : ''}`} aria-expanded={fillOpen} title="Fill color of the selected cells (column A: the whole series); the chart uses it" onClick={() => { setMenuOpen(false); setFillOpen(o => !o) }}>
-            {activeFill && <span className="chart-datasheet__dot" style={{ background: tok(activeFill) }} />}Fill ▾</button>
+          <button type="button" className={`chart-editor-pill${fillOpen ? ' is-on' : ''}`} aria-expanded={fillOpen} title={tr('Fill color of the selected cells (column A: the whole series); the chart uses it')} onClick={() => { setMenuOpen(false); setFillOpen(o => !o) }}>
+            {activeFill && <span className="chart-datasheet__dot" style={{ background: tok(activeFill) }} />}{tr('Fill')} ▾</button>
           {fillOpen && (
-            <span className="chart-datasheet__swatches" role="group" aria-label="Fill colors">
+            <span className="chart-datasheet__swatches" role="group" aria-label={tr('Fill colors')}>
               {FILLS.map(t => (
-                <button key={t ?? 'none'} type="button" className={`chart-datasheet__swatch${t === (activeFill ?? null) ? ' is-on' : ''}`} title={t ? colorName(t) : 'No fill'} aria-label={t ? `Fill ${colorName(t)}` : 'No fill'} aria-pressed={t === (activeFill ?? null)}
+                <button key={t ?? 'none'} type="button" className={`chart-datasheet__swatch${t === (activeFill ?? null) ? ' is-on' : ''}`} title={t ? colorName(t) : tr('No fill')} aria-label={t ? tr('Fill {color}', { color: colorName(t) }) : tr('No fill')} aria-pressed={t === (activeFill ?? null)}
                   style={t ? { background: tok(t) } : undefined} onClick={() => { applyFill(t); setFillOpen(false) }}>{t ? (t === activeFill ? '✓' : '') : '×'}</button>
               ))}
             </span>
@@ -413,23 +435,23 @@ export default function DataSheet({ api, onClose, layout = {}, colors = {} }) {
         </span>
         {/* Cell text (bold, italic, color, alignment, border): "Use datasheet font" on the chart side. */}
         {api.applyEdits && api.sheet?.rows?.[0]?.cells?.[0] && 'font' in api.sheet.rows[0].cells[0] && <span className="chart-datasheet__fill">
-          <button type="button" className={`chart-editor-pill is-icon${activeFont.bold ? ' is-on' : ''}`} title="Bold (the chart can use it: Use sheet font)" aria-label="Bold" aria-pressed={!!activeFont.bold} onClick={() => applyFont({ bold: !activeFont.bold })} style={{ fontWeight: 700 }}>B</button>
-          <button type="button" className={`chart-editor-pill is-icon${activeFont.italic ? ' is-on' : ''}`} title="Italic" aria-label="Italic" aria-pressed={!!activeFont.italic} onClick={() => applyFont({ italic: !activeFont.italic })} style={{ fontStyle: 'italic' }}>I</button>
-          <button type="button" className={`chart-editor-pill${textOpen ? ' is-on' : ''}`} aria-expanded={textOpen} title="Text color, alignment and border of the selected cells" onClick={() => { setMenuOpen(false); setFillOpen(false); setTextOpen(o => !o) }}>
-            {activeFont.color && <span className="chart-datasheet__dot" style={{ background: tok(activeFont.color) }} />}Text ▾</button>
+          <button type="button" className={`chart-editor-pill is-icon${activeFont.bold ? ' is-on' : ''}`} title={tr('Bold (the chart can use it: Use sheet font)')} aria-label={tr('Bold')} aria-pressed={!!activeFont.bold} onClick={() => applyFont({ bold: !activeFont.bold })} style={{ fontWeight: 700 }}>B</button>
+          <button type="button" className={`chart-editor-pill is-icon${activeFont.italic ? ' is-on' : ''}`} title={tr('Italic')} aria-label={tr('Italic')} aria-pressed={!!activeFont.italic} onClick={() => applyFont({ italic: !activeFont.italic })} style={{ fontStyle: 'italic' }}>I</button>
+          <button type="button" className={`chart-editor-pill${textOpen ? ' is-on' : ''}`} aria-expanded={textOpen} title={tr('Text color, alignment and border of the selected cells')} onClick={() => { setMenuOpen(false); setFillOpen(false); setTextOpen(o => !o) }}>
+            {activeFont.color && <span className="chart-datasheet__dot" style={{ background: tok(activeFont.color) }} />}{tr('Text')} ▾</button>
           {textOpen && (
-            <span className="chart-datasheet__swatches" role="group" aria-label="Text format">
+            <span className="chart-datasheet__swatches" role="group" aria-label={tr('Text format')}>
               {FILLS.map(t => (
-                <button key={t ?? 'none'} type="button" className={`chart-datasheet__swatch${t === (activeFont.color ?? null) ? ' is-on' : ''}`} title={t ? colorName(t) : 'Default color'} aria-label={t ? `Text ${colorName(t)}` : 'Default text color'}
+                <button key={t ?? 'none'} type="button" className={`chart-datasheet__swatch${t === (activeFont.color ?? null) ? ' is-on' : ''}`} title={t ? colorName(t) : tr('Default color')} aria-label={t ? tr('Text {color}', { color: colorName(t) }) : tr('Default text color')}
                   style={t ? { background: tok(t) } : undefined} onClick={() => applyFont({ color: t })}>{t ? '' : '×'}</button>
               ))}
-              {[['left', '⇤'], ['center', '↔'], ['right', '⇥']].map(([v, g]) => (
-                <button key={v} type="button" className={`chart-datasheet__swatch${activeFont.align === v ? ' is-on' : ''}`} title={`Align ${v}`} aria-label={`Align ${v}`} onClick={() => applyFont({ align: activeFont.align === v ? null : v })}>{g}</button>
+              {[['left', '⇤', tr('Align left')], ['center', '↔', tr('Align center')], ['right', '⇥', tr('Align right')]].map(([v, g, name]) => (
+                <button key={v} type="button" className={`chart-datasheet__swatch${activeFont.align === v ? ' is-on' : ''}`} title={name} aria-label={name} onClick={() => applyFont({ align: activeFont.align === v ? null : v })}>{g}</button>
               ))}
-              {[['top', '⤒'], ['middle', '↕'], ['bottom', '⤓']].map(([v, g]) => (
-                <button key={v} type="button" className={`chart-datasheet__swatch${activeFont.valign === v ? ' is-on' : ''}`} title={`Align ${v}`} aria-label={`Align ${v}`} onClick={() => applyFont({ valign: activeFont.valign === v ? null : v })}>{g}</button>
+              {[['top', '⤒', tr('Align top')], ['middle', '↕', tr('Align middle')], ['bottom', '⤓', tr('Align bottom')]].map(([v, g, name]) => (
+                <button key={v} type="button" className={`chart-datasheet__swatch${activeFont.valign === v ? ' is-on' : ''}`} title={name} aria-label={name} onClick={() => applyFont({ valign: activeFont.valign === v ? null : v })}>{g}</button>
               ))}
-              <button type="button" className={`chart-datasheet__swatch${activeFont.border ? ' is-on' : ''}`} title="Border" aria-label="Border" onClick={() => applyFont({ border: !activeFont.border })}>▢</button>
+              <button type="button" className={`chart-datasheet__swatch${activeFont.border ? ' is-on' : ''}`} title={tr('Border')} aria-label={tr('Border')} onClick={() => applyFont({ border: !activeFont.border })}>▢</button>
             </span>
           )}
         </span>}
@@ -440,24 +462,24 @@ export default function DataSheet({ api, onClose, layout = {}, colors = {} }) {
           const rid = activeRow.id, ck = mx > 0 ? api.sheet.cols[mx - 1]?.key : null
           const rowIn = !!api.fmt.tableAll || tbl.includes(rid)
           return <>
-            <button type="button" className="chart-editor-pill" title={rowIn ? 'Move this series back to the chart' : 'Move this series to the data table under the axis'}
+            <button type="button" className="chart-editor-pill" title={rowIn ? tr('Move this series back to the chart') : tr('Move this series to the data table under the axis')}
               disabled={!!api.fmt.tableAll}
-              onClick={() => api.setFmt('table', rowIn ? (tbl.filter(x => x !== rid).length ? tbl.filter(x => x !== rid) : null) : [...tbl, rid])}>{rowIn ? 'Series → chart' : 'Series → table'}</button>
-            {ck && <button type="button" className="chart-editor-pill" title={cols.includes(ck) ? 'Move this category back to the chart' : 'Move this category to a table column at the right'}
-              onClick={() => api.setFmt('tableCols', cols.includes(ck) ? (cols.filter(x => x !== ck).length ? cols.filter(x => x !== ck) : null) : [...cols, ck])}>{cols.includes(ck) ? 'Category → chart' : 'Category → table'}</button>}
+              onClick={() => api.setFmt('table', rowIn ? (tbl.filter(x => x !== rid).length ? tbl.filter(x => x !== rid) : null) : [...tbl, rid])}>{rowIn ? tr('Series → chart') : tr('Series → table')}</button>
+            {ck && <button type="button" className="chart-editor-pill" title={cols.includes(ck) ? tr('Move this category back to the chart') : tr('Move this category to a table column at the right')}
+              onClick={() => api.setFmt('tableCols', cols.includes(ck) ? (cols.filter(x => x !== ck).length ? cols.filter(x => x !== ck) : null) : [...cols, ck])}>{cols.includes(ck) ? tr('Category → chart') : tr('Category → table')}</button>}
           </>
         })()}
         <span className="chart-datasheet__menu">
-          <button type="button" className={`chart-editor-pill is-icon${menuOpen ? ' is-on' : ''}`} aria-haspopup="menu" aria-expanded={menuOpen} title="Insert, delete, cut, layout, reset" aria-label="More sheet actions" onClick={() => { setFillOpen(false); setMenuOpen(o => !o) }}><IconDots size={14} /></button>
+          <button type="button" className={`chart-editor-pill is-icon${menuOpen ? ' is-on' : ''}`} aria-haspopup="menu" aria-expanded={menuOpen} title={tr('Insert, delete, cut, layout, reset')} aria-label={tr('More sheet actions')} onClick={() => { setFillOpen(false); setMenuOpen(o => !o) }}><IconDots size={14} /></button>
           {menuOpen && <div className="chart-datasheet__menu-pop" style={{ position: 'absolute', top: '100%', right: 0, zIndex: 20, background: 'var(--white)', boxShadow: '0 6px 18px rgba(0,0,0,.12)', borderRadius: 8 }}><ActionMenu items={menuItems} onClose={() => { setMenuOpen(false); focusCell(Math.max(1, active.x), Math.max(1, active.y)) }} /></div>}
         </span>
-        <button type="button" className="chart-editor-bar__close" onClick={onClose} aria-label="Close data sheet (Esc)" title="Close (Esc)">×</button>
+        <button type="button" className="chart-editor-bar__close" onClick={onClose} aria-label={tr('Close data sheet (Esc)')} title={tr('Close (Esc)')}>×</button>
       </div>
       <div className="chart-datasheet__fx">
         <span className="chart-datasheet__fx-ref">{active.x === 0 && active.y === 0 ? '' : `${colLetter(active.x)}${active.y + 1}`}</span>
         <span className="chart-datasheet__fx-label" aria-hidden="true">fx</span>
         {/* A line break (Alt+Enter) shows as "↵" here and comes back unchanged on commit. */}
-        <input key={`${active.x}:${active.y}:${activeRaw}`} className="chart-opts-input chart-datasheet__fx-input" aria-label="Formula bar: raw content of the active cell" defaultValue={String(activeRaw).replace(/\n/g, ' ↵ ')}
+        <input key={`${active.x}:${active.y}:${activeRaw}`} className="chart-opts-input chart-datasheet__fx-input" aria-label={tr('Formula bar: raw content of the active cell')} defaultValue={String(activeRaw).replace(/\n/g, ' ↵ ')}
           onKeyDown={e => {
             if (e.key === 'Enter') { e.preventDefault(); ws.current?.setValueFromCoords(active.x, active.y, e.currentTarget.value.replace(/ ?↵ ?/g, '\n')); focusCell(active.x, active.y) }
             if (e.key === 'Escape') { e.currentTarget.value = String(activeRaw).replace(/\n/g, ' ↵ '); focusCell(active.x, active.y) }
@@ -466,10 +488,10 @@ export default function DataSheet({ api, onClose, layout = {}, colors = {} }) {
       {/* Optional sheet rows ("Edit data layout"): a second label
           under each category; the "100 %=" row in 100 % charts. */}
       {api.fmt?.subRow && (
-        <div className="chart-datasheet__base100" role="group" aria-label="Second label row">
-          <span className="chart-datasheet__base100-head" title="A second line under each category label">2nd label</span>
+        <div className="chart-datasheet__base100" role="group" aria-label={tr('Second label row')}>
+          <span className="chart-datasheet__base100-head" title={tr('A second line under each category label')}>{tr('2nd label')}</span>
           {api.sheet.cols.map(c => (
-            <input key={c.key} className="chart-opts-input" aria-label={`Second label for ${c.name}`} placeholder="—"
+            <input key={c.key} className="chart-opts-input" aria-label={tr('Second label for {name}', { name: c.name })} placeholder="—"
               defaultValue={api.fmt?.subLabels?.[c.key] ?? ''}
               onBlur={e => { const v = e.currentTarget.value.trim(); api.setFmt('subLabels', { ...(api.fmt?.subLabels ?? {}), [c.key]: v || undefined }) }}
               onKeyDown={e => { if (e.key === 'Enter') e.currentTarget.blur() }} />
@@ -478,20 +500,20 @@ export default function DataSheet({ api, onClose, layout = {}, colors = {} }) {
       )}
       {/* "100 %=" row: in 100 % charts, each column reads against this base; empty = its sum. */}
       {(api.fmt?.base100Row ?? api.bars === 'stacked100') && api.bars && api.bars !== 'clustered' && (
-        <div className="chart-datasheet__base100" role="group" aria-label="100% equals row">
-          <span className="chart-datasheet__base100-head" title="Each column reads against this value; empty = the sum of the column">100%=</span>
+        <div className="chart-datasheet__base100" role="group" aria-label={tr('100% equals row')}>
+          <span className="chart-datasheet__base100-head" title={tr('Each column reads against this value; empty = the sum of the column')}>100%=</span>
           {api.sheet.cols.map(c => (
-            <input key={c.key} className="chart-opts-input" aria-label={`100% equals for ${c.name}`} placeholder="sum"
+            <input key={c.key} className="chart-opts-input" aria-label={tr('100% equals for {name}', { name: c.name })} placeholder={tr('sum')}
               defaultValue={api.fmt?.base100?.[c.key] ?? ''}
               onBlur={e => { const v = parseCell(e.currentTarget.value); api.setFmt('base100', { ...(api.fmt?.base100 ?? {}), [c.key]: v ?? undefined }) }}
               onKeyDown={e => { if (e.key === 'Enter') e.currentTarget.blur() }} />
           ))}
         </div>
       )}
-      <div ref={host} role="grid" className="chart-datasheet__grid" aria-label={`Spreadsheet, columns A to ${colLetter((api.sheet.cols.length))}`} />
+      <div ref={host} role="grid" className="chart-datasheet__grid" aria-label={tr('Spreadsheet, columns A to {last}', { last: colLetter((api.sheet.cols.length)) })} />
       {/* Right-edge handle: drag to widen or narrow, double-click for full width. */}
-      <div className="chart-datasheet__resize" role="separator" aria-orientation="vertical" aria-label="Resize data sheet width" tabIndex={0}
-        title="Drag to resize · double-click for full width" onPointerDown={onResizeDown} onDoubleClick={() => saveW(null)}
+      <div className="chart-datasheet__resize" role="separator" aria-orientation="vertical" aria-label={tr('Resize data sheet width')} tabIndex={0}
+        title={tr('Drag to resize · double-click for full width')} onPointerDown={onResizeDown} onDoubleClick={() => saveW(null)}
         onKeyDown={e => { if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') { e.preventDefault(); e.stopPropagation(); saveW(resizeBy(rootRef.current.getBoundingClientRect().width, e.key === 'ArrowLeft' ? -24 : 24)) } }} />
     </div>
   )

@@ -22,6 +22,7 @@ import { mekkoSheet } from './sheetAdapters.js'
 // A color: a palette token, or a hex picked by the user (custom style).
 import { tok, fs, labelTextStyle, schemeMap, styleSummary } from './customStyle.js'
 import { SchemeTools, TextStyle } from './CustomStyle.jsx'
+import { SpecLocale, useT } from './uiLocale.js'
 const PALETTE = [...COLOR_TOKENS, ...NEUTRAL_TOKENS]
 const DEFAULTS = { netLines: null, mode: null, labels: null, totals: null, widths: null, sort: null, gap: null, legend: null, other: null, segmentOrder: null, xLabels: null, outline: null, ridges: null, extent: null, toOther: null, valueLine: null, hundred: null, grandTotal: null, table: null, seriesColors: {}, cellColors: {} }
 
@@ -54,7 +55,14 @@ const colorName = t => COLOR_NAME[t] ?? String(t ?? '').replace(/-\d+$/, '')
 // readOnly: the figure only: no format bar, menus, data sheet or per-browser preferences.
 // responsive: the SVG scales to its container (width="100%", ratio kept); dataTable: a
 // visually hidden table of the numbers next to the SVG.
-export default function MekkoView({ id = 'mekko', spec: specIn = {}, columns: columnsIn = [], format, height = 320, label = 'Mekko chart', width: widthProp, readOnly = false, responsive = false, dataTable = false, applyPrefs = false }) {
+// The interface (menus, format bar, messages) speaks the spec's language (spec.locale).
+export default function MekkoView(props) {
+  return <SpecLocale spec={props.spec}><MekkoViewBody {...props} /></SpecLocale>
+}
+
+function MekkoViewBody({ id = 'mekko', spec: specIn = {}, columns: columnsIn = [], format, height = 320, label: labelIn, width: widthProp, readOnly = false, responsive = false, dataTable = false, applyPrefs = false }) {
+  const tr = useT()
+  const label = labelIn ?? tr('Mekko chart')
   // readOnly + applyPrefs: the stored settings and sheet edits drawn, no editing control.
   const plain = readOnly && !applyPrefs
   const boxRef = useRef(null)
@@ -98,7 +106,7 @@ export default function MekkoView({ id = 'mekko', spec: specIn = {}, columns: co
   const seriesOf = sid => (spec.series ?? []).find(s => s.id === sid)
   const percent = (spec.mode ?? 'percent') === 'percent'
   const xLabels = spec.widths === false ? 'none' : (spec.xLabels ?? 'share')
-  const ORDER = { sheet: 'sheet', reverse: 'reversed', desc: 'largest at bottom', asc: 'smallest at bottom' }
+  const ORDER = { sheet: tr('sheet'), reverse: tr('reversed'), desc: tr('largest at bottom'), asc: tr('smallest at bottom') }
   // "Move to Other": a whole series, or this single segment; "Restore" takes them back out.
   const pooled = new Set(spec.toOther ?? [])
   const addOther = k => set('toOther', [...pooled, k])
@@ -111,145 +119,145 @@ export default function MekkoView({ id = 'mekko', spec: specIn = {}, columns: co
 
   const objects = {
     chart: { name: 'Mekko', icon: IconLayoutBoard },
-    ...(pick?.obj === 'valueline' && scene?.valueLine ? { valueline: { name: 'Value line', icon: IconArrowsVertical } } : {}),
-    ...(pick?.obj === 'tablerow' ? { tablerow: { name: `Table row · ${seriesOf(pick.key)?.label ?? ''}`, icon: IconLayoutList } } : {}),
-    ...(seg ? { segment: { name: `${seriesOf(seg.seriesId)?.label ?? 'Other'} · ${col?.label}`, icon: IconChartBar } } : {}),
-    labels: { name: 'Labels', icon: IconTag },
-    yaxis: { name: 'Value axis', icon: IconArrowsVertical },
-    legend: { name: 'Legend', icon: IconLayoutList },
+    ...(pick?.obj === 'valueline' && scene?.valueLine ? { valueline: { name: tr('Value line'), icon: IconArrowsVertical } } : {}),
+    ...(pick?.obj === 'tablerow' ? { tablerow: { name: tr('Table row · {name}', { name: seriesOf(pick.key)?.label ?? '' }), icon: IconLayoutList } } : {}),
+    ...(seg ? { segment: { name: `${seriesOf(seg.seriesId)?.label ?? tr('Other')} · ${col?.label}`, icon: IconChartBar } } : {}),
+    labels: { name: tr('Labels'), icon: IconTag },
+    yaxis: { name: tr('Value axis'), icon: IconArrowsVertical },
+    legend: { name: tr('Legend'), icon: IconLayoutList },
   }
   const controls = {
     chart: [
-      ['scheme', null, `Colors: ${P.schemeName ?? 'default'}`, 'Color schemes (named, saved by browser)', (
+      ['scheme', null, tr('Colors: {name}', { name: P.schemeName ?? tr('default') }), tr('Color schemes (named, saved by browser)'), (
         <SchemeTools current={spec.series.map(s => scene?.segments.find(g => g.seriesId === s.id)?.color ?? s.color ?? 'gray-400')} active={P.schemeName}
           onApply={sc => { if (sc) set('seriesColors', schemeMap(spec.series.map(s => s.id), sc.colors)); set('schemeName', sc?.name ?? null) }} />
       )],
-      ['mode', null, `Axis: ${percent ? '%' : 'units'}`, 'Mekko in % or in units', (
-        <Line label="Axis"><Seg label="Mekko mode" value={percent ? 'percent' : 'units'} onPick={v => set('mode', v === 'percent' ? null : v)} items={[['percent', '% (shares)'], ['units', 'Units (values)']]} /></Line>
+      ['mode', null, tr('Axis: {name}', { name: percent ? '%' : tr('units') }), tr('Mekko in % or in units'), (
+        <Line label={tr('Axis')}><Seg label={tr('Mekko mode')} value={percent ? 'percent' : 'units'} onPick={v => set('mode', v === 'percent' ? null : v)} items={[['percent', tr('% (shares)')], ['units', tr('Units (values)')]]} /></Line>
       )],
-      ['order', null, `Order: ${{ desc: 'largest first', asc: 'smallest first' }[spec.sort] ?? 'sheet'}`, 'Column order', (
-        <Line label="Order"><Seg label="Column order" value={spec.sort ?? null} onPick={v => set('sort', v)} items={[[null, 'Sheet'], ['desc', 'Largest first'], ['asc', 'Smallest first']]} /></Line>
+      ['order', null, tr('Order: {name}', { name: { desc: tr('largest first'), asc: tr('smallest first') }[spec.sort] ?? tr('sheet') }), tr('Column order'), (
+        <Line label={tr('Order')}><Seg label={tr('Column order')} value={spec.sort ?? null} onPick={v => set('sort', v)} items={[[null, tr('Sheet')], ['desc', tr('Largest first')], ['asc', tr('Smallest first')]]} /></Line>
       )],
-      ['segorder', null, `Segments: ${ORDER[spec.segmentOrder ?? 'sheet']}`, 'Order of the segments within each column', (
-        <Line label="Order"><Seg label="Segment order" value={spec.segmentOrder ?? 'sheet'} onPick={v => set('segmentOrder', v === 'sheet' ? null : v)} items={[['sheet', 'Sheet'], ['reverse', 'Reverse'], ['desc', 'Largest at bottom'], ['asc', 'Smallest at bottom']]} /></Line>
+      ['segorder', null, tr('Segments: {name}', { name: ORDER[spec.segmentOrder ?? 'sheet'] }), tr('Order of the segments within each column'), (
+        <Line label={tr('Order')}><Seg label={tr('Segment order')} value={spec.segmentOrder ?? 'sheet'} onPick={v => set('segmentOrder', v === 'sheet' ? null : v)} items={[['sheet', tr('Sheet')], ['reverse', tr('Reverse')], ['desc', tr('Largest at bottom')], ['asc', tr('Smallest at bottom')]]} /></Line>
       )],
-      scene?.hasExtent && ['extent', null, `Widths: ${scene.extent ? 'width row' : 'column totals'}`, 'What sets the column widths', (
+      scene?.hasExtent && ['extent', null, tr('Widths: {name}', { name: scene.extent ? tr('width row') : tr('column totals') }), tr('What sets the column widths'), (
         <>
-          <Line label="Widths"><Seg label="Column widths" value={scene.extent ? 'row' : 'totals'} onPick={v => set('extent', v === 'row' ? null : false)} items={[['row', 'Width row (units)'], ['totals', 'Column totals']]} /></Line>
-          <div className="chart-pop__note">The width row sets each column's X extent independently of its height.</div>
+          <Line label={tr('Widths')}><Seg label={tr('Column widths')} value={scene.extent ? 'row' : 'totals'} onPick={v => set('extent', v === 'row' ? null : false)} items={[['row', tr('Width row (units)')], ['totals', tr('Column totals')]]} /></Line>
+          <div className="chart-pop__note">{tr("The width row sets each column's X extent independently of its height.")}</div>
         </>
       )],
-      ['show', null, `Totals: ${spec.totals ? 'shown' : 'off'}`, 'What the chart shows', (
+      ['show', null, tr('Totals: {name}', { name: spec.totals ? tr('shown') : tr('off') }), tr('What the chart shows'), (
         <Line label="">
           <div className="chart-pop__stack">
-            <Check on={!!spec.totals} onClick={() => set('totals', !spec.totals)}>Column totals</Check>
+            <Check on={!!spec.totals} onClick={() => set('totals', !spec.totals)}>{tr('Column totals')}</Check>
           </div>
         </Line>
       )],
-      ['under', null, `Under axis: ${{ share: 'width %', value: 'width value', none: 'nothing' }[xLabels]}`, 'What each column shows under the axis', (
-        <Line label="Under axis"><Seg label="Under the axis" value={xLabels} onPick={v => { set('widths', null); set('xLabels', v === 'share' ? null : v) }} items={[['share', 'Width %'], ['value', 'Width value'], ['none', 'None']]} /></Line>
+      ['under', null, tr('Under axis: {name}', { name: { share: tr('width %'), value: tr('width value'), none: tr('nothing') }[xLabels] }), tr('What each column shows under the axis'), (
+        <Line label={tr('Under axis')}><Seg label={tr('Under the axis')} value={xLabels} onPick={v => { set('widths', null); set('xLabels', v === 'share' ? null : v) }} items={[['share', tr('Width %')], ['value', tr('Width value')], ['none', tr('None')]]} /></Line>
       )],
-      ['outline', null, `Outline: ${spec.outline ?? 'thin'}${spec.ridges ? ' + ridges' : ''}`, 'Segment outline and column ridges', (
+      ['outline', null, spec.ridges ? tr('Outline: {name} + ridges', { name: tr(spec.outline ?? 'thin') }) : tr('Outline: {name}', { name: tr(spec.outline ?? 'thin') }), tr('Segment outline and column ridges'), (
         <>
-          <Line label="Segments"><Seg label="Segment outline" value={spec.outline ?? 'thin'} onPick={v => set('outline', v === 'thin' ? null : v)} items={[['none', 'None'], ['thin', 'Thin'], ['dark', 'Dark']]} /></Line>
-          <Line label=""><Check on={!!spec.ridges} onClick={() => set('ridges', spec.ridges ? null : true)}>Ridges (bold outline of each column)</Check></Line>
+          <Line label={tr('Segments')}><Seg label={tr('Segment outline')} value={spec.outline ?? 'thin'} onPick={v => set('outline', v === 'thin' ? null : v)} items={[['none', tr('None')], ['thin', tr('Thin')], ['dark', tr('Dark')]]} /></Line>
+          <Line label=""><Check on={!!spec.ridges} onClick={() => set('ridges', spec.ridges ? null : true)}>{tr('Ridges (bold outline of each column)')}</Check></Line>
         </>
       )],
-      ['decor', null, `Decorations: ${[vlOn && 'value line', scene?.hundred && '100%', spec.grandTotal && 'grand total'].filter(Boolean).join(', ') || 'none'}`, 'Value line, 100% indicator and grand total', (
+      ['decor', null, tr('Decorations: {name}', { name: [vlOn && tr('value line'), scene?.hundred && tr('100%'), spec.grandTotal && tr('grand total')].filter(Boolean).join(', ') || tr('none') }), tr('Value line, 100% indicator and grand total'), (
         <Line label="">
           <div className="chart-pop__stack">
-            <Check on={vlOn} onClick={() => set('valueLine', vlOn ? null : true)}>Value line (weighted mean)</Check>
-            {percent && <Check on={!!spec.hundred} onClick={() => set('hundred', spec.hundred ? null : 'left')}>100% indicator</Check>}
-            <Check on={!!spec.grandTotal} onClick={() => set('grandTotal', spec.grandTotal ? null : true)}>Grand total</Check>
+            <Check on={vlOn} onClick={() => set('valueLine', vlOn ? null : true)}>{tr('Value line (weighted mean)')}</Check>
+            {percent && <Check on={!!spec.hundred} onClick={() => set('hundred', spec.hundred ? null : 'left')}>{tr('100% indicator')}</Check>}
+            <Check on={!!spec.grandTotal} onClick={() => set('grandTotal', spec.grandTotal ? null : true)}>{tr('Grand total')}</Check>
           </div>
         </Line>
       )],
-      ['gap', null, `Gap: ${spec.gap ?? 2}px`, 'Gap between columns', (
-        <Line label="Gap"><Seg label="Gap between columns" value={spec.gap ?? 2} onPick={v => set('gap', v === 2 ? null : v)} items={[[0, 'None'], [2, 'Thin'], [6, 'Wide']]} /></Line>
+      ['gap', null, tr('Gap: {n}px', { n: spec.gap ?? 2 }), tr('Gap between columns'), (
+        <Line label={tr('Gap')}><Seg label={tr('Gap between columns')} value={spec.gap ?? 2} onPick={v => set('gap', v === 2 ? null : v)} items={[[0, tr('None')], [2, tr('Thin')], [6, tr('Wide')]]} /></Line>
       )],
-      ['other', null, `Other: ${[spec.other && `< ${Math.round(spec.other * 100)}%`, pooled.size && `${pooled.size} moved`].filter(Boolean).join(', ') || 'off'}`, 'Group small segments into “Other”', (
+      ['other', null, tr('Other: {name}', { name: [spec.other && tr('< {n}%', { n: Math.round(spec.other * 100) }), pooled.size && tr('{n} moved', { n: pooled.size })].filter(Boolean).join(', ') || tr('off') }), tr('Group small segments into “Other”'), (
         <>
-          <Line label="Group"><Seg label="Group small segments" value={spec.other ?? null} onPick={v => set('other', v)} items={[[null, 'Off'], [0.05, '< 5%'], [0.1, '< 10%']]} /></Line>
-          {pooled.size > 0 && <Line label=""><button type="button" className="chart-pop__more" onClick={() => set('toOther', [])}>Restore the {pooled.size} moved segment{pooled.size > 1 ? 's' : ''}</button></Line>}
-          <div className="chart-pop__note">Right-click a segment to move it to “Other”, or drag the handle at the right of the chart.</div>
+          <Line label={tr('Group')}><Seg label={tr('Group small segments')} value={spec.other ?? null} onPick={v => set('other', v)} items={[[null, tr('Off')], [0.05, tr('< {n}%', { n: 5 })], [0.1, tr('< {n}%', { n: 10 })]]} /></Line>
+          {pooled.size > 0 && <Line label=""><button type="button" className="chart-pop__more" onClick={() => set('toOther', [])}>{pooled.size > 1 ? tr('Restore the {n} moved segments', { n: pooled.size }) : tr('Restore the {n} moved segment', { n: pooled.size })}</button></Line>}
+          <div className="chart-pop__note">{tr('Right-click a segment to move it to “Other”, or drag the handle at the right of the chart.')}</div>
         </>
       )],
     ],
     segment: seg ? [
-      ['fill', <span className="chart-bar__dot" style={{ background: tok(seg.color) }} />, `Fill: ${colorName(seg.color)}`, `Fill color (${scope === 'cell' ? 'this segment' : `all “${seriesOf(seg.seriesId)?.label ?? 'Other'}”`})`, (
+      ['fill', <span className="chart-bar__dot" style={{ background: tok(seg.color) }} />, tr('Fill: {name}', { name: tr(colorName(seg.color)) }), scope === 'cell' ? tr('Fill color (this segment)') : tr('Fill color (all “{name}”)', { name: seriesOf(seg.seriesId)?.label ?? tr('Other') }), (
         <>
-          <Line label="Apply to"><Seg label="Fill scope" value={scope} onPick={setScope} items={[['series', `All “${seriesOf(seg.seriesId)?.label ?? 'Other'}”`], ['cell', 'This segment only']]} /></Line>
+          <Line label={tr('Apply to')}><Seg label={tr('Fill scope')} value={scope} onPick={setScope} items={[['series', tr('All “{name}”', { name: seriesOf(seg.seriesId)?.label ?? tr('Other') })], ['cell', tr('This segment only')]]} /></Line>
           <Swatches palette={PALETTE} value={seg.color} onPick={c => (scope === 'cell' ? update('cellColors', x => ({ ...(x ?? {}), [seg.key]: c })) : update('seriesColors', x => ({ ...(x ?? {}), [seg.seriesId]: c })))} />
         </>
       )],
     ] : [],
     valueline: scene?.valueLine ? [
-      ['at', null, `At: ${scene.valueLine.text}${scene.valueLine.auto ? ' (weighted mean)' : ''}`, 'Value line position', (
+      ['at', null, scene.valueLine.auto ? tr('At: {name} (weighted mean)', { name: scene.valueLine.text }) : tr('At: {name}', { name: scene.valueLine.text }), tr('Value line position'), (
         <>
-          <Line label="At"><Field label="Value" numeric value={percent ? Number((scene.valueLine.value * 100).toFixed(1)) : Number(scene.valueLine.value.toPrecision(4))} onCommit={v => set('valueLine', v == null ? true : percent ? v / 100 : v)} /></Line>
-          {!scene.valueLine.auto && <Line label=""><button type="button" className="chart-pop__link" onClick={() => set('valueLine', true)}>Back to the weighted mean</button></Line>}
-          <div className="chart-pop__note">Or drag the line.</div>
+          <Line label={tr('At')}><Field label={tr('Value')} numeric value={percent ? Number((scene.valueLine.value * 100).toFixed(1)) : Number(scene.valueLine.value.toPrecision(4))} onCommit={v => set('valueLine', v == null ? true : percent ? v / 100 : v)} /></Line>
+          {!scene.valueLine.auto && <Line label=""><button type="button" className="chart-pop__link" onClick={() => set('valueLine', true)}>{tr('Back to the weighted mean')}</button></Line>}
+          <div className="chart-pop__note">{tr('Or drag the line.')}</div>
         </>
       )],
     ] : [],
     labels: [
-      ['textstyle', null, styleSummary(P), 'Label color, font and size', <TextStyle font={P.labelFont} pt={P.labelPt} color={P.labelColor} onFont={v => set('labelFont', v)} onPt={v => set('labelPt', v)} onColor={v => set('labelColor', v)} />],
+      ['textstyle', null, styleSummary(P), tr('Label color, font and size'), <TextStyle font={P.labelFont} pt={P.labelPt} color={P.labelColor} onFont={v => set('labelFont', v)} onPt={v => set('labelPt', v)} onColor={v => set('labelColor', v)} />],
       // Labels removed for lack of room: counted; the value remains on segment hover.
-      scene?.noRoom > 0 && ['noroom', null, `${scene.noRoom} hidden (no room)`, 'Labels left out for lack of room', (
-        <div className="chart-pop__note">{`${scene.noRoom} label${scene.noRoom > 1 ? 's' : ''} did not fit at this size. Hover a segment to read it, or reduce the size in Style.`}</div>
+      scene?.noRoom > 0 && ['noroom', null, tr('{n} hidden (no room)', { n: scene.noRoom }), tr('Labels left out for lack of room'), (
+        <div className="chart-pop__note">{scene.noRoom > 1 ? tr('{n} labels did not fit at this size. Hover a segment to read it, or reduce the size in Style.', { n: scene.noRoom }) : tr('{n} label did not fit at this size. Hover a segment to read it, or reduce the size in Style.', { n: scene.noRoom })}</div>
       )],
-      ['content', null, `Labels: ${{ value: 'value', none: 'none' }[spec.labels] ?? '%'}`, 'Segment labels', (
-        <Line label="Show"><Seg label="Segment labels" value={spec.labels ?? 'share'} onPick={v => set('labels', v === 'share' ? null : v)} items={[['share', '%'], ['value', 'Value'], ['none', 'None']]} /></Line>
+      ['content', null, tr('Labels: {name}', { name: { value: tr('value'), none: tr('none') }[spec.labels] ?? '%' }), tr('Segment labels'), (
+        <Line label={tr('Show')}><Seg label={tr('Segment labels')} value={spec.labels ?? 'share'} onPick={v => set('labels', v === 'share' ? null : v)} items={[['share', '%'], ['value', tr('Value')], ['none', tr('None')]]} /></Line>
       )],
     ],
     yaxis: [
-      ['mode', null, `Axis: ${percent ? '%' : 'units'}`, 'Axis values', (
-        <Line label="Values"><Seg label="Mekko mode" value={percent ? 'percent' : 'units'} onPick={v => set('mode', v === 'percent' ? null : v)} items={[['percent', '%'], ['units', 'Units']]} /></Line>
+      ['mode', null, tr('Axis: {name}', { name: percent ? '%' : tr('units') }), tr('Axis values'), (
+        <Line label={tr('Values')}><Seg label={tr('Mekko mode')} value={percent ? 'percent' : 'units'} onPick={v => set('mode', v === 'percent' ? null : v)} items={[['percent', '%'], ['units', tr('Units')]]} /></Line>
       )],
     ],
     legend: [
-      ['pos', null, `Legend: ${(spec.legend ?? 'top') === 'none' ? 'hidden' : 'top'}`, 'Legend', (
-        <Line label="Position"><Seg label="Legend" value={spec.legend ?? 'top'} onPick={v => set('legend', v === 'top' ? null : v)} items={[['top', 'Top'], ['none', 'Hidden']]} /></Line>
+      ['pos', null, tr('Legend: {name}', { name: (spec.legend ?? 'top') === 'none' ? tr('hidden') : tr('top') }), tr('Legend'), (
+        <Line label={tr('Position')}><Seg label={tr('Legend')} value={spec.legend ?? 'top'} onPick={v => set('legend', v === 'top' ? null : v)} items={[['top', tr('Top')], ['none', tr('Hidden')]]} /></Line>
       )],
     ],
   }
   const actions = {
     chart: [
-      { label: 'Open data sheet', shortcut: 'Double-click', onSelect: () => sheetApi.setSheetOpen(true) },
-      sheetApi.sheetEdited && { label: 'Reset data to source', onSelect: () => sheetApi.resetSheet() },
+      { label: tr('Open data sheet'), shortcut: tr('Double-click'), onSelect: () => sheetApi.setSheetOpen(true) },
+      sheetApi.sheetEdited && { label: tr('Reset data to source'), onSelect: () => sheetApi.resetSheet() },
       '-',
-      { label: spec.totals ? 'Remove column totals' : 'Add column totals', onSelect: () => set('totals', !spec.totals) },
-      { label: vlOn ? 'Remove value line' : 'Add value line', onSelect: () => set('valueLine', vlOn ? null : true) },
-      percent && { label: spec.hundred ? 'Remove 100% indicator' : 'Add 100% indicator', onSelect: () => set('hundred', spec.hundred ? null : 'left') },
-      { label: spec.grandTotal ? 'Remove grand total' : 'Add grand total', onSelect: () => set('grandTotal', spec.grandTotal ? null : true) },
-      inTable.size > 0 && { label: `Move all series to chart (${inTable.size} in table)`, onSelect: () => set('table', null) },
-      (spec.netLines ?? []).length > 0 && { label: `Show net lines as segments (${spec.netLines.length})`, onSelect: () => set('netLines', null) },
-      { label: percent ? 'Change to Mekko in units' : 'Change to Mekko in %', onSelect: () => set('mode', percent ? 'units' : null) },
+      { label: spec.totals ? tr('Remove column totals') : tr('Add column totals'), onSelect: () => set('totals', !spec.totals) },
+      { label: vlOn ? tr('Remove value line') : tr('Add value line'), onSelect: () => set('valueLine', vlOn ? null : true) },
+      percent && { label: spec.hundred ? tr('Remove 100% indicator') : tr('Add 100% indicator'), onSelect: () => set('hundred', spec.hundred ? null : 'left') },
+      { label: spec.grandTotal ? tr('Remove grand total') : tr('Add grand total'), onSelect: () => set('grandTotal', spec.grandTotal ? null : true) },
+      inTable.size > 0 && { label: tr('Move all series to chart ({n} in table)', { n: inTable.size }), onSelect: () => set('table', null) },
+      (spec.netLines ?? []).length > 0 && { label: tr('Show net lines as segments ({n})', { n: spec.netLines.length }), onSelect: () => set('netLines', null) },
+      { label: percent ? tr('Change to Mekko in units') : tr('Change to Mekko in %'), onSelect: () => set('mode', percent ? 'units' : null) },
     ],
     segment: !seg ? [] : seg.seriesId === MEKKO_OTHER
-      ? manualIn(seg).map(id => ({ label: `Restore “${seriesOf(id)?.label ?? id}” from Other`, onSelect: () => dropOther([id, `${seg.colKey}|${id}`]) }))
+      ? manualIn(seg).map(id => ({ label: tr('Restore “{name}” from Other', { name: seriesOf(id)?.label ?? id }), onSelect: () => dropOther([id, `${seg.colKey}|${id}`]) }))
       : [
-        { label: `Move “${seriesOf(seg.seriesId)?.label}” to Other (all columns)`, onSelect: () => addOther(seg.seriesId) },
-        { label: 'Move this segment to Other', onSelect: () => addOther(seg.key) },
+        { label: tr('Move “{name}” to Other (all columns)', { name: seriesOf(seg.seriesId)?.label }), onSelect: () => addOther(seg.seriesId) },
+        { label: tr('Move this segment to Other'), onSelect: () => addOther(seg.key) },
         '-',
-        { label: 'Move series to table', onSelect: () => { setTable(seg.seriesId, true); close() } },
+        { label: tr('Move series to table'), onSelect: () => { setTable(seg.seriesId, true); close() } },
         // A series as net lines (one stroke per column, outside the stack).
-        { label: 'Show series as net lines', onSelect: () => { set('netLines', [...(spec.netLines ?? []), seg.seriesId]); close() } },
+        { label: tr('Show series as net lines'), onSelect: () => { set('netLines', [...(spec.netLines ?? []), seg.seriesId]); close() } },
       ],
     valueline: [
-      scene?.valueLine && !scene.valueLine.auto && { label: 'Back to the weighted mean', onSelect: () => set('valueLine', true) },
-      { label: 'Remove value line', onSelect: () => { set('valueLine', null); close() } },
+      scene?.valueLine && !scene.valueLine.auto && { label: tr('Back to the weighted mean'), onSelect: () => set('valueLine', true) },
+      { label: tr('Remove value line'), onSelect: () => { set('valueLine', null); close() } },
     ],
     tablerow: pick?.obj === 'tablerow' ? [
-      { label: 'Move series to chart', onSelect: () => { setTable(pick.key, false); close() } },
-      inTable.size > 1 && { label: 'Move all series to chart', onSelect: () => { set('table', null); close() } },
+      { label: tr('Move series to chart'), onSelect: () => { setTable(pick.key, false); close() } },
+      inTable.size > 1 && { label: tr('Move all series to chart'), onSelect: () => { set('table', null); close() } },
     ] : [],
     labels: [
-      { label: spec.labels === 'none' ? 'Add labels' : 'Remove labels', onSelect: () => set('labels', spec.labels === 'none' ? null : 'none') },
-      { label: spec.totals ? 'Remove column totals' : 'Add column totals', onSelect: () => set('totals', !spec.totals) },
+      { label: spec.labels === 'none' ? tr('Add labels') : tr('Remove labels'), onSelect: () => set('labels', spec.labels === 'none' ? null : 'none') },
+      { label: spec.totals ? tr('Remove column totals') : tr('Add column totals'), onSelect: () => set('totals', !spec.totals) },
     ],
-    yaxis: [{ label: percent ? 'Change to Mekko in units' : 'Change to Mekko in %', onSelect: () => set('mode', percent ? 'units' : null) }],
-    legend: [{ label: (spec.legend ?? 'top') === 'none' ? 'Add legend' : 'Remove legend', onSelect: () => set('legend', (spec.legend ?? 'top') === 'none' ? null : 'none') }],
+    yaxis: [{ label: percent ? tr('Change to Mekko in units') : tr('Change to Mekko in %'), onSelect: () => set('mode', percent ? 'units' : null) }],
+    legend: [{ label: (spec.legend ?? 'top') === 'none' ? tr('Add legend') : tr('Remove legend'), onSelect: () => set('legend', (spec.legend ?? 'top') === 'none' ? null : 'none') }],
   }
   const go = (o, extra = {}) => e => { setObj(null); open(e, { obj: o, ...extra }) }
   // The "Other" handle: dragging up groups more segments, down fewer.
@@ -326,7 +334,7 @@ export default function MekkoView({ id = 'mekko', spec: specIn = {}, columns: co
   if (readOnly) {
     return (
       <div ref={boxRef} className="chart-engine chart-engine-box">
-        {scene?.empty && <div className="chart-engine-empty">No data for this chart yet.</div>}
+        {scene?.empty && <div className="chart-engine-empty">{tr('No data for this chart yet.')}</div>}
         <MekkoFigure scene={scene} interactive={!readOnly} label={label} responsive={responsive} dataTable={dataTable} />
       </div>
     )
@@ -336,17 +344,17 @@ export default function MekkoView({ id = 'mekko', spec: specIn = {}, columns: co
     <div ref={boxRef} className="chart-engine chart-engine-box" style={reserve ? { paddingTop: reserve } : undefined} onContextMenu={e => { if (!e.defaultPrevented) open(e, { obj: 'chart' }) }} onDoubleClick={e => { if (!e.target.closest?.('.chart-datasheet, .chart-wheel, .chart-pop')) { close(); setObj(null); sheetApi.setSheetOpen(true) } }}>
       <EditedNote api={sheetApi} />
       <div className="chart-engine-float-menu">
-        <button type="button" data-wheel-anchor className="chart-opts-btn" title="Chart format: colours, labels and layout. Tip: click or right-click any part of the chart" aria-label="Chart format"
+        <button type="button" data-wheel-anchor className="chart-opts-btn" title={tr('Chart format: colours, labels and layout. Tip: click or right-click any part of the chart')} aria-label={tr('Chart format')}
           onClick={go('chart')}><IconPalette size={13} /></button>
       </div>
-      {scene?.empty && <div className="chart-engine-empty">No data for this chart yet.</div>}
+      {scene?.empty && <div className="chart-engine-empty">{tr('No data for this chart yet.')}</div>}
       {scene && !scene.empty && (
         <MekkoFigure scene={scene} interactive={!readOnly} label={label} responsive={responsive} dataTable={dataTable} labelStyle={labelTextStyle(P)} part={part}>
           {scene.otherHandle && (() => {
             const h = scene.otherHandle
-            const txt = h.value ? `Other < ${Math.round(h.value * 100)}% · ${h.pooled} segment${h.pooled === 1 ? '' : 's'}` : 'Drag up to group small segments into Other'
+            const txt = h.value ? (h.pooled === 1 ? tr('Other < {pct}% · {n} segment', { pct: Math.round(h.value * 100), n: h.pooled }) : tr('Other < {pct}% · {n} segments', { pct: Math.round(h.value * 100), n: h.pooled })) : tr('Drag up to group small segments into Other')
             return (
-              <g className={`chart-engine-handle chart-engine-handle--y chart-mekko-other${drag || h.value ? ' is-on' : ''}`} tabIndex={0} role="slider" aria-label="Other threshold"
+              <g className={`chart-engine-handle chart-engine-handle--y chart-mekko-other${drag || h.value ? ' is-on' : ''}`} tabIndex={0} role="slider" aria-label={tr('Other threshold')}
                 aria-valuemin={0} aria-valuemax={50} aria-valuenow={Math.round(h.value * 100)} onPointerDown={dragOther} onKeyDown={nudgeOther}>
                 <line x1={h.x + 3} x2={h.x + 3} y1={scene.plot.top} y2={scene.plot.bottom} stroke={tok('gray-200')} strokeWidth={1} />
                 <path d={`M${h.x - 2},${h.y} L${h.x + 8},${h.y - 5} L${h.x + 8},${h.y + 5} Z`} fill={tok(h.value ? 'gray-700' : 'gray-400')} />

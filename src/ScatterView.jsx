@@ -26,15 +26,20 @@ import { scatterSheet } from './sheetAdapters.js'
 // A color is a palette token, or a user-picked hex (custom style).
 import { tok, labelTextStyle, schemeMap, styleSummary } from './customStyle.js'
 import { SchemeTools, TextStyle } from './CustomStyle.jsx'
+import { SpecLocale, useT, useLocale } from './uiLocale.js'
 const PALETTE = [...COLOR_TOKENS, ...NEUTRAL_TOKENS]
 const DEFAULTS = {
   bubble: null, bubbleScale: null, sizeBy: null, marker: null, markers: null, dataFill: null, labels: null, labelContent: null, label2: null, labelOffsets: null,
   trend: null, trendLabel: null, trendFill: null, trendFillColor: null, trendWeighted: null, trendGroup: null, sizeLegend: null, partitions: null, zones: null, legend: null, front: null, back: null,
   x: {}, y: {}, colors: {}, hiddenLabels: [],
 }
-const TRENDS = [['linear', 'Linear'], ['exp', 'Exponential'], ['power', 'Power'], ['log', 'Logarithmic'], ['poly2', 'Poly 2'], ['poly3', 'Poly 3'], ['poly4', 'Poly 4']]
-const TREND_NAME = Object.fromEntries(TRENDS)
-const CONTENT = [['name', 'Name'], ['x', 'X'], ['y', 'Y'], ['size', 'Size']]
+// Trend types: [value, name, action label], in the interface language.
+const trendsOf = tr => [
+  ['linear', tr('Linear'), tr('Linear trend')], ['exp', tr('Exponential'), tr('Exponential trend')], ['power', tr('Power'), tr('Power trend')],
+  ['log', tr('Logarithmic'), tr('Logarithmic trend')], ['poly2', tr('Poly 2'), tr('Poly 2 trend')], ['poly3', tr('Poly 3'), tr('Poly 3 trend')], ['poly4', tr('Poly 4'), tr('Poly 4 trend')],
+]
+const CONTENT_KEYS = ['name', 'x', 'y', 'size']
+const contentOf = tr => [['name', tr('Name')], ['x', 'X'], ['y', 'Y'], ['size', tr('Size')]]
 const newKey = () => `p${Math.random().toString(36).slice(2, 7)}`
 
 // The drawing width: the `width` prop when given (no measuring: server rendering,
@@ -66,8 +71,19 @@ function track(e, onMove) {
 //   it reads a shared scale but never publishes its own extent.
 // responsive: the SVG scales to its container (width="100%", ratio kept).
 // dataTable: the points as a visually hidden table next to the SVG.
-export default function ScatterView({ id = 'scatter', spec: baseSpec = {}, points: pointsIn = [], format, formatX: formatXIn, formatSize, height = 320, label = 'Scatter chart', width: widthProp, readOnly = false, responsive = false, dataTable = false, applyPrefs = false }) {
+// The interface (menus, format bar, messages) speaks the spec's language (spec.locale).
+export default function ScatterView(props) {
+  return <SpecLocale spec={props.spec}><ScatterViewBody {...props} /></SpecLocale>
+}
+
+function ScatterViewBody({ id = 'scatter', spec: baseSpec = {}, points: pointsIn = [], format, formatX: formatXIn, formatSize, height = 320, label: labelIn, width: widthProp, readOnly = false, responsive = false, dataTable = false, applyPrefs = false }) {
   // readOnly + applyPrefs: the stored settings and sheet edits drawn, no editing control.
+  const tr = useT()
+  const locale = useLocale()
+  const TRENDS = trendsOf(tr)
+  const TREND_NAME = Object.fromEntries(TRENDS)
+  const CONTENT = contentOf(tr)
+  const label = labelIn ?? tr('Scatter chart')
   const plain = readOnly && !applyPrefs
   const boxRef = useRef(null)
   const movedRef = useRef(false)
@@ -81,7 +97,7 @@ export default function ScatterView({ id = 'scatter', spec: baseSpec = {}, point
   const points = plain ? pointsIn : scatterSheet.fromSheet(sheetApi.sheet, pointsIn)
   // Dates typed in X: the X axis becomes a date axis (month-formatted ticks).
   const dateX = !readOnly && sheetApi.sheet.rows.some(r => /^\s*\d{4}-\d{2}-\d{2}\s*$/.test(r.cells[0]?.raw ?? ''))
-  const formatX = dateX ? v => new Date(v * 864e5).toLocaleDateString('en-GB', { month: 'short', year: 'numeric', timeZone: 'UTC' }) : formatXIn
+  const formatX = dateX ? v => new Date(v * 864e5).toLocaleDateString(locale === 'fr' ? 'fr-FR' : 'en-GB', { month: 'short', year: 'numeric', timeZone: 'UTC' }) : formatXIn
   const hasSize = points.some(p => Number.isFinite(p.size))
   const hasColors = points.some(p => p.color)
   const spec = {
@@ -154,7 +170,7 @@ export default function ScatterView({ id = 'scatter', spec: baseSpec = {}, point
     if (Object.keys(n).length) z[key] = n; else delete z[key]
     return z
   })
-  const toggleIn = (name, k, fallback) => update(name, c => { const s = new Set(c ?? fallback); if (s.has(k)) s.delete(k); else s.add(k); return CONTENT.map(([v]) => v).filter(v => s.has(v)) })
+  const toggleIn = (name, k, fallback) => update(name, c => { const s = new Set(c ?? fallback); if (s.has(k)) s.delete(k); else s.add(k); return CONTENT_KEYS.filter(v => s.has(v)) })
   const toggleHidden = k => update('hiddenLabels', h => { const s = new Set(h ?? []); if (s.has(k)) s.delete(k); else s.add(k); return [...s] })
   const toFront = k => { const ks = [].concat(k); update('front', f => [...(f ?? []).filter(x => !ks.includes(x)), ...ks]); update('back', b => (b ?? []).filter(x => !ks.includes(x))) }
   const toBack = k => { const ks = [].concat(k); update('back', b => [...ks, ...(b ?? []).filter(x => !ks.includes(x))]); update('front', f => (f ?? []).filter(x => !ks.includes(x))) }
@@ -171,62 +187,62 @@ export default function ScatterView({ id = 'scatter', spec: baseSpec = {}, point
     set('trend', null)
     return k
   }
-  const partName = p => (p.axis === 'x' ? 'Vertical partition' : p.axis === 'y' ? 'Horizontal partition' : 'Oblique partition')
-  const zoneName = k => ({ tl: 'Top-left zone', tr: 'Top-right zone', bl: 'Bottom-left zone', br: 'Bottom-right zone', left: 'Left zone', right: 'Right zone', top: 'Top zone', bottom: 'Bottom zone' }[k]
-    ?? (k.startsWith('above:') ? 'Zone above the line' : k.startsWith('below:') ? 'Zone below the line' : `Zone ${k}`))
+  const partName = p => (p.axis === 'x' ? tr('Vertical partition') : p.axis === 'y' ? tr('Horizontal partition') : tr('Oblique partition'))
+  const zoneName = k => ({ tl: tr('Top-left zone'), tr: tr('Top-right zone'), bl: tr('Bottom-left zone'), br: tr('Bottom-right zone'), left: tr('Left zone'), right: tr('Right zone'), top: tr('Top zone'), bottom: tr('Bottom zone') }[k]
+    ?? (k.startsWith('above:') ? tr('Zone above the line') : k.startsWith('below:') ? tr('Zone below the line') : tr('Zone {name}', { name: k })))
 
   const objects = {
-    chart: { name: bubble ? 'Bubble chart' : 'Scatter chart', icon: bubble ? IconChartBubble : IconChartScatter },
+    chart: { name: bubble ? tr('Bubble chart') : tr('Scatter chart'), icon: bubble ? IconChartBubble : IconChartScatter },
     ...(pt ? { point: { name: pt.label, icon: IconChartScatter } } : {}),
-    ...(grpKeys.length ? { group: { name: `${pick.key} (${grpKeys.length} points)`, icon: IconChartScatter } } : {}),
-    labels: { name: 'Labels', icon: IconTag },
-    xaxis: { name: 'X axis', icon: IconArrowsHorizontal },
-    yaxis: { name: 'Y axis', icon: IconArrowsVertical },
-    ...(scene?.legend.length ? { legend: { name: 'Legend', icon: IconLayoutList } } : {}),
-    ...(scene?.trend ? { trend: { name: 'Trend line', icon: IconTrendingUp } } : {}),
+    ...(grpKeys.length ? { group: { name: tr('{name} ({n} points)', { name: pick.key, n: grpKeys.length }), icon: IconChartScatter } } : {}),
+    labels: { name: tr('Labels'), icon: IconTag },
+    xaxis: { name: tr('X axis'), icon: IconArrowsHorizontal },
+    yaxis: { name: tr('Y axis'), icon: IconArrowsVertical },
+    ...(scene?.legend.length ? { legend: { name: tr('Legend'), icon: IconLayoutList } } : {}),
+    ...(scene?.trend ? { trend: { name: tr('Trend line'), icon: IconTrendingUp } } : {}),
     ...(part ? { partition: { name: partName(part), icon: IconLine } } : {}),
     ...(zone ? { zone: { name: zoneName(zone.key), icon: IconSquare } } : {}),
   }
   const axisControls = ax => {
     const o = spec[ax] ?? {}
     return [
-      ['scale', null, `Scale: ${Number.isFinite(o.min) || Number.isFinite(o.max) ? `${o.min ?? 'auto'} – ${o.max ?? 'auto'}` : 'auto'}${o.log ? ' · log' : ''}`, 'Scale', (
+      ['scale', null, tr('Scale: {range}', { range: Number.isFinite(o.min) || Number.isFinite(o.max) ? `${o.min ?? tr('auto')} – ${o.max ?? tr('auto')}` : tr('auto') }) + (o.log ? tr(' · log') : ''), tr('Scale'), (
         <>
-          <Line label="Range">
-            <Field label="Min" numeric value={P[ax]?.min ?? ''} placeholder="Auto" onCommit={v => setAxis(ax, 'min', v)} />
-            <Field label="Max" numeric value={P[ax]?.max ?? ''} placeholder="Auto" onCommit={v => setAxis(ax, 'max', v)} />
+          <Line label={tr('Range')}>
+            <Field label={tr('Min')} numeric value={P[ax]?.min ?? ''} placeholder={tr('Auto')} onCommit={v => setAxis(ax, 'min', v)} />
+            <Field label={tr('Max')} numeric value={P[ax]?.max ?? ''} placeholder={tr('Auto')} onCommit={v => setAxis(ax, 'max', v)} />
           </Line>
-          <Line label="Options"><Check on={!!o.log} onClick={() => setAxis(ax, 'log', o.log ? null : true)} title="Positive values only">Logarithmic</Check></Line>
+          <Line label={tr('Options')}><Check on={!!o.log} onClick={() => setAxis(ax, 'log', o.log ? null : true)} title={tr('Positive values only')}>{tr('Logarithmic')}</Check></Line>
         </>
       )],
-      ['title', null, `Title: ${o.title || 'none'}`, 'Axis title', (
-        <Line label=""><Field label="Axis title" wide value={P[ax]?.title ?? o.title ?? ''} placeholder="None" onCommit={v => setAxis(ax, 'title', v)} /></Line>
+      ['title', null, tr('Title: {name}', { name: o.title || tr('none') }), tr('Axis title'), (
+        <Line label=""><Field label={tr('Axis title')} wide value={P[ax]?.title ?? o.title ?? ''} placeholder={tr('None')} onCommit={v => setAxis(ax, 'title', v)} /></Line>
       )],
     ]
   }
   const zoneBody = (key, title) => (
     <>
-      <Line label={title ?? 'Fill'}>
+      <Line label={title ?? tr('Fill')}>
         <Swatches palette={PALETTE} value={zones[key]?.fill ?? null} onPick={c => setZone(key, { fill: c })} />
       </Line>
-      {zones[key]?.fill && <Line label=""><button type="button" className="chart-pop__link" onClick={() => setZone(key, { fill: null })}>No fill</button></Line>}
-      <Line label="Label"><Field label="Zone label" wide value={zones[key]?.label ?? ''} placeholder="None" onCommit={v => setZone(key, { label: v })} /></Line>
+      {zones[key]?.fill && <Line label=""><button type="button" className="chart-pop__link" onClick={() => setZone(key, { fill: null })}>{tr('No fill')}</button></Line>}
+      <Line label={tr('Label')}><Field label={tr('Zone label')} wide value={zones[key]?.label ?? ''} placeholder={tr('None')} onCommit={v => setZone(key, { label: v })} /></Line>
     </>
   )
   const trendBody = (
     <>
-      <Line label="Type"><Seg label="Trend type" value={ttype} onPick={v => set('trend', v)} items={TRENDS} /></Line>
-      <Line label="Show"><Seg label="Equation and R²" value={spec.trendLabel ?? 'none'} onPick={v => set('trendLabel', v === 'none' ? null : v)} items={[['none', 'Nothing'], ['equation', 'Equation'], ['r2', 'R²'], ['both', 'Both']]} /></Line>
-      <Line label="Fill"><Seg label="Background fill" value={spec.trendFill ?? 'none'} onPick={v => set('trendFill', v === 'none' ? null : v)} items={[['none', 'None'], ['above', 'Above'], ['below', 'Below']]} /></Line>
+      <Line label={tr('Type')}><Seg label={tr('Trend type')} value={ttype} onPick={v => set('trend', v)} items={TRENDS.map(([v, l]) => [v, l])} /></Line>
+      <Line label={tr('Show')}><Seg label={tr('Equation and R²')} value={spec.trendLabel ?? 'none'} onPick={v => set('trendLabel', v === 'none' ? null : v)} items={[['none', tr('Nothing')], ['equation', tr('Equation')], ['r2', 'R²'], ['both', tr('Both')]]} /></Line>
+      <Line label={tr('Fill')}><Seg label={tr('Background fill')} value={spec.trendFill ?? 'none'} onPick={v => set('trendFill', v === 'none' ? null : v)} items={[['none', tr('None')], ['above', tr('Above')], ['below', tr('Below')]]} /></Line>
       {spec.trendFill && <Swatches palette={PALETTE} value={spec.trendFillColor ?? 'cat-1'} onPick={c => set('trendFillColor', c)} />}
-      {groupNames.length > 1 && <Line label="Points"><Seg label="Trend of" value={spec.trendGroup ?? '*'} onPick={v => set('trendGroup', v === '*' ? null : v)} items={[['*', 'All'], ...groupNames.map(g => [g, g])]} /></Line>}
-      {bubble && <Line label=""><Check on={!!spec.trendWeighted} onClick={() => set('trendWeighted', spec.trendWeighted ? null : true)}>Weight by bubble size</Check></Line>}
+      {groupNames.length > 1 && <Line label={tr('Points')}><Seg label={tr('Trend of')} value={spec.trendGroup ?? '*'} onPick={v => set('trendGroup', v === '*' ? null : v)} items={[['*', tr('All')], ...groupNames.map(g => [g, g])]} /></Line>}
+      {bubble && <Line label=""><Check on={!!spec.trendWeighted} onClick={() => set('trendWeighted', spec.trendWeighted ? null : true)}>{tr('Weight by bubble size')}</Check></Line>}
     </>
   )
   const controls = {
     chart: [
       // Named scheme: one color per group (otherwise per point), in order.
-      ['scheme', null, `Colors: ${P.schemeName ?? 'default'}`, 'Color schemes (named, saved by browser)', (() => {
+      ['scheme', null, tr('Colors: {name}', { name: P.schemeName ?? tr('default') }), tr('Color schemes (named, saved by browser)'), (() => {
         const pts = scene?.points ?? []
         const units = groupNames.length ? groupNames : pts.map(p => p.key)
         const keysOf = u => (groupNames.length ? pts.filter(p => (p.group ?? '') === u).map(p => p.key) : [u])
@@ -234,191 +250,191 @@ export default function ScatterView({ id = 'scatter', spec: baseSpec = {}, point
         return <SchemeTools current={current} active={P.schemeName}
           onApply={sc => { if (sc) { const by = schemeMap(units, sc.colors); set('colors', Object.fromEntries(units.flatMap(u => keysOf(u).map(k => [k, by[u]])))) } set('schemeName', sc?.name ?? null) }} />
       })()],
-      hasSize && ['kind', null, `Type: ${bubble ? `bubbles by ${spec.sizeBy === 'diameter' ? 'diameter' : 'area'}` : 'points'}`, 'Scatter or bubble', (
+      hasSize && ['kind', null, tr('Type: {name}', { name: bubble ? (spec.sizeBy === 'diameter' ? tr('bubbles by diameter') : tr('bubbles by area')) : tr('points') }), tr('Scatter or bubble'), (
         <>
-          <Line label="Type"><Seg label="Type" value={bubble ? 'bubble' : 'scatter'} onPick={v => set('bubble', v === 'bubble')} items={[['scatter', 'Points'], ['bubble', 'Bubbles (size)']]} /></Line>
-          {bubble && <Line label="Size"><Seg label="Bubble size" value={spec.bubbleScale ?? 1} onPick={v => set('bubbleScale', v === 1 ? null : v)} items={[[0.6, 'Small'], [1, 'Medium'], [1.5, 'Large']]} /></Line>}
-          {bubble && <Line label="Size is"><Seg label="Size represented by" value={spec.sizeBy ?? 'area'} onPick={v => set('sizeBy', v === 'area' ? null : v)} items={[['area', 'Area'], ['diameter', 'Diameter']]} /></Line>}
-          {bubble && <div className="chart-pop__note">Or drag the edge of a selected bubble.</div>}
+          <Line label={tr('Type')}><Seg label={tr('Type')} value={bubble ? 'bubble' : 'scatter'} onPick={v => set('bubble', v === 'bubble')} items={[['scatter', tr('Points')], ['bubble', tr('Bubbles (size)')]]} /></Line>
+          {bubble && <Line label={tr('Size')}><Seg label={tr('Bubble size')} value={spec.bubbleScale ?? 1} onPick={v => set('bubbleScale', v === 1 ? null : v)} items={[[0.6, tr('Small')], [1, tr('Medium')], [1.5, tr('Large')]]} /></Line>}
+          {bubble && <Line label={tr('Size is')}><Seg label={tr('Size represented by')} value={spec.sizeBy ?? 'area'} onPick={v => set('sizeBy', v === 'area' ? null : v)} items={[['area', tr('Area')], ['diameter', tr('Diameter')]]} /></Line>}
+          {bubble && <div className="chart-pop__note">{tr('Or drag the edge of a selected bubble.')}</div>}
         </>
       )],
-      !bubble && ['marker', null, `Marker: ${spec.markers === 'group' ? 'by group' : marker}`, 'Marker shape', (
+      !bubble && ['marker', null, tr('Marker: {name}', { name: spec.markers === 'group' ? tr('by group') : ({ circle: tr('circle'), square: tr('square'), diamond: tr('diamond'), triangle: tr('triangle'), none: tr('none') }[marker] ?? marker) }), tr('Marker shape'), (
         <>
-          <Line label="Marker"><Seg label="Marker shape" value={spec.markers === 'group' ? null : marker} onPick={v => { set('markers', null); set('marker', v === 'circle' ? null : v) }}
-            items={[['circle', '●'], ['square', '■'], ['diamond', '◆'], ['triangle', '▲'], ['none', 'None']]} /></Line>
-          <Line label=""><Check on={spec.markers === 'group'} onClick={() => set('markers', spec.markers === 'group' ? null : 'group')}>One shape per group</Check></Line>
+          <Line label={tr('Marker')}><Seg label={tr('Marker shape')} value={spec.markers === 'group' ? null : marker} onPick={v => { set('markers', null); set('marker', v === 'circle' ? null : v) }}
+            items={[['circle', '●'], ['square', '■'], ['diamond', '◆'], ['triangle', '▲'], ['none', tr('None')]]} /></Line>
+          <Line label=""><Check on={spec.markers === 'group'} onClick={() => set('markers', spec.markers === 'group' ? null : 'group')}>{tr('One shape per group')}</Check></Line>
         </>
       )],
-      hasColors && ['fillsrc', null, `Colors: ${spec.dataFill === false ? 'by group' : 'from data'}`, 'Point colors', (
-        <Line label=""><Check on={spec.dataFill !== false} onClick={() => set('dataFill', spec.dataFill === false ? null : false)}>Use the data sheet colors</Check></Line>
+      hasColors && ['fillsrc', null, tr('Colors: {name}', { name: spec.dataFill === false ? tr('by group') : tr('from data') }), tr('Point colors'), (
+        <Line label=""><Check on={spec.dataFill !== false} onClick={() => set('dataFill', spec.dataFill === false ? null : false)}>{tr('Use the data sheet colors')}</Check></Line>
       )],
-      ['trend', null, `Trend: ${ttype ? TREND_NAME[ttype].toLowerCase() : 'off'}`, 'Trend line', (
+      ['trend', null, tr('Trend: {name}', { name: ttype ? TREND_NAME[ttype].toLowerCase() : tr('off') }), tr('Trend line'), (
         <>
-          <Line label=""><Check on={!!ttype} onClick={() => set('trend', ttype ? null : 'linear')}>Trend line</Check></Line>
+          <Line label=""><Check on={!!ttype} onClick={() => set('trend', ttype ? null : 'linear')}>{tr('Trend line')}</Check></Line>
           {ttype && trendBody}
         </>
       )],
-      ['parts', null, `Partitions: ${parts.length || 'none'}`, 'Partition lines', (
+      ['parts', null, tr('Partitions: {n}', { n: parts.length || tr('none') }), tr('Partition lines'), (
         <>
-          <Line label="Add">
-            <button type="button" className="chart-pop__link" onClick={() => addPart('x')}>Vertical</button>
-            <button type="button" className="chart-pop__link" onClick={() => addPart('y')}>Horizontal</button>
-            <button type="button" className="chart-pop__link" onClick={() => addPart('line')}>Oblique</button>
+          <Line label={tr('Add')}>
+            <button type="button" className="chart-pop__link" onClick={() => addPart('x')}>{tr('Vertical')}</button>
+            <button type="button" className="chart-pop__link" onClick={() => addPart('y')}>{tr('Horizontal')}</button>
+            <button type="button" className="chart-pop__link" onClick={() => addPart('line')}>{tr('Oblique')}</button>
           </Line>
-          {parts.length > 0 && <Line label=""><button type="button" className="chart-pop__link" onClick={() => set('partitions', [])}>Remove all partitions</button></Line>}
-          <div className="chart-pop__note">Drag a line to move it, Ctrl+drag to copy it, Shift to snap an oblique line’s angle. Click a zone to fill or name it.</div>
+          {parts.length > 0 && <Line label=""><button type="button" className="chart-pop__link" onClick={() => set('partitions', [])}>{tr('Remove all partitions')}</button></Line>}
+          <div className="chart-pop__note">{tr('Drag a line to move it, Ctrl+drag to copy it, Shift to snap an oblique line’s angle. Click a zone to fill or name it.')}</div>
         </>
       )],
     ],
     point: pt ? [
-      ['fill', <span className="chart-bar__dot" style={{ background: tok(pt.color) }} />, `Fill: ${colorName(pt.color)}`, 'Point color', (
+      ['fill', <span className="chart-bar__dot" style={{ background: tok(pt.color) }} />, tr('Fill: {name}', { name: colorName(pt.color) }), tr('Point color'), (
         <Swatches palette={PALETTE} value={P.colors?.[pt.key] ?? pt.color} onPick={c => update('colors', c0 => ({ ...(c0 ?? {}), [pt.key]: c }))} />
       )],
-      ['label', null, `Label: ${hidden.has(pt.key) ? 'hidden' : offsets[pt.key] ? 'moved' : 'shown'}`, 'This point’s label', (
+      ['label', null, tr('Label: {state}', { state: hidden.has(pt.key) ? tr('hidden') : offsets[pt.key] ? tr('moved') : tr('shown') }), tr('This point’s label'), (
         <>
-          <Line label=""><Check on={!hidden.has(pt.key)} onClick={() => toggleHidden(pt.key)}>Show this label</Check></Line>
-          {offsets[pt.key] && <Line label=""><button type="button" className="chart-pop__link" onClick={() => update('labelOffsets', o => { const n = { ...(o ?? {}) }; delete n[pt.key]; return n })}>Place automatically</button></Line>}
+          <Line label=""><Check on={!hidden.has(pt.key)} onClick={() => toggleHidden(pt.key)}>{tr('Show this label')}</Check></Line>
+          {offsets[pt.key] && <Line label=""><button type="button" className="chart-pop__link" onClick={() => update('labelOffsets', o => { const n = { ...(o ?? {}) }; delete n[pt.key]; return n })}>{tr('Place automatically')}</button></Line>}
         </>
       )],
-      ['order', null, `Order: ${(spec.front ?? []).includes(pt.key) ? 'front' : (spec.back ?? []).includes(pt.key) ? 'back' : 'auto'}`, 'Drawing order', (
+      ['order', null, tr('Order: {name}', { name: (spec.front ?? []).includes(pt.key) ? tr('front') : (spec.back ?? []).includes(pt.key) ? tr('back') : tr('auto') }), tr('Drawing order'), (
         <Line label="">
-          <button type="button" className="chart-pop__link" onClick={() => toFront(pt.key)}>Bring to front</button>
-          <button type="button" className="chart-pop__link" onClick={() => toBack(pt.key)}>Send to back</button>
+          <button type="button" className="chart-pop__link" onClick={() => toFront(pt.key)}>{tr('Bring to front')}</button>
+          <button type="button" className="chart-pop__link" onClick={() => toBack(pt.key)}>{tr('Send to back')}</button>
         </Line>
       )],
     ] : [],
     group: grpKeys.length ? [
-      ['fill', <span className="chart-bar__dot" style={{ background: tok(scene.points.find(p => p.key === grpKeys[0])?.color) }} />, `Fill: ${colorName(scene.points.find(p => p.key === grpKeys[0])?.color)}`, 'Color of every point in the group', (
+      ['fill', <span className="chart-bar__dot" style={{ background: tok(scene.points.find(p => p.key === grpKeys[0])?.color) }} />, tr('Fill: {name}', { name: colorName(scene.points.find(p => p.key === grpKeys[0])?.color) }), tr('Color of every point in the group'), (
         <Swatches palette={PALETTE} value={null} onPick={c => update('colors', c0 => ({ ...(c0 ?? {}), ...Object.fromEntries(grpKeys.map(k => [k, c])) }))} />
       )],
-      ['order', null, 'Order', 'Drawing order of the group', (
+      ['order', null, tr('Order'), tr('Drawing order of the group'), (
         <Line label="">
-          <button type="button" className="chart-pop__link" onClick={() => toFront(grpKeys)}>Bring to front</button>
-          <button type="button" className="chart-pop__link" onClick={() => toBack(grpKeys)}>Send to back</button>
+          <button type="button" className="chart-pop__link" onClick={() => toFront(grpKeys)}>{tr('Bring to front')}</button>
+          <button type="button" className="chart-pop__link" onClick={() => toBack(grpKeys)}>{tr('Send to back')}</button>
         </Line>
       )],
     ] : [],
     labels: [
-      ['textstyle', null, styleSummary(P), 'Label color, font and size', <TextStyle font={P.labelFont} pt={P.labelPt} color={P.labelColor} onFont={v => set('labelFont', v)} onPt={v => set('labelPt', v)} onColor={v => set('labelColor', v)} />],
-      ['show', null, `Labels: ${labelsOn ? 'all' : 'none'}`, 'Point labels', (
+      ['textstyle', null, styleSummary(P), tr('Label color, font and size'), <TextStyle font={P.labelFont} pt={P.labelPt} color={P.labelColor} onFont={v => set('labelFont', v)} onPt={v => set('labelPt', v)} onColor={v => set('labelColor', v)} />],
+      ['show', null, tr('Labels: {name}', { name: labelsOn ? tr('all') : tr('none') }), tr('Point labels'), (
         <>
-          <Line label="Show"><Seg label="Point labels" value={labelsOn ? 'all' : 'none'} onPick={v => set('labels', v === labelsAuto ? null : v)} items={[['all', 'All'], ['none', 'None']]} /></Line>
-          {labelsAuto === 'none' && <div className="chart-pop__note">Over 300 points, labels are off by default.</div>}
+          <Line label={tr('Show')}><Seg label={tr('Point labels')} value={labelsOn ? 'all' : 'none'} onPick={v => set('labels', v === labelsAuto ? null : v)} items={[['all', tr('All')], ['none', tr('None')]]} /></Line>
+          {labelsAuto === 'none' && <div className="chart-pop__note">{tr('Over 300 points, labels are off by default.')}</div>}
         </>
       )],
-      ['content', null, `Content: ${content.map(k => CONTENT.find(c => c[0] === k)[1]).join(' + ') || 'none'}${content2.length ? ` / ${content2.map(k => CONTENT.find(c => c[0] === k)[1]).join(' + ')}` : ''}`, 'Label content', (
+      ['content', null, tr('Content: {name}', { name: `${content.map(k => CONTENT.find(c => c[0] === k)[1]).join(' + ') || tr('none')}${content2.length ? ` / ${content2.map(k => CONTENT.find(c => c[0] === k)[1]).join(' + ')}` : ''}` }), tr('Label content'), (
         <>
-          <Line label="Line 1">{CONTENT.filter(([k]) => k !== 'size' || hasSize).map(([k, l]) => <Check key={k} on={content.includes(k)} onClick={() => toggleIn('labelContent', k, ['name'])}>{l}</Check>)}</Line>
-          <Line label="Line 2">{CONTENT.filter(([k]) => k !== 'size' || hasSize).map(([k, l]) => <Check key={k} on={content2.includes(k)} onClick={() => toggleIn('label2', k, [])}>{l}</Check>)}</Line>
+          <Line label={tr('Line 1')}>{CONTENT.filter(([k]) => k !== 'size' || hasSize).map(([k, l]) => <Check key={k} on={content.includes(k)} onClick={() => toggleIn('labelContent', k, ['name'])}>{l}</Check>)}</Line>
+          <Line label={tr('Line 2')}>{CONTENT.filter(([k]) => k !== 'size' || hasSize).map(([k, l]) => <Check key={k} on={content2.includes(k)} onClick={() => toggleIn('label2', k, [])}>{l}</Check>)}</Line>
         </>
       )],
-      ['place', null, `Placement: ${moved ? `${moved} moved` : 'auto'}`, 'Label placement', (
+      ['place', null, tr('Placement: {name}', { name: moved ? tr('{n} moved', { n: moved }) : tr('auto') }), tr('Label placement'), (
         <>
-          <div className="chart-pop__note">Drag a label to place it by hand; the others make room.</div>
-          {moved > 0 && <Line label=""><button type="button" className="chart-pop__link" onClick={() => set('labelOffsets', {})}>Place all labels automatically</button></Line>}
+          <div className="chart-pop__note">{tr('Drag a label to place it by hand; the others make room.')}</div>
+          {moved > 0 && <Line label=""><button type="button" className="chart-pop__link" onClick={() => set('labelOffsets', {})}>{tr('Place all labels automatically')}</button></Line>}
         </>
       )],
       // Labels dropped for lack of room (large size): counted, the value still shows on point hover.
-      scene?.noRoom > 0 && ['noroom', null, `${scene.noRoom} hidden (no room)`, 'Labels left out for lack of room', (
-        <div className="chart-pop__note">{`${scene.noRoom} label${scene.noRoom > 1 ? 's' : ''} did not fit at this size. Hover a point to read it, or reduce the size in Style.`}</div>
+      scene?.noRoom > 0 && ['noroom', null, tr('{n} hidden (no room)', { n: scene.noRoom }), tr('Labels left out for lack of room'), (
+        <div className="chart-pop__note">{scene.noRoom > 1 ? tr('{n} labels did not fit at this size. Hover a point to read it, or reduce the size in Style.', { n: scene.noRoom }) : tr('{n} label did not fit at this size. Hover a point to read it, or reduce the size in Style.', { n: scene.noRoom })}</div>
       )],
-      hidden.size > 0 && ['restore', null, `${hidden.size} hidden`, 'Labels hidden one by one', (
-        <Line label=""><button type="button" className="chart-pop__link" onClick={() => set('hiddenLabels', [])}>Show all hidden labels</button></Line>
+      hidden.size > 0 && ['restore', null, tr('{n} hidden', { n: hidden.size }), tr('Labels hidden one by one'), (
+        <Line label=""><button type="button" className="chart-pop__link" onClick={() => set('hiddenLabels', [])}>{tr('Show all hidden labels')}</button></Line>
       )],
     ],
     xaxis: axisControls('x'),
     yaxis: axisControls('y'),
     legend: [
-      ['pos', null, `Legend: ${(spec.legend ?? 'top') === 'none' ? 'hidden' : 'top'}`, 'Legend', (
-        <Line label="Position"><Seg label="Legend" value={spec.legend ?? 'top'} onPick={v => set('legend', v === 'top' ? null : v)} items={[['top', 'Top'], ['none', 'Hidden']]} /></Line>
+      ['pos', null, tr('Legend: {name}', { name: (spec.legend ?? 'top') === 'none' ? tr('hidden') : tr('top') }), tr('Legend'), (
+        <Line label={tr('Position')}><Seg label={tr('Legend')} value={spec.legend ?? 'top'} onPick={v => set('legend', v === 'top' ? null : v)} items={[['top', tr('Top')], ['none', tr('Hidden')]]} /></Line>
       )],
     ],
     trend: scene?.trend ? [
-      ['type', null, `Type: ${TREND_NAME[scene.trend.type].toLowerCase()}${scene.trend.group != null ? ` · ${scene.trend.group}` : ''}${scene.trend.weighted ? ' · weighted' : ''}`, 'Trend type and display', trendBody],
-      ['stats', null, `R² ${scene.trend.r2.toFixed(2)}`, 'Fit of the trend line', (
+      ['type', null, tr('Type: {name}', { name: `${TREND_NAME[scene.trend.type].toLowerCase()}${scene.trend.group != null ? ` · ${scene.trend.group}` : ''}${scene.trend.weighted ? tr(' · weighted') : ''}` }), tr('Trend type and display'), trendBody],
+      ['stats', null, `R² ${scene.trend.r2.toFixed(2)}`, tr('Fit of the trend line'), (
         <div className="chart-pop__note">{`${scene.trend.equation} · R² ${scene.trend.r2.toFixed(3)}`}</div>
       )],
     ] : [],
     partition: part ? [
-      part.axis !== 'line' && ['at', null, `At: ${part.value}`, 'Position', (
-        <Line label="At"><Field label={part.axis} numeric value={part.value} onCommit={v => v != null && patchPart(part.key, { value: v })} /></Line>
+      part.axis !== 'line' && ['at', null, tr('At: {n}', { n: part.value }), tr('Position'), (
+        <Line label={tr('At')}><Field label={part.axis} numeric value={part.value} onCommit={v => v != null && patchPart(part.key, { value: v })} /></Line>
       )],
-      part.axis === 'line' && ['at', null, `From (${part.from.x}, ${part.from.y}) to (${part.to.x}, ${part.to.y})`, 'Two points on the line', (
+      part.axis === 'line' && ['at', null, tr('From ({x1}, {y1}) to ({x2}, {y2})', { x1: part.from.x, y1: part.from.y, x2: part.to.x, y2: part.to.y }), tr('Two points on the line'), (
         <>
-          <Line label="From">
+          <Line label={tr('From')}>
             <Field label="x" numeric value={part.from.x} onCommit={v => v != null && patchPart(part.key, { from: { ...part.from, x: v } })} />
             <Field label="y" numeric value={part.from.y} onCommit={v => v != null && patchPart(part.key, { from: { ...part.from, y: v } })} />
           </Line>
-          <Line label="To">
+          <Line label={tr('To')}>
             <Field label="x" numeric value={part.to.x} onCommit={v => v != null && patchPart(part.key, { to: { ...part.to, x: v } })} />
             <Field label="y" numeric value={part.to.y} onCommit={v => v != null && patchPart(part.key, { to: { ...part.to, y: v } })} />
           </Line>
-          <div className="chart-pop__note">Drag an end to rotate (Shift snaps to 15°), the line to move it.</div>
+          <div className="chart-pop__note">{tr('Drag an end to rotate (Shift snaps to 15°), the line to move it.')}</div>
         </>
       )],
-      part.axis === 'line' && ['ptype', null, 'Type: partition', 'Partition type', (
-        <Line label="Type"><Seg label="Partition type" value="partition" onPick={v => v !== 'partition' && partToTrend(part.key, v)}
-          items={[['partition', 'Partition'], ['*', 'Trend: all points'], ...(groupNames.length > 1 ? groupNames.map(g => [g, `Trend: ${g}`]) : [])]} /></Line>
+      part.axis === 'line' && ['ptype', null, tr('Type: partition'), tr('Partition type'), (
+        <Line label={tr('Type')}><Seg label={tr('Partition type')} value="partition" onPick={v => v !== 'partition' && partToTrend(part.key, v)}
+          items={[['partition', tr('Partition')], ['*', tr('Trend: all points')], ...(groupNames.length > 1 ? groupNames.map(g => [g, tr('Trend: {name}', { name: g })]) : [])]} /></Line>
       )],
-      part.axis === 'line' && ['above', null, `Above: ${zones[`above:${part.key}`]?.fill ?? 'none'}`, 'Zone above the line', zoneBody(`above:${part.key}`)],
-      part.axis === 'line' && ['below', null, `Below: ${zones[`below:${part.key}`]?.fill ?? 'none'}`, 'Zone below the line', zoneBody(`below:${part.key}`)],
+      part.axis === 'line' && ['above', null, tr('Above: {name}', { name: zones[`above:${part.key}`]?.fill ?? tr('none') }), tr('Zone above the line'), zoneBody(`above:${part.key}`)],
+      part.axis === 'line' && ['below', null, tr('Below: {name}', { name: zones[`below:${part.key}`]?.fill ?? tr('none') }), tr('Zone below the line'), zoneBody(`below:${part.key}`)],
     ] : [],
     zone: zone ? [
-      ['fill', zones[zone.key]?.fill ? <span className="chart-bar__dot" style={{ background: tok(zones[zone.key].fill) }} /> : null, `Fill: ${zones[zone.key]?.fill ? colorName(zones[zone.key].fill) : 'none'}`, 'Zone fill', zoneBody(zone.key)],
+      ['fill', zones[zone.key]?.fill ? <span className="chart-bar__dot" style={{ background: tok(zones[zone.key].fill) }} /> : null, tr('Fill: {name}', { name: zones[zone.key]?.fill ? colorName(zones[zone.key].fill) : tr('none') }), tr('Zone fill'), zoneBody(zone.key)],
     ] : [],
   }
   const actions = {
     chart: [
-      { label: 'Open data sheet', shortcut: 'Double-click', onSelect: () => sheetApi.setSheetOpen(true) },
-      sheetApi.sheetEdited && { label: 'Reset data to source', onSelect: () => sheetApi.resetSheet() },
+      { label: tr('Open data sheet'), shortcut: tr('Double-click'), onSelect: () => sheetApi.setSheetOpen(true) },
+      sheetApi.sheetEdited && { label: tr('Reset data to source'), onSelect: () => sheetApi.resetSheet() },
       '-',
-      { label: ttype ? 'Remove trend line' : 'Add trend line', onSelect: () => set('trend', ttype ? null : 'linear') },
-      { label: 'Add vertical partition', onSelect: () => addPart('x') },
-      { label: 'Add horizontal partition', onSelect: () => addPart('y') },
-      { label: 'Add oblique partition', onSelect: () => addPart('line') },
-      parts.length > 0 && { label: 'Remove all partitions', onSelect: () => set('partitions', []) },
+      { label: ttype ? tr('Remove trend line') : tr('Add trend line'), onSelect: () => set('trend', ttype ? null : 'linear') },
+      { label: tr('Add vertical partition'), onSelect: () => addPart('x') },
+      { label: tr('Add horizontal partition'), onSelect: () => addPart('y') },
+      { label: tr('Add oblique partition'), onSelect: () => addPart('line') },
+      parts.length > 0 && { label: tr('Remove all partitions'), onSelect: () => set('partitions', []) },
     ],
     point: pt ? [
-      { label: 'Bring to front', onSelect: () => toFront(pt.key) },
-      { label: 'Send to back', onSelect: () => toBack(pt.key) },
-      { label: hidden.has(pt.key) ? 'Show this label' : 'Hide this label', onSelect: () => toggleHidden(pt.key) },
-      pt.group != null && groupNames.length > 1 && { label: `Select group “${pt.group}”`, shortcut: 'Shift+click', onSelect: () => open({ type: 'click', clientX: pick.anchor?.x ?? 0, clientY: pick.anchor?.y ?? 0, preventDefault() {}, stopPropagation() {} }, { obj: 'group', key: pt.group }) },
-      { label: `Draw partition lines through ${pt.label}`, onSelect: () => setParts(list => [...list.filter(p => p.axis === 'line'), { key: 'x', axis: 'x', value: pt.vx }, { key: 'y', axis: 'y', value: pt.vy }]) },
+      { label: tr('Bring to front'), onSelect: () => toFront(pt.key) },
+      { label: tr('Send to back'), onSelect: () => toBack(pt.key) },
+      { label: hidden.has(pt.key) ? tr('Show this label') : tr('Hide this label'), onSelect: () => toggleHidden(pt.key) },
+      pt.group != null && groupNames.length > 1 && { label: tr('Select group “{name}”', { name: pt.group }), shortcut: tr('Shift+click'), onSelect: () => open({ type: 'click', clientX: pick.anchor?.x ?? 0, clientY: pick.anchor?.y ?? 0, preventDefault() {}, stopPropagation() {} }, { obj: 'group', key: pt.group }) },
+      { label: tr('Draw partition lines through {name}', { name: pt.label }), onSelect: () => setParts(list => [...list.filter(p => p.axis === 'line'), { key: 'x', axis: 'x', value: pt.vx }, { key: 'y', axis: 'y', value: pt.vy }]) },
     ] : [],
     group: grpKeys.length ? [
-      { label: 'Bring group to front', onSelect: () => toFront(grpKeys) },
-      { label: 'Send group to back', onSelect: () => toBack(grpKeys) },
-      { label: 'Hide the group’s labels', onSelect: () => setHiddenMany(grpKeys, true) },
-      { label: 'Show the group’s labels', onSelect: () => setHiddenMany(grpKeys, false) },
-      { label: 'Trend line of this group', onSelect: () => { set('trendGroup', pick.key); set('trend', ttype ?? 'linear') } },
+      { label: tr('Bring group to front'), onSelect: () => toFront(grpKeys) },
+      { label: tr('Send group to back'), onSelect: () => toBack(grpKeys) },
+      { label: tr('Hide the group’s labels'), onSelect: () => setHiddenMany(grpKeys, true) },
+      { label: tr('Show the group’s labels'), onSelect: () => setHiddenMany(grpKeys, false) },
+      { label: tr('Trend line of this group'), onSelect: () => { set('trendGroup', pick.key); set('trend', ttype ?? 'linear') } },
     ] : [],
     labels: [
-      { label: labelsOn ? 'Remove labels' : 'Add labels', onSelect: () => set('labels', labelsOn ? (labelsAuto === 'none' ? null : 'none') : (labelsAuto === 'all' ? null : 'all')) },
-      moved > 0 && { label: 'Place all labels automatically', onSelect: () => set('labelOffsets', {}) },
+      { label: labelsOn ? tr('Remove labels') : tr('Add labels'), onSelect: () => set('labels', labelsOn ? (labelsAuto === 'none' ? null : 'none') : (labelsAuto === 'all' ? null : 'all')) },
+      moved > 0 && { label: tr('Place all labels automatically'), onSelect: () => set('labelOffsets', {}) },
     ],
     xaxis: [
-      { label: spec.x?.log ? 'Linear scale' : 'Logarithmic scale', onSelect: () => setAxis('x', 'log', spec.x?.log ? null : true) },
-      { label: spec.x?.same ? `Same scale (${groupCount('scatter-x|*')} charts)` : 'Same scale as other charts', checked: !!spec.x?.same, onSelect: () => setAxis('x', 'same', spec.x?.same ? null : true) },
+      { label: spec.x?.log ? tr('Linear scale') : tr('Logarithmic scale'), onSelect: () => setAxis('x', 'log', spec.x?.log ? null : true) },
+      { label: spec.x?.same ? tr('Same scale ({n} charts)', { n: groupCount('scatter-x|*') }) : tr('Same scale as other charts'), checked: !!spec.x?.same, onSelect: () => setAxis('x', 'same', spec.x?.same ? null : true) },
     ],
     yaxis: [
-      { label: spec.y?.log ? 'Linear scale' : 'Logarithmic scale', onSelect: () => setAxis('y', 'log', spec.y?.log ? null : true) },
-      { label: spec.y?.same ? `Same scale (${groupCount('scatter-y|*')} charts)` : 'Same scale as other charts', checked: !!spec.y?.same, onSelect: () => setAxis('y', 'same', spec.y?.same ? null : true) },
+      { label: spec.y?.log ? tr('Linear scale') : tr('Logarithmic scale'), onSelect: () => setAxis('y', 'log', spec.y?.log ? null : true) },
+      { label: spec.y?.same ? tr('Same scale ({n} charts)', { n: groupCount('scatter-y|*') }) : tr('Same scale as other charts'), checked: !!spec.y?.same, onSelect: () => setAxis('y', 'same', spec.y?.same ? null : true) },
     ],
-    legend: [{ label: 'Remove legend', onSelect: () => set('legend', 'none') }],
+    legend: [{ label: tr('Remove legend'), onSelect: () => set('legend', 'none') }],
     trend: [
-      ...TRENDS.map(([v, l]) => ({ label: `${l} trend`, checked: ttype === v, onSelect: () => set('trend', v) })),
+      ...TRENDS.map(([v, , a]) => ({ label: a, checked: ttype === v, onSelect: () => set('trend', v) })),
       '-',
-      ttype === 'linear' && { label: 'Change to partition line', onSelect: () => { trendToPart(); close() } },
-      { label: 'Remove trend line', onSelect: () => set('trend', null) },
+      ttype === 'linear' && { label: tr('Change to partition line'), onSelect: () => { trendToPart(); close() } },
+      { label: tr('Remove trend line'), onSelect: () => set('trend', null) },
     ],
     partition: part ? [
-      part.axis === 'line' && { label: 'Change to trend line', onSelect: () => partToTrend(part.key, '*') },
-      { label: 'Duplicate', onSelect: () => setParts(list => [...list, { ...part, key: newKey() }]) },
-      { label: 'Remove this partition', onSelect: () => { removePart(part.key); close() } },
+      part.axis === 'line' && { label: tr('Change to trend line'), onSelect: () => partToTrend(part.key, '*') },
+      { label: tr('Duplicate'), onSelect: () => setParts(list => [...list, { ...part, key: newKey() }]) },
+      { label: tr('Remove this partition'), onSelect: () => { removePart(part.key); close() } },
     ] : [],
     zone: zone ? [
-      zones[zone.key]?.fill && { label: 'Remove fill', onSelect: () => setZone(zone.key, { fill: null }) },
-      zones[zone.key]?.label && { label: 'Remove label', onSelect: () => setZone(zone.key, { label: null }) },
+      zones[zone.key]?.fill && { label: tr('Remove fill'), onSelect: () => setZone(zone.key, { fill: null }) },
+      zones[zone.key]?.label && { label: tr('Remove label'), onSelect: () => setZone(zone.key, { label: null }) },
     ] : [],
   }
 
@@ -520,15 +536,15 @@ export default function ScatterView({ id = 'scatter', spec: baseSpec = {}, point
       case 'partitionHit': return {
         className: it.axis === 'x' ? 'chart-engine-handle' : it.axis === 'y' ? 'chart-engine-handle--y' : 'chart-engine-handle--move',
         onPointerDown: e => dragPart(e, it), onClick: go('partition', { key: it.key }), onContextMenu: go('partition', { key: it.key }),
-        children: <title>Drag to move the partition (Ctrl+drag to copy)</title>,
+        children: <title>{tr('Drag to move the partition (Ctrl+drag to copy)')}</title>,
       }
       case 'partitionEnd': return {
         className: `chart-engine-knob${selPart(it.key) ? ' is-on' : ''}`, onPointerDown: e => dragEnd(e, it, it.end),
-        children: <title>Drag to rotate (Shift snaps to 15°)</title>,
+        children: <title>{tr('Drag to rotate (Shift snaps to 15°)')}</title>,
       }
       case 'trend': return { className: `chart-engine-clickable${it.type === 'linear' ? ' chart-engine-handle--move' : ''}`, onClick: go('trend'), onContextMenu: go('trend'), onPointerDown: dragTrend }
       case 'trendLine': return { stroke: tok(cur === 'trend' && pick ? 'gold' : it.color ?? 'gray-600') }
-      case 'trendHit': return it.type === 'linear' ? { children: <title>Drag to turn the trend line into a partition</title> } : {}
+      case 'trendHit': return it.type === 'linear' ? { children: <title>{tr('Drag to turn the trend line into a partition')}</title> } : {}
       case 'point': return {
         className: `chart-engine-clickable${isOn(it) ? ' is-selected' : ''}`, onClick: goPoint(it), onContextMenu: goPoint(it),
         tabIndex: 0, role: 'button', 'aria-label': `${it.label}: ${it.vx}, ${it.vy}`,
@@ -544,7 +560,7 @@ export default function ScatterView({ id = 'scatter', spec: baseSpec = {}, point
       case 'sizeHandle': return {
         className: `chart-engine-knob chart-engine-handle${spec.sizeLegend ? ' is-on' : ''}`,
         onPointerDown: e => dragLegendSize(e, it), onDoubleClick: e => { e.stopPropagation(); set('sizeLegend', null) },
-        children: <title>Drag to change the reference bubble (double-click: largest bubble)</title>,
+        children: <title>{tr('Drag to change the reference bubble (double-click: largest bubble)')}</title>,
       }
       default: return null
     }
@@ -553,7 +569,7 @@ export default function ScatterView({ id = 'scatter', spec: baseSpec = {}, point
   if (readOnly) {
     return (
       <div ref={boxRef} className="chart-engine chart-engine-box">
-        {scene?.empty && <div className="chart-engine-empty">No data for this chart yet.</div>}
+        {scene?.empty && <div className="chart-engine-empty">{tr('No data for this chart yet.')}</div>}
         <ScatterFigure scene={scene} interactive={!readOnly} label={label} responsive={responsive} dataTable={dataTable} clipId={clipId} />
       </div>
     )
@@ -563,15 +579,15 @@ export default function ScatterView({ id = 'scatter', spec: baseSpec = {}, point
     <div ref={boxRef} className="chart-engine chart-engine-box" onContextMenu={e => { if (!e.defaultPrevented) open(e, { obj: 'chart' }) }} onDoubleClick={e => { if (!e.target.closest?.('.chart-datasheet, .chart-wheel, .chart-pop')) { close(); setObj(null); sheetApi.setSheetOpen(true) } }}>
       <EditedNote api={sheetApi} />
       <div className="chart-engine-float-menu">
-        <button type="button" data-wheel-anchor className="chart-opts-btn" title="Chart format: colours, labels and layout. Tip: click or right-click any part of the chart" aria-label="Chart format"
+        <button type="button" data-wheel-anchor className="chart-opts-btn" title={tr('Chart format: colours, labels and layout. Tip: click or right-click any part of the chart')} aria-label={tr('Chart format')}
           onClick={go('chart')}><IconPalette size={13} /></button>
       </div>
-      {scene?.empty && <div className="chart-engine-empty">No data for this chart yet.</div>}
+      {scene?.empty && <div className="chart-engine-empty">{tr('No data for this chart yet.')}</div>}
       {scene && !scene.empty && (
         <ScatterFigure scene={shown} interactive={!readOnly} label={label} responsive={responsive} dataTable={dataTable} labelStyle={labelTextStyle(P)} part={partProps} clipId={clipId}>
           {bubble && pt && pick?.obj === 'point' && (
             <circle cx={pt.x + pt.r} cy={pt.y} r={4} className="chart-engine-knob is-on chart-engine-handle" onPointerDown={e => dragSize(e, pt)}>
-              <title>Drag to resize all bubbles</title>
+              <title>{tr('Drag to resize all bubbles')}</title>
             </circle>
           )}
           {snapTip && (

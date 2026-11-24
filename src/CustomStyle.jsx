@@ -11,6 +11,7 @@ import {
   isHex, tok, pushRecent, recentColors, subscribeStyle, PT_MIN, PT_MAX, isPt, parsePt, parseColorInput,
   customSchemes, saveScheme, deleteScheme, exportStyleFile, importStyleFile, resolveColors, styleFileName, draftFollows, PREVIEW_SCHEME, fontOptions,
 } from './customStyle.js'
+import { useT } from './uiLocale.js'
 
 // Starting point of the native picker when the current color is a token (mid gray).
 const NEUTRAL_PICK = ['#', '808080'].join('')
@@ -34,6 +35,7 @@ let lastNotice = null
 
 /** A free color: native picker + hex + recent colors. `value` = token or hex. */
 export function CustomColor({ value, onPick }) {
+  const tr = useT()
   const recent = useRecent()
   const hex = isHex(value) ? value : ''
   const [draft, setDraft] = useState(null)
@@ -42,7 +44,7 @@ export function CustomColor({ value, onPick }) {
   // Unreadable input applies nothing and says so; empty = keep the current color.
   const commit = raw => {
     const r = parseColorInput(raw)
-    if (r.error) return setErr(r.error)
+    if (r.error) return setErr(tr(r.error))
     setErr(null)
     if (r.hex) { pushRecent(r.hex); onPick(r.hex) }
   }
@@ -56,9 +58,9 @@ export function CustomColor({ value, onPick }) {
   return (
     <div className="chart-pop__custom">
       {/* The native picker applies live; the color enters the recent colors on release. */}
-      <input ref={picker} type="color" className="chart-pop__color" aria-label="Custom color" title="Custom color (hue, saturation, RGB)"
+      <input ref={picker} type="color" className="chart-pop__color" aria-label={tr('Custom color')} title={tr('Custom color (hue, saturation, RGB)')}
         value={hex || NEUTRAL_PICK} onChange={e => onPick(e.target.value)} />
-      <input type="text" className={`chart-opts-input chart-pop__hex${err ? ' is-invalid' : ''}`} aria-label="Hex color" placeholder="#hex or r,g,b" spellCheck={false}
+      <input type="text" className={`chart-opts-input chart-pop__hex${err ? ' is-invalid' : ''}`} aria-label={tr('Hex color')} placeholder={tr('#hex or r,g,b')} spellCheck={false}
         aria-invalid={err ? true : undefined} title={err ?? undefined}
         value={draft ?? hex} onFocus={() => setDraft(hex)}
         onChange={e => { setDraft(e.target.value); if (err) setErr(null) }}
@@ -66,7 +68,7 @@ export function CustomColor({ value, onPick }) {
         onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); e.currentTarget.blur() } }} />
       {recent.map(c => (
         <button key={c} type="button" className={`chart-editor-swatch${value === c ? ' is-on' : ''}`} style={{ background: c }}
-          aria-label={`Recent color ${c}`} aria-pressed={value === c} title={c} onClick={() => commit(c)} />
+          aria-label={tr('Recent color {color}', { color: c })} aria-pressed={value === c} title={c} onClick={() => commit(c)} />
       ))}
       {err && <div className="chart-pop__error" role="alert">{err}</div>}
     </div>
@@ -74,10 +76,11 @@ export function CustomColor({ value, onPick }) {
 }
 
 /** The font family of a text: null = the engine's figure font. */
-export function FontPick({ value, onPick, label = 'Font', defaultLabel = null }) {
+export function FontPick({ value, onPick, label, defaultLabel = null }) {
+  const tr = useT()
   return (
-    <select className="chart-opts-input chart-pop__font" aria-label={label} value={value ?? ''} onChange={e => onPick(e.target.value || null)}>
-      {fontOptions(defaultLabel).map(([k, l]) => <option key={k ?? ''} value={k ?? ''}>{l}</option>)}
+    <select className="chart-opts-input chart-pop__font" aria-label={label ?? tr('Font')} value={value ?? ''} onChange={e => onPick(e.target.value || null)}>
+      {fontOptions(defaultLabel).map(([k, l]) => <option key={k ?? ''} value={k ?? ''}>{tr(l)}</option>)}
     </select>
   )
 }
@@ -86,7 +89,9 @@ export function FontPick({ value, onPick, label = 'Font', defaultLabel = null })
 // The last message of a pt field (per label): it survives the remount of the mini toolbar
 // caused by the chart's re-render ("Limited to 72 pt" stays readable for a few seconds).
 const ptNotes = new Map()
-export function PtField({ value, onPick, label = 'Size in points' }) {
+export function PtField({ value, onPick, label: labelIn }) {
+  const tr = useT()
+  const label = labelIn ?? tr('Size in points')
   const [draft, setDraft] = useState(null)
   // { error }: nothing applied; { note }: value clamped, and said so.
   const [msg, setMsg0] = useState(() => { const n = ptNotes.get(label); return n && Date.now() - n.at < 8000 ? n.msg : null })
@@ -95,12 +100,12 @@ export function PtField({ value, onPick, label = 'Size in points' }) {
   const commit = raw => {
     if (raw === shown) return
     const r = parsePt(raw)
-    if (r.error) return setMsg({ error: r.error })
-    setMsg(r.note ? { note: r.note } : null)
+    if (r.error) return setMsg({ error: tr('Expected a number, {min} to {max}', { min: PT_MIN, max: PT_MAX }) })
+    setMsg(r.note ? { note: tr('Limited to {n} pt', { n: r.value }) } : null)
     onPick(r.empty ? null : r.value)
   }
   return (
-    <label className="chart-pop__pt" title={`Free size, ${PT_MIN} to ${PT_MAX} pt`}>
+    <label className="chart-pop__pt" title={tr('Free size, {min} to {max} pt', { min: PT_MIN, max: PT_MAX })}>
       <input type="text" inputMode="decimal" className={`chart-opts-input${msg?.error ? ' is-invalid' : ''}`} aria-label={label} placeholder="pt" value={draft ?? shown}
         aria-invalid={msg?.error ? true : undefined}
         onFocus={() => setDraft(shown)} onChange={e => { setDraft(e.target.value); if (msg) setMsg(null) }}
@@ -117,9 +122,10 @@ export function PtField({ value, onPick, label = 'Size in points' }) {
  * current = the current series colors; active = name of the applied scheme; onApply(scheme | null).
  */
 export function SchemeTools({ current, active, onApply }) {
+  const tr = useT()
   const schemes = useCustomSchemes()
   const [name, setName] = useState('')
-  const [msg, setMsg] = useState(() => (lastNotice && Date.now() - lastNotice.at < 60000 ? lastNotice.text : null))
+  const [msg, setMsg] = useState(() => (lastNotice && Date.now() - lastNotice.at < 60000 ? lastNotice.msg : null))
   const fileRef = useRef(null)
   // The scheme editor: the current colors, resolved to hex (portable), editable one by one.
   const currentKey = (current ?? []).join('|')
@@ -133,7 +139,8 @@ export function SchemeTools({ current, active, onApply }) {
     const now = resolveColors(current, readToken)
     if (!draftFollows(now, draft)) { setDraft(now); setSel(0) }
   }
-  const note = text => { lastNotice = text ? { text, at: Date.now() } : null; setMsg(text) }
+  // { text, error }: the message shown under the tools.
+  const note = m => { lastNotice = m ? { msg: m, at: Date.now() } : null; setMsg(m) }
   // Live preview: each edit of the draft applies to the chart (a "custom" scheme, not
   // saved); "Save colors" names it, saves it and keeps it applied.
   const edit = next => { setDraft(next); if (next.length) onApply({ name: PREVIEW_SCHEME, colors: next }) }
@@ -156,7 +163,7 @@ export function SchemeTools({ current, active, onApply }) {
     const f = e.target.files?.[0]
     e.target.value = ''
     if (!f) return
-    try { const n = importStyleFile(await f.text()).length; note(`${n} scheme${n > 1 ? 's' : ''} available`) } catch (err) { note(err.message) }
+    try { const n = importStyleFile(await f.text()).length; note({ text: n > 1 ? tr('{n} schemes available', { n }) : tr('{n} scheme available', { n }) }) } catch (err) { note({ text: tr(err.message), error: true }) }
   }
   const setAt = (i, c) => edit(draft.map((x, j) => (j === i ? c : x)))
   const remove = () => { edit(draft.filter((_, j) => j !== sel)); setSel(i => Math.max(0, i - 1)) }
@@ -172,42 +179,43 @@ export function SchemeTools({ current, active, onApply }) {
             <span className="chart-wheel__scheme-dots">{s.colors.slice(0, 4).map((c, i) => <span key={i} style={{ background: tok(c) }} />)}</span>
             {s.name}
           </button>
-          <button type="button" className="chart-pop__more" aria-label={`Delete scheme ${s.name}`} title="Delete this scheme"
+          <button type="button" className="chart-pop__more" aria-label={tr('Delete scheme {name}', { name: s.name })} title={tr('Delete this scheme')}
             onClick={() => { deleteScheme(s.name); if (active === s.name) onApply(null) }}>×</button>
         </div>
       ))}
-      <div className="chart-pop__swatches chart-pop__scheme-edit" role="group" aria-label="Colors of the new scheme" onKeyDown={keepArrows}>
+      <div className="chart-pop__swatches chart-pop__scheme-edit" role="group" aria-label={tr('Colors of the new scheme')} onKeyDown={keepArrows}>
         {draft.map((c, i) => (
           <button key={i} type="button" className={`chart-editor-swatch${sel === i ? ' is-on' : ''}`} style={{ background: tok(c) }}
-            aria-label={`Scheme color ${i + 1}: ${c}`} aria-pressed={sel === i} title={c} onClick={() => setSel(i)} />
+            aria-label={tr('Scheme color {n}: {color}', { n: i + 1, color: c })} aria-pressed={sel === i} title={c} onClick={() => setSel(i)} />
         ))}
-        <button type="button" className="chart-bar__ctl" onClick={add} disabled={draft.length >= 24} title="Add a color to the scheme"><IconPlus size={13} aria-hidden="true" />Add</button>
-        <button type="button" className="chart-bar__ctl" onClick={remove} disabled={draft.length <= 1} aria-label="Remove the selected color" title="Remove the selected color"><IconMinus size={13} aria-hidden="true" />Remove</button>
+        <button type="button" className="chart-bar__ctl" onClick={add} disabled={draft.length >= 24} title={tr('Add a color to the scheme')}><IconPlus size={13} aria-hidden="true" />{tr('Add')}</button>
+        <button type="button" className="chart-bar__ctl" onClick={remove} disabled={draft.length <= 1} aria-label={tr('Remove the selected color')} title={tr('Remove the selected color')}><IconMinus size={13} aria-hidden="true" />{tr('Remove')}</button>
         {draft[sel] != null && <CustomColor value={draft[sel]} onPick={c => setAt(sel, c)} />}
       </div>
       <div className="chart-pop__custom">
-        <input type="text" className="chart-opts-input" aria-label="New scheme name" placeholder="Name" value={name}
+        <input type="text" className="chart-opts-input" aria-label={tr('New scheme name')} placeholder={tr('Name')} value={name}
           onChange={e => setName(e.target.value)} onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); save() } }} />
-        <button type="button" className="chart-pop__more" disabled={!name.trim() || !draft.length} onClick={save} title="Save these colors (as hex) as a named scheme">Save colors</button>
-        <button type="button" className="chart-pop__more" disabled={!schemes.length} onClick={download} title="Download the schemes as a style file (JSON)">Export</button>
-        <button type="button" className="chart-pop__more" onClick={() => fileRef.current?.click()} title="Load schemes from a style file (JSON)">Import</button>
+        <button type="button" className="chart-pop__more" disabled={!name.trim() || !draft.length} onClick={save} title={tr('Save these colors (as hex) as a named scheme')}>{tr('Save colors')}</button>
+        <button type="button" className="chart-pop__more" disabled={!schemes.length} onClick={download} title={tr('Download the schemes as a style file (JSON)')}>{tr('Export')}</button>
+        <button type="button" className="chart-pop__more" onClick={() => fileRef.current?.click()} title={tr('Load schemes from a style file (JSON)')}>{tr('Import')}</button>
         <input ref={fileRef} type="file" accept="application/json,.json" hidden onChange={load} />
       </div>
-      {msg && <div className={/^Not |^No /.test(msg) ? 'chart-pop__error' : 'chart-pop__note'} role="status">{msg}</div>}
+      {msg && <div className={msg.error ? 'chart-pop__error' : 'chart-pop__note'} role="status">{msg.text}</div>}
     </>
   )
 }
 
 /** The "Style" control of a chart's labels: free color, font and free size (the same building blocks as ChartWheel). */
 export function TextStyle({ font, pt, onFont, onPt, color, onColor, defaultFont = null }) {
+  const tr = useT()
   return (
     <>
-      {onColor && <div className="chart-pop__row"><span className="chart-pop__label">Color</span><div className="chart-pop__tools">
-        <button type="button" className="chart-pop__more" aria-pressed={!isHex(color)} onClick={() => onColor(null)} title="The default label colors">Auto</button>
+      {onColor && <div className="chart-pop__row"><span className="chart-pop__label">{tr('Color')}</span><div className="chart-pop__tools">
+        <button type="button" className="chart-pop__more" aria-pressed={!isHex(color)} onClick={() => onColor(null)} title={tr('The default label colors')}>{tr('Auto')}</button>
         <CustomColor value={color} onPick={onColor} />
       </div></div>}
-      <div className="chart-pop__row"><span className="chart-pop__label">Font</span><div className="chart-pop__tools"><FontPick label="Label font" value={font} onPick={onFont} defaultLabel={defaultFont} /></div></div>
-      <div className="chart-pop__row"><span className="chart-pop__label">Size</span><div className="chart-pop__tools"><PtField label="Label size in points" value={pt} onPick={onPt} /></div></div>
+      <div className="chart-pop__row"><span className="chart-pop__label">{tr('Font')}</span><div className="chart-pop__tools"><FontPick label={tr('Label font')} value={font} onPick={onFont} defaultLabel={defaultFont} /></div></div>
+      <div className="chart-pop__row"><span className="chart-pop__label">{tr('Size')}</span><div className="chart-pop__tools"><PtField label={tr('Label size in points')} value={pt} onPick={onPt} /></div></div>
     </>
   )
 }

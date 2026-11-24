@@ -28,6 +28,7 @@ import { Swatch } from './chartMarks.jsx'
 
 // A color is a palette token, or a user-picked hex (custom style).
 import { tok, fsNote } from './customStyle.js'
+import { SpecLocale, useT } from './uiLocale.js'
 
 // Selection across the charts of the page (for "Set Same Scale"): the last
 // selected scale object, per axis (y: value axis, segment, point; x: numeric X axis).
@@ -39,7 +40,7 @@ const rememberX = entry => { crossAxis.x = entry }
 // A unique name (timestamp): never a group saved by a previous session.
 const newScaleGroup = () => newXGroup()
 
-const GRAIN_SUB = { quarter: 'Quarterly', year: 'Annual', category: 'By company' }
+const grainSub = (tr, grain) => ({ quarter: tr('Quarterly'), year: tr('Annual'), category: tr('By company') })[grain]
 
 // The box width: follows the CURRENT element (it changes when the chart rotates into bars)
 // and ignores a detached element (its zero width would make the chart disappear).
@@ -92,12 +93,18 @@ function useWidth(ref, fixed) {
 // Small multiples (SmallMultiplesView): `basePrefs` layers this chart's view settings over
 // a block's (useReadingPrefs `base`); `settingsButton={false}` leaves the settings icon to
 // the block, a click on the chart still formats it alone.
-export default function ChartView({
+// The interface (menus, format bar, messages) speaks the spec's language (spec.locale).
+export default function ChartView(props) {
+  return <SpecLocale spec={props.spec}><ChartViewBody {...props} /></SpecLocale>
+}
+
+function ChartViewBody({
   spec: specIn, currentId, onSelectSeries, selectedId, headerSlot, reading: readingIn = true,
   resolved: provided, format: formatProp, bare = false, height: fixedHeight, legend = true, menuSlot = null,
   width: widthProp, readOnly = false, responsive = false, dataTable = false, applyPrefs = false,
   basePrefs, settingsButton = true,
 }) {
+  const tr = useT()
   // Series passed in: the spec needs no catalog fields (version, kind, refs).
   const baseSpec = useMemo(() => (provided ? withDataDefaults(specIn) : specIn), [specIn, provided])
   const reading = readOnly ? false : readingIn
@@ -245,7 +252,7 @@ export default function ChartView({
   // `spec.subtitle` overrides the subtitle derived from the grain ('' or false: none). The
   // grain subtitle describes a catalog chart; series passed in (`resolved`) get none.
   const subtitle = baseSpec.subtitle !== undefined ? (baseSpec.subtitle || undefined)
-    : provided || scene?.axes?.x?.kind === 'date' ? undefined : GRAIN_SUB[baseSpec.x?.grain ?? spec.x?.grain] || undefined
+    : provided || scene?.axes?.x?.kind === 'date' ? undefined : grainSub(tr, baseSpec.x?.grain ?? spec.x?.grain) || undefined
 
   // Profile chart: lines rotated by 90°, one row
   // per category (tall enough to read), lines only.
@@ -729,7 +736,7 @@ export default function ChartView({
             onAnnAdded={(kind, i) => { setTimeout(() => { const id = i != null ? { kind, i } : { kind }; setSel(id); setPick(p => ({ ...p, tab: 'annotation', ann: id, mode: 'bar' })) }, 0) }}
             // An added text opens right away in edit mode (its field focused, as with F2).
             onAddNote={() => {
-              const notes = [...(api.fmt.notes ?? []), { fx: pick.atFx ?? 0.5, fy: pick.atFy ?? 0.1, text: 'Text' }]
+              const notes = [...(api.fmt.notes ?? []), { fx: pick.atFx ?? 0.5, fy: pick.atFy ?? 0.1, text: tr('Text') }]
               api.setFmt('notes', notes)
               setPick(p => ({ ...p, tab: 'annotation', ann: { kind: 'note', i: notes.length - 1 }, mode: 'bar', ctl: 'text' }))
             }}
@@ -743,7 +750,7 @@ export default function ChartView({
     if (scene?.empty && api && !api.sheetOpen && !autoOpened.current) { autoOpened.current = true; api.setSheetOpen(true) }
   }, [scene?.empty, api])
   // Free text linked to the sheet: "{B2}" shows that cell's value and follows its edits.
-  const noteText = t => String(t || 'Text').replace(/\{([A-Z]{1,2})(\d+)\}/g, (m, col, row) => {
+  const noteText = t => String(t || tr('Text')).replace(/\{([A-Z]{1,2})(\d+)\}/g, (m, col, row) => {
     const sh = api?.sheet
     const r = sh?.rows?.[Number(row) - 2]
     const ci = [...col].reduce((n, ch) => n * 26 + ch.charCodeAt(0) - 64, 0) - 2
@@ -761,7 +768,7 @@ export default function ChartView({
       if (kind === 'legend') return { onContextMenu: e => open(e, { tab: 'legend' }) }
       if (kind === 'line') return {
         className: 'chart-engine-clickable', onClick: e => openP(e, it), onContextMenu: e => openP(e, it),
-        tabIndex: api ? 0 : undefined, role: api ? 'button' : undefined, 'aria-label': `${it.seriesId} profile line`,
+        tabIndex: api ? 0 : undefined, role: api ? 'button' : undefined, 'aria-label': tr('{series} profile line', { series: it.seriesId }),
         onKeyDown: api ? e => onObjKey(e, { tab: 'series', seriesId: it.seriesId }) : undefined,
       }
       if (kind === 'catTick') return catClick(it)
@@ -992,7 +999,7 @@ export default function ChartView({
         return (
           <rect data-wheel-anchor x={right + 4} y={top} width={6} height={16} rx={2} fill={tok('white')} stroke={tok('gold')} strokeWidth={1.5}
             className="chart-engine-handle" onPointerDown={e => drag(e, mx => api.setFmt('legendWidth', Math.round(Math.max(80, mx))))}
-            onDoubleClick={() => api.setFmt('legendWidth', null)}><title>Drag to resize the legend (double-click: full width)</title></rect>
+            onDoubleClick={() => api.setFmt('legendWidth', null)}><title>{tr('Drag to resize the legend (double-click: full width)')}</title></rect>
         )
       })()}
       {/* The plot background: right-click → the chart menu. */}
@@ -1050,7 +1057,7 @@ export default function ChartView({
         }
         return [['to', b.y - b.gap / 2 - 5], ['from', b.y + b.gap / 2 + 5]].map(([k, hy]) => (
           <rect key={`${sd}-${k}`} data-wheel-anchor x={scene.plot.left + 14} y={hy - 4} width={16} height={8} rx={2} fill={tok('white')} stroke={tok('gold')} strokeWidth={1.5}
-            className="chart-engine-handle--y" onPointerDown={e => drag(e, (_, my) => setBrk(k, my))}><title>{k === 'to' ? 'Drag to set where the axis resumes' : 'Drag to set where the axis breaks'}</title></rect>
+            className="chart-engine-handle--y" onPointerDown={e => drag(e, (_, my) => setBrk(k, my))}><title>{k === 'to' ? tr('Drag to set where the axis resumes') : tr('Drag to set where the axis breaks')}</title></rect>
         ))
       })}
       {/* Selected category axis: the column width handle (gap width). */}
@@ -1063,23 +1070,23 @@ export default function ChartView({
         const hx = (right + (c0.cx + step - (right - c0.cx))) / 2
         return (
           <rect data-wheel-anchor x={hx - 4} y={scene.plot.bottom - 5} width={8} height={10} rx={2} fill={tok('white')} stroke={tok('gold')} strokeWidth={1.5}
-            className="chart-engine-handle" aria-label="Drag to change the column width"
+            className="chart-engine-handle" aria-label={tr('Drag to change the column width')}
             onPointerDown={e => drag(e, mx => {
               const half = Math.max(2, Math.abs(mx - c0.cx))
               const g = Math.max(0, Math.min(0.9, 1 - (2 * half) / step))
               const gr = Math.round(g * 20) / 20
               api.setFmt('gap', gr)
               // Tooltip while dragging: the gap as a % of the column width.
-              setDragHint({ x: mx + 10, y: scene.plot.bottom - 14, side: 'left', text: `Gap ${Math.round((gr / (1 - gr)) * 100)}%` })
+              setDragHint({ x: mx + 10, y: scene.plot.bottom - 14, side: 'left', text: tr('Gap {pct}%', { pct: Math.round((gr / (1 - gr)) * 100) }) })
             }, () => setDragHint(null))}>
-            <title>Drag to change the column width</title>
+            <title>{tr('Drag to change the column width')}</title>
           </rect>
         )
       })()}
     </>,
     marks: <>
       {/* Shared scale: a discreet marker at the top of the linked axis. */}
-      {same && <text x={scene.plot.left + 4} y={scene.plot.top + 9} fill={tok('gray-400')} pointerEvents="none" style={{ fontSize: fsNote(9) }}>shared scale</text>}
+      {same && <text x={scene.plot.left + 4} y={scene.plot.top + 9} fill={tok('gray-400')} pointerEvents="none" style={{ fontSize: fsNote(9) }}>{tr('shared scale')}</text>}
       {/* Error bars of the edited series: a handle at the top end sets the deviation (± %). */}
       {api && pick?.tab === 'series' && scene.annotations.filter(a => a.type === 'errorBar' && a.byPct && !a.pair && a.seriesId === pick.seriesId && a.value).map(a => (
         <circle key={`ebh-${a.key}`} data-wheel-anchor cx={a.x} cy={a.y1} r={4.5} fill={tok('white')} stroke={tok('gold')} strokeWidth={1.5} className="chart-engine-handle--y"
@@ -1088,7 +1095,7 @@ export default function ChartView({
             if (v == null) return
             const pct = Math.round((Math.abs(v - a.top) / Math.abs(a.value)) * 1000) / 10
             api.setFmt('errorBars', { ...(api.fmt.errorBars ?? {}), [a.seriesId]: { ...(api.fmt.errorBars?.[a.seriesId] ?? {}), pct } })
-          })}><title>Drag to set the error (± %)</title></circle>
+          })}><title>{tr('Drag to set the error (± %)')}</title></circle>
       ))}
     </>,
     // Label with typed text: a "!" on its right; a click restores the original text.
@@ -1098,7 +1105,7 @@ export default function ChartView({
       return (
         <text key={`ow-${l.key}`} x={x1 + 3} y={l.y - l.size * 0.45} fill={tok('gold-dark')} fontWeight={700} className="chart-engine-clickable" style={{ fontSize: fsNote(9) }}
           onClick={e => { e.stopPropagation(); api.setFmt('labels.texts', { ...(api.fmt.labels?.texts ?? {}), [l.key]: undefined }) }}>
-          !<title>Text typed over the data: click to restore the linked value</title>
+          !<title>{tr('Text typed over the data: click to restore the linked value')}</title>
         </text>
       )
     }),
@@ -1183,7 +1190,7 @@ export default function ChartView({
         const y0 = l.y - l.size * 0.35
         return (
           <path d={`M${x0},${y0 - 4} V${y0 + 4} M${x0 - 4},${y0} H${x0 + 4} M${x0 - 1.5},${y0 - 2.5} L${x0},${y0 - 4} L${x0 + 1.5},${y0 - 2.5} M${x0 - 1.5},${y0 + 2.5} L${x0},${y0 + 4} L${x0 + 1.5},${y0 + 2.5} M${x0 - 2.5},${y0 - 1.5} L${x0 - 4},${y0} L${x0 - 2.5},${y0 + 1.5} M${x0 + 2.5},${y0 - 1.5} L${x0 + 4},${y0} L${x0 + 2.5},${y0 + 1.5}`}
-            fill="none" stroke={tok('gold-dark')} strokeWidth={1} pointerEvents="none"><title>Drag the label: it snaps to the highlighted places</title></path>
+            fill="none" stroke={tok('gold-dark')} strokeWidth={1} pointerEvents="none"><title>{tr('Drag the label: it snaps to the highlighted places')}</title></path>
         )
       })()}
       {/* Selected chart: the rotation handle, top right of the plot;
@@ -1204,7 +1211,7 @@ export default function ChartView({
           }}>
             <circle cx={hx} cy={hy} r={7} fill={tok('white')} stroke={tok('gold')} strokeWidth={1.5} />
             <path d={`M${hx - 3},${hy + 2} A3.5,3.5 0 1 1 ${hx + 2},${hy + 2.5}`} fill="none" stroke={tok('gold-dark')} strokeWidth={1.2} />
-            <title>{api.hasBars ? 'Drag to rotate to horizontal bars' : 'Drag to rotate to a profile chart'}</title>
+            <title>{api.hasBars ? tr('Drag to rotate to horizontal bars') : tr('Drag to rotate to a profile chart')}</title>
           </g>
         )
       })()}
@@ -1253,7 +1260,7 @@ export default function ChartView({
                   api.setFmt('catGapSize', Object.keys(sizes).length ? sizes : null)
                 })
               }}>
-              <title>{`Drag right to open a gap before ${c.label} (${n0 ? `${n0} column${n0 > 1 ? 's' : ''}` : 'none'})`}</title>
+              <title>{n0 > 1 ? tr('Drag right to open a gap before {label} ({n} columns)', { label: c.label, n: n0 }) : n0 ? tr('Drag right to open a gap before {label} ({n} column)', { label: c.label, n: n0 }) : tr('Drag right to open a gap before {label} (none)', { label: c.label })}</title>
             </path>
           )
         })
@@ -1270,13 +1277,13 @@ export default function ChartView({
             // eslint-disable-next-line react-hooks/refs
             onClick={e => axisClick(side, e)} onContextMenu={e => axisClick(side, e)} onPointerDown={e => axisDrag(side, e)}
             // eslint-disable-next-line react-hooks/refs
-            tabIndex={0} role="button" aria-label={`${side === 'left' ? 'Left' : 'Right'} value axis`} onKeyDown={e => onObjKey(e, { tab: 'yaxis', side })} />
+            tabIndex={0} role="button" aria-label={side === 'left' ? tr('Left value axis') : tr('Right value axis')} onKeyDown={e => onObjKey(e, { tab: 'yaxis', side })} />
         )
       })}
       {api && <rect x={scene.plot.left} y={scene.axes.x.y} width={scene.plot.width} height={Math.min(36, Math.max(10, scene.height - scene.axes.x.y - (scene.legendY ? scene.height - scene.legendY : 0)))}
         fill="transparent" className={`chart-engine-clickable${pick?.tab === 'xaxis' ? ' is-selected' : ''}`}
         onClick={e => open(e, xAxisObj(e))} onContextMenu={e => open(e, xAxisObj(e))}
-        tabIndex={0} role="button" aria-label="Category axis" onKeyDown={e => onObjKey(e, { tab: 'xaxis' })} />}
+        tabIndex={0} role="button" aria-label={tr('Category axis')} onKeyDown={e => onObjKey(e, { tab: 'xaxis' })} />}
     </>,
     axesOver: ['left', 'right'].map(side => {
       const ax = scene.axes[side]
@@ -1294,7 +1301,7 @@ export default function ChartView({
             const niceStep = d => { const e = 10 ** Math.floor(Math.log10(d)); const m = d / e; return (m < 1.5 ? 1 : m < 2.25 ? 2 : m < 3.5 ? 2.5 : m < 7.5 ? 5 : 10) * e }
             const stepHandle = s1 && (
               <circle key="step" data-wheel-anchor cx={side === 'left' ? ax.x + 8 : ax.x - 8} cy={s1.y} r={4.5} fill={tok('white')} stroke={tok('gold')} strokeWidth={1.5}
-                className="chart-engine-handle--y" aria-label="Drag to set the tick spacing"
+                className="chart-engine-handle--y" aria-label={tr('Drag to set the tick spacing')}
                 onPointerDown={e => drag(e, (_, my, ev) => {
                   const nv = valueNear(side, my)
                   if (nv == null || !(Math.abs(nv - s0.value) > 0)) return
@@ -1303,14 +1310,14 @@ export default function ChartView({
                   // Alt + drag keeps the manual setting.
                   const auto = !ev?.altKey && ax.autoStep != null && Math.abs(st - ax.autoStep) < ax.autoStep * 1e-6
                   api.setFmt(`yAxis.${side}.step`, auto ? null : st)
-                  setDragHint({ x: side === 'left' ? ax.x + 16 : ax.x - 16, y: my, side, text: auto ? 'Automatic' : null })
+                  setDragHint({ x: side === 'left' ? ax.x + 16 : ax.x - 16, y: my, side, text: auto ? tr('Automatic') : null })
                 }, () => setDragHint(null))}
-                onDoubleClick={() => api.setFmt(`yAxis.${side}.step`, null)}><title>Drag to set the tick spacing (double-click: automatic)</title></circle>
+                onDoubleClick={() => api.setFmt(`yAxis.${side}.step`, null)}><title>{tr('Drag to set the tick spacing (double-click: automatic)')}</title></circle>
             )
             return [stepHandle, ...ends.map(([k, v]) => (
               <rect key={k} data-wheel-anchor x={side === 'left' ? ax.x + 3 : ax.x - 13} y={yOf(v) - 5} width={10} height={10} rx={2} fill={tok('white')} stroke={tok('gold')} strokeWidth={1.5}
-                className="chart-engine-handle--y" aria-label={`Drag to set the axis ${k}`}
-                title={`Drag to set the axis ${k}`}
+                className="chart-engine-handle--y" aria-label={k === 'max' ? tr('Drag to set the axis max') : tr('Drag to set the axis min')}
+                title={k === 'max' ? tr('Drag to set the axis max') : tr('Drag to set the axis min')}
                 onPointerDown={e => drag(e, (_, my, ev) => {
                   // Dragged to the automatic bound (within 6 px), the handle snaps back to it: "Automatic".
                   const av = ax.autoDomain?.[k === 'max' ? 1 : 0]
@@ -1321,7 +1328,7 @@ export default function ChartView({
                   const nv = auto || fine == null ? null : st ? Number((Math.round(fine / st) * st).toFixed(10)) : fine
                   if (auto || nv != null) api.setFmt(`yAxis.${side}.${k}`, nv)
                   // Value tooltip while dragging, "Automatic" on the automatic bound.
-                  setDragHint({ x: side === 'left' ? ax.x + 16 : ax.x - 16, y: my, side, text: auto ? 'Automatic' : nv != null ? formatters.axis(nv, ax.unit) : null })
+                  setDragHint({ x: side === 'left' ? ax.x + 16 : ax.x - 16, y: my, side, text: auto ? tr('Automatic') : nv != null ? formatters.axis(nv, ax.unit) : null })
                 }, () => setDragHint(null))} />
             ))]
           })()}
@@ -1342,7 +1349,7 @@ export default function ChartView({
       )}
       {errors.length > 0 && (
         <div className="chart-engine-error" role="alert">
-          This chart definition is invalid: {errors.join(' · ')}
+          {tr('This chart definition is invalid:')} {errors.join(' · ')}
         </div>
       )}
       {/* A discreet note (not a box); cells in error are counted there. */}
@@ -1354,7 +1361,7 @@ export default function ChartView({
           ? createPortal(<ChartWheelButton api={api} formatters={formatters} />, menuSlot)
           : <div className="chart-engine-float-menu"><ChartWheelButton api={api} formatters={formatters} /></div>)}
         {/* Empty chart: the data sheet opens with one click. */}
-        {scene?.empty && <div className="chart-engine-empty">No data for this chart yet.{api && <> <button type="button" className="chart-editor-pill" onClick={() => api.setSheetOpen(true)}>Open data sheet</button></>}</div>}
+        {scene?.empty && <div className="chart-engine-empty">{tr('No data for this chart yet.')}{api && <> <button type="button" className="chart-editor-pill" onClick={() => api.setSheetOpen(true)}>{tr('Open data sheet')}</button></>}</div>}
         {scene && !scene.empty && (
           <ChartFigure scene={figScene} interactive={!readOnly} scope={clipId} label={spec.title} responsive={responsive} dataTable={dataTable} part={part} layers={layers}
             onMouseMove={readOnly ? undefined : onMove} onMouseLeave={readOnly ? undefined : () => setHover(null)}

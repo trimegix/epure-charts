@@ -4,11 +4,13 @@
 //   <CheckMark value="yes" | "no" | "empty" | true | false symbols={{ yes: '★', no: '–' }} />
 // color = filled sectors / symbol; fill = empty sectors / box background (tokens, default surface);
 // outline = { color?, width?, dash? }: the outline, width 0 = no outline.
-// Standalone (own <svg>) or inside a parent SVG with `inline` and cx / cy.
+// Standalone (own <svg>) or inside a parent SVG with `inline` and cx / cy; `locale` = the
+// language of their accessible name (default: the page's, setDefaultLocale).
 import { checkOf, harveyOf } from './tableScene.js'
 
 // A color: a palette token, or a hex picked by the user (custom style).
 import { tok, checkSymbol } from './customStyle.js'
+import { localizeNumber, t } from './locale.js'
 
 /** The filled sector of a Harvey ball (null when empty or full: full is a disc). */
 function harveyPath(cx, cy, r, f) {
@@ -36,10 +38,10 @@ function HarveyMark({ cx, cy, r, f, color, fill, outline, segments, invalid }) {
 }
 
 /** Harvey ball: value 0..max (max = 1 by default, 4 for quarters). */
-export function HarveyBall({ value, max = 1, size = 14, color = 'gray-700', fill, outline, segments = 0, inline, cx, cy, title, invalid }) {
+export function HarveyBall({ value, max = 1, size = 14, color = 'gray-700', fill, outline, segments = 0, inline, cx, cy, title, invalid, locale }) {
   const f = typeof value === 'number' && max === 1 && value >= 0 && value <= 1 ? value : harveyOf(value, max)
   const r = size / 2 - 0.5
-  const label = title ?? (invalid ? 'Invalid value in the data sheet' : f == null ? 'No value' : `${Math.round(f * 100)}%`)
+  const label = title ?? (invalid ? t('Invalid value in the data sheet', locale) : f == null ? t('No value', locale) : localizeNumber(`${Math.round(f * 100)}%`, locale))
   if (inline) return <g role="img" aria-label={label}><HarveyMark cx={cx} cy={cy} r={r} f={f} color={color} fill={fill} outline={outline} segments={segments} invalid={invalid} /><title>{label}</title></g>
   return (
     <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`} role="img" aria-label={label} className="chart-harvey" style={{ verticalAlign: 'middle' }}>
@@ -64,9 +66,9 @@ function CheckGlyph({ cx, cy, size, state, color, fill, outline, symbols }) {
 }
 
 /** Checkbox: check (yes), cross (no) or empty; the value is read as in a table. */
-export function CheckMark({ value, size = 12, color, fill, outline, inline, cx, cy, title, symbols }) {
+export function CheckMark({ value, size = 12, color, fill, outline, inline, cx, cy, title, symbols, locale }) {
   const state = ['yes', 'no', 'empty'].includes(value) ? value : checkOf(value)
-  const label = title ?? { yes: 'Checked', no: 'Crossed', empty: 'Unchecked' }[state]
+  const label = title ?? { yes: t('Checked', locale), no: t('Crossed', locale), empty: t('Unchecked', locale) }[state]
   if (inline) return <g role="img" aria-label={label}><CheckGlyph cx={cx} cy={cy} size={size} state={state} color={color} fill={fill} outline={outline} symbols={symbols} /><title>{label}</title></g>
   const s = size + 2
   return (

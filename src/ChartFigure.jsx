@@ -30,6 +30,7 @@ import { sceneDrawn } from './sceneProbe.js'
 import PatternDefs from './patterns.jsx'
 import { tok, fontFamily, fs, fsNote } from './customStyle.js'
 import { estimateWidth } from './scene.js'
+import { t } from './locale.js'
 import { arrowHead, patternId, sceneScope } from './chartGeom.js'
 import { Swatch, Marker } from './chartMarks.jsx'
 
@@ -293,7 +294,7 @@ export default function ChartFigure({ scene, label, responsive = false, dataTabl
           transform={n.rotate ? `rotate(${-n.rotate} ${n.x} ${n.y})` : undefined}
           dominantBaseline={n.valign === 'middle' ? 'central' : n.valign === 'bottom' ? 'text-after-edge' : undefined}
           pointerEvents="none" style={{ fontSize: fs(n.size) }} {...part('note', n)}>
-          {String(n.text || 'Text').split('\n').map((line, j) => <tspan key={j} x={n.x} dy={j ? n.size * 1.25 : 0}>{line}</tspan>)}
+          {String(n.text || t('Text', scene.meta?.locale)).split('\n').map((line, j) => <tspan key={j} x={n.x} dy={j ? n.size * 1.25 : 0}>{line}</tspan>)}
         </text>
       ))}
       {/* Leader line of a label moved far from its place. */}
