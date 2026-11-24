@@ -614,10 +614,16 @@ function buildSceneAt(spec, resolved = [], opts = {}) {
   const explicitCagr = a => a?.from?.key != null && a?.to?.key != null
   // Why a requested annotation is not drawn (scene.warnings; the views log them in development).
   const warnings = []
-  const cagrName = a => (explicitCagr(a) ? `CAGR ${a.from.key} → ${a.to.key}` : `CAGR of series "${a.series ?? '?'}"`)
+  const cagrName = a => (explicitCagr(a) ? `CAGR ${a.from.key} → ${a.to.key}` : a.of === 'total' ? 'CAGR of the total' : `CAGR of series "${a.series ?? '?'}"`)
+  // of: 'total': the growth of the stacked column total (first → last column without bounds).
   const cagrs = anns.filter(a => {
     if (a?.type !== 'cagr') return false
     if (explicitCagr(a)) return true
+    if (a.of === 'total') {
+      if (!stacked) { warnings.push(`${cagrName(a)}: not drawn, the chart is not stacked.`); return false }
+      if (grain === 'category') { warnings.push(`${cagrName(a)}: not drawn, a category axis has no first and last year; set from: { key } and to: { key }.`); return false }
+      return true
+    }
     if (!series.some(s => s.id === a.series && s.points.length >= 2)) { warnings.push(`${cagrName(a)}: not drawn, the series is missing or has fewer than two points; set from / to, or a series with data.`); return false }
     if (grain === 'category') { warnings.push(`${cagrName(a)}: not drawn, a category axis has no first and last year; set from: { key } and to: { key }.`); return false }
     return true
@@ -1612,21 +1618,51 @@ function buildSceneAt(spec, resolved = [], opts = {}) {
     obstacles.push({ x0: bx - pillW / 2, x1: bx + pillW / 2, y0: yTop - 9, y1: yTop + 9 })
   }
 
+  // The stacked column total at a category (every segment of the column), as a point.
+  const totalAt = k => {
+    const col = base.bars.filter(b => b.key === k)
+    return col.length ? { x: k, y: col.reduce((t, b) => t + b.value, 0), type: col.every(b => b.forecast) ? 'forecast' : 'actual' } : null
+  }
+  // The drawn top of ONE segment of a stacked column (an arrow on a series starts there, not at
+  // the top of the stack).
+  const segmentTop = (sid, k) => {
+    const b = stacked && base.bars.find(x => x.seriesId === sid && x.key === k)
+    return b ? (b.negative ? b.y + b.height : b.y) : null
+  }
   for (const a of cagrs) {
     let first, last, periods, sid
-    if (explicitCagr(a)) {
+    // On stacked columns, a CAGR that names no series measures the column total (where its arrow
+    // stands); naming a series (a.series, from.series, to.series) measures that series.
+    const noSeries = a.series == null && a.from?.series == null && a.to?.series == null
+    const ofTotal = stacked && (a.of === 'total' || (a.of == null && !share && explicitCagr(a) && noSeries))
+    // The series each end measures (null: the column total, or a single-series end).
+    let ends = [null, null]
+    if (ofTotal) {
+      if (explicitCagr(a)) { first = totalAt(String(a.from.key)); last = totalAt(String(a.to.key)) }
+      else {
+        // From the first to the last ACTUAL column: a forecast does not make growth.
+        const pool = keys.filter(k => !String(k).startsWith('_')).map(totalAt).filter(p => p && p.type !== 'forecast')
+        first = pool[0]
+        last = pool.at(-1)
+      }
+      if (first && last && first.x === last.x) last = first
+      periods = explicitCagr(a) && a.periods > 0 ? a.periods : first && last ? yearsBetween(first, last, grain) : 0
+      if (!(periods > 0) && grain === 'category' && first && last) periods = Math.abs(keys.indexOf(String(last.x)) - keys.indexOf(String(first.x)))
+      sid = null
+    } else if (explicitCagr(a)) {
       // An end's point: in its series, otherwise in the first series that
       // has a number at that category (bars first).
-      const at = end => {
+      const at = (end, i) => {
         const k = String(end.key)
-        const own = series.find(x => x.id === (end.series ?? a.series))?.points.find(p => p.x === k)
-        if (own) return own
+        const mine = series.find(x => x.id === (end.series ?? a.series))
+        const own = mine?.points.find(p => p.x === k)
+        if (own) { ends[i] = mine.id; return own }
         const pool = [...series.filter(x => x.mark === 'bar'), ...series.filter(x => x.mark !== 'bar')]
-        for (const sr of pool) { const p = sr.points.find(q => q.x === k); if (p) return p }
+        for (const sr of pool) { const p = sr.points.find(q => q.x === k); if (p) { ends[i] = sr.id; return p } }
         return null
       }
-      first = at(a.from)
-      last = at(a.to)
+      first = at(a.from, 0)
+      last = at(a.to, 1)
       periods = a.periods > 0 ? a.periods : first && last ? yearsBetween(first, last, grain) : 0
       // Columns that name no year (a category axis of periods: 'H1', 'Wave 2'): one period per
       // column between the two ends, rather than no arrow at all.
@@ -1640,6 +1676,7 @@ function buildSceneAt(spec, resolved = [], opts = {}) {
       last = pool.at(-1)
       periods = first && last ? yearsBetween(first, last, grain) : 0
       sid = s.id
+      ends = [s.id, s.id]
     }
     if (!first || !last || first === last || !keys.includes(first.x) || !keys.includes(last.x)) {
       warnings.push(`${cagrName(a)}: not drawn, ${!first || !last ? 'no value at one of its ends' : first === last ? 'both ends are the same point' : 'one of its ends is hidden'}.`)
@@ -1653,8 +1690,13 @@ function buildSceneAt(spec, resolved = [], opts = {}) {
     const lift = (labelled ? 16 : 0) + 10
     const xa = cx(first.x)
     const xb = cx(last.x)
-    let ya = Math.max(plot.top + 6, (topAt(first.x) ?? plot.bottom) - lift)
-    let yb = Math.max(plot.top + 6, (topAt(last.x) ?? plot.bottom) - lift)
+    // On a stacked column, a series' arrow starts at its own segment (the total's, above the stack).
+    const endY = (sidEnd, k) => {
+      const seg = sidEnd != null && !ofTotal ? segmentTop(sidEnd, k) : null
+      return seg != null && seg > (topAt(k) ?? seg) + 0.5 ? seg - 4 : Math.max(plot.top + 6, (topAt(k) ?? plot.bottom) - lift)
+    }
+    let ya = endY(ends[0], first.x)
+    let yb = endY(ends[1], last.x)
     // An arc that goes above everything it spans (and always slightly curved).
     const [i0, i1] = [keys.indexOf(first.x), keys.indexOf(last.x)].sort((p, q) => p - q)
     let peak = Math.min(ya, yb)
@@ -1694,7 +1736,7 @@ function buildSceneAt(spec, resolved = [], opts = {}) {
       ctrlY = (4 * my - ya - yb) / 2
     }
     base.annotations.push({
-      type: 'cagr', seriesId: sid, fromKey: first.x, toKey: last.x, xa, ya, xb, yb, ctrlX, ctrlY, mx, my, text, pillW,
+      type: 'cagr', seriesId: sid, ...(ofTotal ? { of: 'total' } : {}), fromKey: first.x, toKey: last.x, xa, ya, xb, yb, ctrlX, ctrlY, mx, my, text, pillW,
       // Color (CAGR arrow color): set by the reading layer per bounds, otherwise the spec's.
       d: `M${xa},${ya} Q${ctrlX},${ctrlY} ${xb},${yb}`, tone: F.cagrTones?.[`${first.x}|${last.x}`] ?? a.tone ?? 'gray-500',
     })

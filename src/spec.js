@@ -299,7 +299,9 @@ export function validateSpec(spec, opts = {}) {
           if (!isObj(a.from) || a.from.key == null || !isObj(a.to) || a.to.key == null) err(`annotations[${i}]`, 'from and to need a key')
           if (a.periods != null && !(a.periods > 0)) err(`annotations[${i}].periods`, 'a positive number of years')
           for (const end of [a.from, a.to]) if (isObj(end) && (end.series ?? a.series) != null && !ids.includes(end.series ?? a.series)) err(`annotations[${i}]`, 'from / to must name a series of the chart')
-        } else if (!ids.includes(a.series)) err(`annotations[${i}].series`, 'must name a series of the chart')
+        } else if (a.of !== 'total' && !ids.includes(a.series)) err(`annotations[${i}].series`, 'must name a series of the chart')
+        if (a.of != null && a.of !== 'total') err(`annotations[${i}].of`, "'total' (the stacked column total), or no of")
+        if (a.of === 'total' && a.series != null) err(`annotations[${i}]`, 'of: total measures the column total: no series')
       }
       if (a.type === 'valueLine') {
         if (!Number.isFinite(a.value)) err(`annotations[${i}].value`, 'a number')
