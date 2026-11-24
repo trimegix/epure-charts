@@ -106,3 +106,18 @@ test('bar layout, category sort, decimals; reset = back to defaults', () => {
   assert.deepEqual(sc.columns.map(c => c.key), ['y', 'z', 'x'], 'largest total first')
   assert.deepEqual(applyReading(s, readingDefaults(s)).x.sort, undefined)
 })
+
+test('labels set on several series all survive the reading layer (stacked)', () => {
+  const s = { ...spec(), bars: 'stacked', annotations: [], series: ['a', 'b', 'c'].map(id => ({ id, ref: { metric: 'm', source: 'actual' }, mark: 'bar', labels: 'all' })) }
+  const d = readingDefaults(s)
+  assert.deepEqual(d.labelsBy, { a: 'all', b: 'all', c: 'all' })
+  const out = applyReading(s, d)
+  assert.deepEqual(out.series.map(x => x.labels), ['all', 'all', 'all'])
+  const r = [res('A', YEARS), res('B', YEARS), res('C', YEARS)]
+  const live = buildScene(out, r, { width: 640, height: 300 }).labels.length
+  assert.ok(live >= 3 * YEARS.length, 'a label in every segment')
+  assert.equal(live, buildScene(s, r, { width: 640, height: 300 }).labels.length, 'same labels as the static scene')
+  // A series without labels stays without; a mixed spec keeps its mix.
+  const mixed = { ...s, series: [{ ...s.series[0], labels: 'last' }, { ...s.series[1], labels: 'none' }, s.series[2]] }
+  assert.deepEqual(applyReading(mixed, readingDefaults(mixed)).series.map(x => x.labels), ['last', 'none', 'all'])
+})

@@ -54,6 +54,8 @@ export function readingDefaults(spec) {
   return {
     labels: labelled?.labels ?? 'none',
     labelSeries: labelled?.id ?? series[0]?.id ?? '',
+    // Every series that carries labels keeps them (a stacked chart with a number in each segment).
+    labelsBy: Object.fromEntries(series.filter(s => (s.labels ?? 'none') !== 'none').map(s => [s.id, s.labels])),
     // A series "first to last actual" CAGR (no bounds) is kept as is.
     cagr: cagrs.find(a => !a.from)?.series ?? '',
     cagrs: cagrs.filter(a => a.from && a.to).slice(0, 2).map(a => ({ from: String(a.from.key), to: String(a.to.key) })),
