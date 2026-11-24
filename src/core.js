@@ -25,7 +25,7 @@ export { resolveCollisions } from './labelLayout.js'
 // Theme, language, accent, figure metadata
 export { tok, fs, fsNote, SEMANTIC_TOKENS, baseToken } from './customStyle.js'
 export { LIGHT_TOKENS, DARK_TOKENS, TYPE_TOKENS, resolveVars } from './tokens.js'
-export { setDefaultLocale, getDefaultLocale, localeOf, t, localizeNumber, localizedFormat, NBSP, NNBSP } from './locale.js'
+export { setDefaultLocale, getDefaultLocale, localeOf, t, localizeNumber, localizedFormat, declarativeFormat, asFormatter, NBSP, NNBSP } from './locale.js'
 export { accentColor, accentInk, singleAccent, emphasisOf } from './accent.js'
 export { sceneMeta, describe, FIGURES } from './figureMeta.js'
 

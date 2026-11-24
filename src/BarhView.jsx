@@ -11,6 +11,7 @@ import { useIsoLayoutEffect } from './useIsoLayoutEffect.js'
 import { createPortal } from 'react-dom'
 import { buildBarhScene } from './barhScene'
 import { defaultFormat } from './scene.js'
+import { asFormatter } from './locale.js'
 import BarhFigure from './BarhFigure.jsx'
 import { useBarhPrefs } from './useBarhPrefs'
 import { BarhBar, BarhBarButton } from './BarhBar'
@@ -73,8 +74,9 @@ export default function BarhView({ spec: specIn, rows: rowsIn, format: baseForma
     // No number setting: the host's formatter as is, or the engine's default (barhScene), the
     // same decimals as the static figure (decimals.js).
     if (!P || (P.decimals == null && P.magnitude == null && P.num == null)) return baseFormat
-    const f = baseFormat ?? ((v, d) => defaultFormat(v, undefined, d))
-    const full = makeFormatter((v, _u, d) => f(v, d), P.decimals ?? null, P.magnitude ?? null, P.num ?? null)
+    const host = asFormatter(baseFormat)
+    const f = host ?? ((v, d) => defaultFormat(v, undefined, d))
+    const full = makeFormatter((v, _u, d) => (host ? host(v, undefined, d) : f(v, d)), P.decimals ?? null, P.magnitude ?? null, P.num ?? null)
     return v => full(v, unit ?? '')
   }, [baseFormat, P, unit])
   const money = unit === 'M'

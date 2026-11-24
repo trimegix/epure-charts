@@ -107,8 +107,44 @@ export function localizeNumber(str, locale = defaultLocale) {
   })
 }
 
-/** A value formatter (v, unit, decimals) → string, wrapped to print in the chart's language. */
-export function localizedFormat(format, locale = defaultLocale) {
+/**
+ * A declarative number format: { prefix?, suffix?, unit?, decimals? } → a formatter. The host
+ * says what the number carries, never how to punctuate it: the engine writes the digits in the
+ * chart's language (« 7,4 M€ » in French, '7.4 M€' in English) with its own decimals (two
+ * significant digits, decimals.js) unless `decimals` is set. `unit` is a suffix after a space
+ * ('M€' → '7.4 M€'); `suffix` is glued ('%' → '7.4%'); `prefix` comes first ('€' → '€7.4').
+ * A series in 'pct' or 'x' keeps its own sign (12% / 2.5x).
+ */
+export function declarativeFormat(o = {}) {
+  const pre = typeof o.prefix === 'string' ? o.prefix : ''
+  const suf = typeof o.suffix === 'string' ? o.suffix : typeof o.unit === 'string' && o.unit ? ` ${o.unit}` : ''
+  const fixed = Number.isInteger(o.decimals) && o.decimals >= 0 ? Math.min(o.decimals, 6) : null
+  const digits = (n, d) => n.toLocaleString('en-US', { minimumFractionDigits: d, maximumFractionDigits: d })
+  const f = (v, unit, d) => {
+    if (v == null || !Number.isFinite(v)) return '—'
+    const places = fixed ?? (Number.isInteger(d) ? d : Math.abs(v) >= 100 ? 0 : 1)
+    if (unit === 'pct') return `${v < 0 ? '−' : ''}${digits(Math.abs(v * 100), fixed ?? (Number.isInteger(d) ? d : 0))}%`
+    if (unit === 'x') return `${v < 0 ? '−' : ''}${digits(Math.abs(v), fixed ?? (Number.isInteger(d) ? d : 1))}x`
+    return `${v < 0 ? '−' : ''}${pre}${digits(Math.abs(v), places)}${suf}`
+  }
+  f.declarative = o
+  return f
+}
+
+/** The formatter a `format` prop or option stands for: a function as is, an object declared. */
+export function asFormatter(format) {
+  if (typeof format === 'function' || format == null) return format
+  return typeof format === 'object' ? declarativeFormat(format) : undefined
+}
+
+/**
+ * A value formatter (v, unit, decimals) → string, wrapped to print in the chart's language.
+ * Contract of a FUNCTION `format`: it returns the number in English punctuation ('1,234.5',
+ * '€7.4M'); the engine then rewrites it for the chart's language and may change its decimals.
+ * A host that writes French itself passes a declarative object instead (declarativeFormat).
+ */
+export function localizedFormat(formatIn, locale = defaultLocale) {
+  const format = asFormatter(formatIn)
   if (locale === 'en' || typeof format !== 'function') return format
   if (format.__locale === locale) return format
   const f = (...args) => localizeNumber(format(...args), locale)
