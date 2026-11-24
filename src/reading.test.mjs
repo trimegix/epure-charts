@@ -72,7 +72,9 @@ test('hiding the last category also removes the gap before it, and its series fr
     series: [{ id: 'a', ref: { metric: 'm', source: 'actual' }, mark: 'bar' }, { id: 'x', ref: { metric: 'm', source: 'actual' }, mark: 'bar', style: { color: 'black' } }], annotations: [] }
   const sc = buildScene(s, [res('Sales', [['2024', 1], ['2025', 2]]), res('Exit', [['Exit 2026', 3]])], { width: 600, height: 260 })
   assert.deepEqual(sc.columns.map(c => c.key), ['2024', '2025'])
-  assert.deepEqual(sc.legend.map(l => l.seriesId), ['a'])
+  assert.deepEqual(sc.legend.map(l => l.seriesId), [], 'one series left: no legend by default')
+  const shown = buildScene({ ...s, format: { legend: 'top' } }, [res('Sales', [['2024', 1], ['2025', 2]]), res('Exit', [['Exit 2026', 3]])], { width: 600, height: 260 })
+  assert.deepEqual(shown.legend.map(l => l.seriesId), ['a'])
 })
 
 test('property controls: outline, dash, weight, marker, smoothing, single segment, axis', () => {
@@ -105,4 +107,63 @@ test('bar layout, category sort, decimals; reset = back to defaults', () => {
   const sc = buildScene(out, [res('A', [['x', 1], ['y', 5], ['z', 3]]), res('C', [['x', 1], ['y', 1], ['z', 1]])], { width: 600, height: 260 })
   assert.deepEqual(sc.columns.map(c => c.key), ['y', 'z', 'x'], 'largest total first')
   assert.deepEqual(applyReading(s, readingDefaults(s)).x.sort, undefined)
+})
+
+test('labels set on several series all survive the reading layer (stacked)', () => {
+  const s = { ...spec(), bars: 'stacked', annotations: [], series: ['a', 'b', 'c'].map(id => ({ id, ref: { metric: 'm', source: 'actual' }, mark: 'bar', labels: 'all' })) }
+  const d = readingDefaults(s)
+  assert.deepEqual(d.labelsBy, { a: 'all', b: 'all', c: 'all' })
+  const out = applyReading(s, d)
+  assert.deepEqual(out.series.map(x => x.labels), ['all', 'all', 'all'])
+  const r = [res('A', YEARS), res('B', YEARS), res('C', YEARS)]
+  const live = buildScene(out, r, { width: 640, height: 300 }).labels.length
+  assert.ok(live >= 3 * YEARS.length, 'a label in every segment')
+  assert.equal(live, buildScene(s, r, { width: 640, height: 300 }).labels.length, 'same labels as the static scene')
+  // A series without labels stays without; a mixed spec keeps its mix.
+  const mixed = { ...s, series: [{ ...s.series[0], labels: 'last' }, { ...s.series[1], labels: 'none' }, s.series[2]] }
+  assert.deepEqual(applyReading(mixed, readingDefaults(mixed)).series.map(x => x.labels), ['last', 'none', 'all'])
+})
+
+test('a spec difference arrow keeps its mode, level and series in the live view', () => {
+  const d0 = { type: 'diff', from: '2018', to: '2022', mode: 'both', level: true, series: 'a' }
+  const s = spec({ annotations: [d0] })
+  const d = readingDefaults(s)
+  assert.equal(d.format.diffMode, 'both', 'the mode is the reading\'s starting mode')
+  assert.equal(d.diffSeries, 'a')
+  const out = applyReading(s, d)
+  const a = out.annotations.find(x => x.type === 'diff')
+  assert.equal(a.level, true)
+  assert.equal(a.series, 'a')
+  const r = [res('A', YEARS), res('B', YEARS)]
+  const live = buildScene(out, r, { width: 640, height: 300 }).annotations.find(x => x.type === 'diff')
+  const still = buildScene(s, r, { width: 640, height: 300 }).annotations.find(x => x.type === 'diff')
+  assert.match(live.text, /^\+\S+ \(\+23%\)$/, 'value and %')
+  assert.equal(live.text, still.text)
+  assert.equal(live.style, still.style, 'a level arrow stays a level arrow')
+  // The menu changes the mode from there ('Value' clears format.diffMode).
+  const abs = applyReading(s, { ...d, format: {} })
+  assert.doesNotMatch(buildScene(abs, r, { width: 640, height: 300 }).annotations.find(x => x.type === 'diff').text, /%/)
+  // Moved bounds: a plain arrow, without the spec's level.
+  assert.equal(applyReading(s, { ...d, diffFrom: '2019' }).annotations.find(x => x.type === 'diff').level, undefined)
+})
+
+test('CAGR arrows: every one is kept, each on the series of its ends', () => {
+  const B = YEARS.map(([x, y]) => [x, y * 2 + 10])
+  const on = (f, t, sid) => ({ type: 'cagr', from: { key: f, series: sid }, to: { key: t, series: sid } })
+  const s = spec({ annotations: [on('2017', '2019', 'b'), on('2019', '2021', 'b'), on('2020', '2022', 'b')] })
+  const d = readingDefaults(s)
+  assert.equal(d.cagrs.length, 3, 'no cap at two')
+  assert.deepEqual(d.cagrs[0], { from: '2017', to: '2019', fromSeries: 'b', toSeries: 'b' })
+  const r = [res('A', YEARS), res('B', B)]
+  const texts = sc => sc.annotations.filter(a => a.type === 'cagr').map(a => a.text)
+  const still = texts(buildScene(s, r, { width: 640, height: 300 }))
+  assert.equal(still.length, 3)
+  assert.deepEqual(texts(buildScene(applyReading(s, d), r, { width: 640, height: 300 })), still)
+  // The same settings published and applied to a spec that no longer carries the arrows:
+  // rebuilt on series b, not on the first series that has a number.
+  const bare = spec({ annotations: [] })
+  assert.deepEqual(texts(buildScene(applyReading(bare, { ...readingDefaults(bare), cagrs: d.cagrs }), r, { width: 640, height: 300 })), still)
+  // An `a.series` CAGR (both ends): its series is kept as well.
+  assert.deepEqual(readingDefaults(spec({ annotations: [{ type: 'cagr', series: 'b', from: { key: '2017' }, to: { key: '2022' } }] })).cagrs,
+    [{ from: '2017', to: '2022', fromSeries: 'b', toSeries: 'b' }])
 })

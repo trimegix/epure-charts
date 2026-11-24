@@ -28,7 +28,7 @@ test('waterfall: hidden tick labels, gridlines removed (zero stays), axis format
   const off = buildWaterfallScene({ yAxis: { labels: false, grid: 'none' } }, B, { width: 600, height: 280, format: fmt })
   assert.ok(off.axes.left.ticks.every(t => t.label === ''))
   assert.ok(off.gridlines.length <= 1)
-  const own = buildWaterfallScene({}, B, { width: 600, height: 280, format: fmt, axisFormat: v => `${v}u` })
+  const own = buildWaterfallScene({ yAxis: { labels: true } }, B, { width: 600, height: 280, format: fmt, axisFormat: v => `${v}u` })
   assert.ok(own.axes.left.ticks.filter(t => t.value !== 0).every(t => t.label.endsWith('u')))
 })
 

@@ -39,6 +39,7 @@ import { scaleLinear } from 'd3-scale'
 import { estimateWidth, defaultFormat } from './scene.js'
 import { roundToSum } from './numberStyle.js'
 import { inkOn, labelMetrics } from './customStyle.js'
+import { autoDecimals } from './decimals.js'
 import { localeOf, localizedFormat, localizeNumber, t as word } from './locale.js'
 import { singleAccent, emphasisOf, ACCENT, NEUTRAL, accentInk } from './accent.js'
 import { stamp } from './figureMeta.js'
@@ -80,7 +81,10 @@ export function buildMekkoScene(spec = {}, columnsIn = [], opts = {}) {
   const width = Math.max(240, Math.round(opts.width ?? 600))
   const height = Math.max(180, Math.round(opts.height ?? 320))
   const L = localeOf(spec)
-  const format = localizedFormat(opts.format ?? defaultFormat, L)
+  const format0 = localizedFormat(opts.format ?? defaultFormat, L)
+  // Default decimals (two significant digits, decimals.js), passed to the host's formatter too.
+  const mDec = Number.isInteger(spec.decimals) ? spec.decimals : autoDecimals(columnsIn.flatMap(c => Object.values(c?.values ?? {})))
+  const format = v => format0(v, undefined, mDec)
   const num = str => localizeNumber(str, L)
   const OTHER = word('Other', L)
   const mode = spec.mode === 'units' ? 'units' : 'percent'

@@ -26,15 +26,27 @@
 // every bar neutral but those whose row key (or series id, or 'row|series') spec.emphasis names.
 // spec.labelPt / spec.labelFont (or opts.labelStyle; "Style" control): figures are measured
 // at their actual size (gutters, fit inside a segment) and the row grows to hold them.
+// spec.columns: extra value columns right of the bars, each with its header:
+//   [{ key, label?, value?, format?, decimals? }]
+//   · value: 'share' (the row's share of all rows), 'cumShare' (cumulated in the drawn order, for
+//     a ranking), a function (row, index, rows) → number, or omitted: rows[].columns[key]
+//     (a number, or a string written as is);
+//   · format: 'pct', 'number' (the chart's value format), or a function (v) → string; default
+//     'pct' for shares, the chart's value format otherwise; decimals: for 'pct' (default 0).
+//   scene.columns = [{ key, label, x (right edge), header: { x, y, text } | null, cells: [{ rowKey, x, y, text }] }]
 // Pure, tested under node --test. Colors as token names.
 import { scaleLinear } from 'd3-scale'
 import { estimateWidth, defaultFormat } from './scene.js'
+import { wrapLabel } from './waterfallScene.js'
 import { inkOn, labelMetrics } from './customStyle.js'
-import { localeOf, localizedFormat, t } from './locale.js'
+import { autoDecimals } from './decimals.js'
+import { localeOf, localizedFormat, localizeNumber, t } from './locale.js'
 import { singleAccent, emphasisOf, ACCENT, NEUTRAL, accentInk } from './accent.js'
 import { stamp } from './figureMeta.js'
 
 const LABEL = 11
+// Line height of a row label wrapped onto two lines.
+const LABEL_LINE = 13
 const VALUE = 10.5
 const LEGEND_ROW = 18
 const DASH = { solid: null, dash: '4 3', dot: '1.5 3' }
@@ -92,7 +104,10 @@ export function buildBarhScene(spec, rowsIn = [], opts = {}) {
     return buildBarhScene({ ...spec, stacked100: false, stacked: true, labels: spec.labels === 'end' || spec.labels == null ? 'segments' : spec.labels, axis: spec.axis ?? false }, norm, { ...opts, format: opts.formatShare ?? pct })
   }
   const width = Math.max(220, Math.round(opts.width ?? 640))
-  const format = localizedFormat(opts.format ?? defaultFormat, L)
+  // Default decimals (two significant digits, decimals.js), passed to the host's formatter too.
+  const barDec = Number.isInteger(spec?.decimals) ? spec.decimals : autoDecimals(rowsIn.flatMap(r => [...Object.values(r?.values ?? {}), ...(r?.range ?? [])]))
+  const format0 = localizedFormat(opts.format ?? defaultFormat, L)
+  const format = v => format0(v, undefined, barDec)
   const series0 = spec?.series ?? [{ id: 'value', label: t('Value', L), color: 'gray-700' }]
   // Rotated combination chart (type options follow the orientation): a series
   // with `mark: 'line'` reads as a line from row to row over the bars.
@@ -116,13 +131,20 @@ export function buildBarhScene(spec, rowsIn = [], opts = {}) {
   const rowMin = LM.base || profile ? 0 : showLabels && inner0 > 1 ? Math.ceil((inner0 * (LM.size + 2)) / 0.72) : LM.size + 6
   // A marker labelled above the bar: the row holds the bar and its note.
   const markerLabels = !!spec?.rangeMarkerLabel && rowsIn.some(r => r && markerOf(spec, withRange(r) ?? r) != null)
-  const rowH = Math.max(spec?.rowHeight ?? 28, rowMin, markerLabels ? 36 : 0)
+  let rowH = Math.max(spec?.rowHeight ?? 28, rowMin, markerLabels ? 36 : 0)
   // Grouped with several series: the row is shared, each bar keeps ~13 px (its figure readable).
-  const barH = !stacked && (spec?.series ?? []).length > 1 ? Math.round(rowH * 0.72) : Math.min(18, Math.round(rowH * 0.58))
+  const barHOf = h => (!stacked && (spec?.series ?? []).length > 1 ? Math.round(h * 0.72) : Math.min(18, Math.round(h * 0.58)))
+  let barH = barHOf(rowH)
 
   let rows = rowsIn.map(withRange).filter(r => r && (r.range || Object.values(r.values ?? {}).some(Number.isFinite)))
   if (spec?.sort === 'desc') rows = [...rows].sort((a, b) => rowTotal(b) - rowTotal(a))
   if (spec?.sort === 'asc') rows = [...rows].sort((a, b) => rowTotal(a) - rowTotal(b))
+  // The label gutter: their width + a margin (a short label is never shortened), at most 36 %.
+  const labelW = Math.min(width * 0.36, Math.max(...rows.map(r => estimateWidth(r.label, LABEL))) + 18)
+  // A label too long for it wraps onto two lines before being shortened (…); the rows then
+  // grow to hold two lines.
+  const labelLines = rows.map(r => (estimateWidth(r.label, LABEL) <= labelW - 10 ? [r.label] : wrapLabel(r.label, labelW - 10, LABEL, 2)))
+  if (labelLines.some(l => l.length > 1)) { rowH = Math.max(rowH, 2 * LABEL_LINE + 10); barH = barHOf(rowH) }
 
   const multi = series0.length > 1
   // Legend hidden by the reading settings (spec.legend === false).
@@ -138,14 +160,32 @@ export function buildBarhScene(spec, rowsIn = [], opts = {}) {
   })
   const legendH = legend.length ? (lrow + 1) * LEGEND_ROW + 6 : 0
 
+  // ── Extra value columns (spec.columns), right of the bars ──
+  const grand = rows.reduce((t0, r) => t0 + rowTotal(r), 0)
+  let cum = 0
+  const cumShares = rows.map(r => { cum += rowTotal(r); return grand ? cum / grand : null })
+  const columns = (Array.isArray(spec?.columns) ? spec.columns : []).filter(c => c && c.key != null).map(c => {
+    const share = c.value === 'share' || c.value === 'cumShare'
+    const pctFmt = v => localizeNumber(`${(v * 100).toFixed(Number.isInteger(c.decimals) ? c.decimals : 0)}%`, L)
+    const fmt = typeof c.format === 'function' ? c.format : c.format === 'pct' || (share && c.format !== 'number') ? pctFmt : v => format(v)
+    const valueAt = (r, i) => (c.value === 'share' ? (grand ? rowTotal(r) / grand : null)
+      : c.value === 'cumShare' ? cumShares[i]
+        : typeof c.value === 'function' ? c.value(r, i, rows) : r.columns?.[c.key])
+    const texts = rows.map((r, i) => { const v = valueAt(r, i); return typeof v === 'string' ? v : Number.isFinite(v) ? fmt(v) : '' })
+    const label = c.label ?? (c.value === 'share' ? t('Share', L) : c.value === 'cumShare' ? t('Cumulative share', L) : String(c.key))
+    const w = Math.max(0, ...texts.map(tx => LM.measure(tx)), estimateWidth(label, VALUE)) + 14
+    return { key: String(c.key), label, texts, w }
+  })
+  const colsW = columns.reduce((t0, c) => t0 + c.w, 0)
+
   const valueLines = (spec?.annotations ?? []).filter(a => a?.type === 'valueLine' && Number.isFinite(a.value))
-  const topPad = legendH + (valueLines.some(v => v.label) ? 16 : 4)
+  const topPad = legendH + (valueLines.some(v => v.label) || columns.length ? 16 : 4)
   const axisH = showAxis ? 20 : 0
   const height = topPad + rows.length * rowH + axisH + 4
 
   const base = {
     width, height, plot: null, rows: [], bars: [], labels: [], gridlines: [], annotations: [],
-    axis: null, legend, empty: rows.length === 0, profiles: [],
+    axis: null, legend, empty: rows.length === 0, profiles: [], columns: [],
   }
   if (base.empty) return stamp(base, 'barh', spec)
 
@@ -168,9 +208,7 @@ export function buildBarhScene(spec, rowsIn = [], opts = {}) {
   if (lo === hi) { hi += 1; lo -= ranged ? 1 : 0 }
   if (ranged) { const pad = (hi - lo) * 0.04; lo -= pad; hi += pad }
 
-  // ── Gutters: row labels on the left, figures at the end of the bar ──
-  // The label gutter: their width + a margin (a short label is never shortened).
-  const labelW = Math.min(width * 0.36, Math.max(...rows.map(r => estimateWidth(r.label, LABEL))) + 18)
+  // ── Gutters: row labels on the left (labelW above), figures at the end of the bar ──
   const endText = (r, side) => {
     if (r.range) return format(side === 'lo' ? r.range[0] : r.range[1])
     return format(rowTotal(r))
@@ -181,7 +219,7 @@ export function buildBarhScene(spec, rowsIn = [], opts = {}) {
     ? Math.max(...rows.map(r => (perBar ? Math.max(...series.map(s => (Number.isFinite(r.values?.[s.id]) ? LM.measure(format(r.values[s.id])) : 0))) : LM.measure(endText(r, 'hi'))))) + 8
     : 6
   const negW = showLabels && (lo < 0 || ranged) ? Math.max(...rows.map(r => LM.measure(endText(r, 'lo')))) + 8 : 0
-  const plot = { left: labelW + negW, right: width - valW, top: topPad, bottom: topPad + rows.length * rowH }
+  const plot = { left: labelW + negW, right: width - valW - colsW, top: topPad, bottom: topPad + rows.length * rowH }
   plot.width = plot.right - plot.left
   plot.height = plot.bottom - plot.top
   base.plot = plot
@@ -202,13 +240,27 @@ export function buildBarhScene(spec, rowsIn = [], opts = {}) {
     : x.ticks(Math.max(2, Math.min(6, Math.floor(plot.width / 80))))
   if (showAxis) base.axis = { y: plot.bottom + 14, ticks: ticks.map(v => ({ value: v, x: x(v), label: v === 0 ? '0' : format(v) })) }
   // Gridlines: solid (default), dotted, or none (zero stays).
-  base.gridlines = ticks.filter(v => spec?.grid !== 'none' || v === 0).map(v => ({ x: x(v), y1: plot.top, y2: plot.bottom, zero: v === 0, dash: spec?.grid === 'dash' && v !== 0 }))
+  // axis: false also removes the gridlines (a bare bar list), unless spec.grid asks for them;
+  // the zero line stays when bars go both ways.
+  const gridOn = spec?.grid != null ? spec.grid !== 'none' : showAxis
+  const twoWays = x.domain()[0] < 0 && x.domain()[1] > 0
+  base.gridlines = ticks.filter(v => (gridOn && spec?.grid !== 'none') || (v === 0 && (showAxis || twoWays))).map(v => ({ x: x(v), y1: plot.top, y2: plot.bottom, zero: v === 0, dash: spec?.grid === 'dash' && v !== 0 }))
+
+  // Columns: right-aligned, side by side after the bar figures; the header above the first row.
+  let right = width - colsW
+  for (const c of columns) {
+    right += c.w
+    const xr = right - 2
+    base.columns.push({ key: c.key, label: c.label, x: xr, header: c.label ? { x: xr, y: topPad - 5, text: c.label } : null,
+      cells: rows.map((r, i) => ({ rowKey: r.key, x: xr, y: topPad + i * rowH + rowH / 2 + BL, text: c.texts[i] })).filter(cell => cell.text) })
+  }
 
   const prof = {}
   rows.forEach((r, i) => {
     const y0 = plot.top + i * rowH
     const cy = y0 + rowH / 2
-    base.rows.push({ key: r.key, label: ellipsize(r.label, labelW - 10, LABEL), full: r.label, y: cy, y0, y1: y0 + rowH, emphasis: !!r.emphasis })
+    const lines = labelLines[i]
+    base.rows.push({ key: r.key, label: lines.length > 1 ? lines.join(' ') : ellipsize(r.label, labelW - 10, LABEL), ...(lines.length > 1 ? { lines } : {}), full: r.label, y: cy, y0, y1: y0 + rowH, emphasis: !!r.emphasis })
     const top = cy - barH / 2
     if (r.range) {
       const [a, b] = r.range
@@ -302,8 +354,10 @@ export function buildBarhScene(spec, rowsIn = [], opts = {}) {
 // a single set of labels in the center. spec.series[0] on the left, spec.series[1] on the right.
 export function buildButterflyScene(spec, rowsIn = [], opts = {}) {
   const width = Math.max(260, Math.round(opts.width ?? 640))
-  const format = localizedFormat(opts.format ?? defaultFormat, localeOf(spec))
+  const format0 = localizedFormat(opts.format ?? defaultFormat, localeOf(spec))
   const [L, R] = spec.series ?? []
+  const bDec = Number.isInteger(spec?.decimals) ? spec.decimals : autoDecimals(rowsIn.flatMap(r => [r?.values?.[L?.id], r?.values?.[R?.id]]))
+  const format = v => format0(v, undefined, bDec)
   const rows = rowsIn.filter(r => r && (Number.isFinite(r.values?.[L?.id]) || Number.isFinite(r.values?.[R?.id])))
   const showLabels = (spec.labels ?? 'end') !== 'none'
   const LM = labelMetrics(opts.labelStyle ?? spec, VALUE)

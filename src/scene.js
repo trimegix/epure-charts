@@ -27,8 +27,11 @@ import { resolveCollisions, leaderLine } from './labelLayout.js'
 import { dateAxisTicks, DATE_UNITS } from './dateTicks.js'
 import { roundToSum, formatDateCodes, consistentRound } from './numberStyle.js'
 import { isHex, isLightHex, isFont, isPt, sizePx, labelMetrics, baseToken } from './customStyle.js'
+import { autoDecimals, autoDecimalsByUnit } from './decimals.js'
+import { withDefaults } from './defaults.js'
+import { validateChartSpec } from './spec.js'
 import { localeOf, localizedFormat, localizeNumber, t } from './locale.js'
-import { accentColor, accentInk, singleAccent, NEUTRAL, ACCENT } from './accent.js'
+import { accentColor, accentInk, accentSeriesColor, accentPoints, singleAccent, NEUTRAL, ACCENT } from './accent.js'
 import { stamp } from './figureMeta.js'
 
 // Role colors, as semantic tokens (themable as --chart-*): by default actual in
@@ -102,15 +105,17 @@ export function ordinal(n) {
 }
 
 /**
- * Default format (tests, or a view without formatter): 'M' → €12M, 'x' → 8.5x,
- * 'pct' → 12% (decimal value 0–1). `decimals` null = automatic.
+ * Default format (a view or a scene without formatter): the number alone, with thousands
+ * separators (8,617; « 8 617 » in French), no currency nor magnitude: the page states the unit
+ * (subtitle, axis title) or passes its own `format`. 'x' → 8.5x, 'pct' → 12% (decimal value
+ * 0–1). `decimals` null = automatic.
  */
 export function defaultFormat(value, unit, decimals = null) {
   if (value == null || !Number.isFinite(value)) return '—'
   if (unit === 'pct') return `${(value * 100).toFixed(decimals ?? 0)}%`
   if (unit === 'x') return `${value.toFixed(decimals ?? 1)}x`
   const d = decimals ?? (Math.abs(value) >= 100 ? 0 : 1)
-  return `€${value.toFixed(d)}M`
+  return value.toLocaleString('en-US', { minimumFractionDigits: d, maximumFractionDigits: d })
 }
 
 /** '2024-Q3' → continuous quarter index (to measure a duration in years). */
@@ -293,8 +298,16 @@ export function snapDateLo(lo, hi, unit = null, weekStart = 0) {
  * scene.labelCap = { asked, used } gives the size actually drawn, scene.noRoom the number
  * of labels still removed for lack of room.
  */
-export function buildScene(spec, resolved = [], opts = {}) {
-  const sc = buildSceneAt(spec, resolved, opts)
+const isObj = v => v != null && typeof v === 'object' && !Array.isArray(v)
+const withErrors = (sc, errors) => { if (sc && typeof sc === 'object') sc.errors = errors; return sc }
+
+export function buildScene(specIn, resolved = [], opts = {}) {
+  // The spec as the live view reads it (ChartView): the defaults of its data (colors by role,
+  // bar mode, axes) filled in, and the same validation, reported in scene.errors (never thrown).
+  const spec = isObj(specIn) ? withDefaults(specIn, resolved) : specIn
+  // A spec the validation refuses still draws what it can (a malformed chart renders as such).
+  const errors = validateChartSpec(spec, { resolved })
+  const sc = withErrors(buildSceneAt(spec, resolved, opts), errors)
   const LO = spec?.format?.labels ?? {}
   if (!isPt(LO.size) || sc.empty || spec?.format?.transpose) return stamp(sc, 'chart', spec)
   const ok = s => !s.labelsWanted || (s.labelsWanted - s.noRoom) * 2 >= s.labelsWanted
@@ -305,7 +318,7 @@ export function buildScene(spec, resolved = [], opts = {}) {
     if (s2.noRoom < best.noRoom || best === sc) best = Object.assign(s2, { labelCap: { asked: LO.size, used: pt } })
     if (ok(s2)) break
   }
-  return stamp(best, 'chart', spec)
+  return stamp(withErrors(best, errors), 'chart', spec)
 }
 
 function buildSceneAt(spec, resolved = [], opts = {}) {
@@ -372,8 +385,8 @@ function buildSceneAt(spec, resolved = [], opts = {}) {
       smooth: !!s.style?.smooth,
       step: s.style?.step === 'lines' || s.style?.step === 'steps' ? s.style.step : null,
       // Point color: set (style.points), otherwise carried by the data (point.color).
-      // (single-accent mode: none, the series is neutral or the accent as a whole)
-      pointColors: singleAccent(spec) ? {} : { ...Object.fromEntries((r.points ?? []).filter(p => p?.color).map(p => [String(p.x), p.color])), ...(s.style?.points ?? {}) },
+      // (single-accent mode: the categories `emphasis` names, in the accent; nothing else)
+      pointColors: singleAccent(spec) ? accentPoints(spec, (spec?.series ?? []).map((x, j) => x.id ?? `s${j}`)) : { ...Object.fromEntries((r.points ?? []).filter(p => p?.color).map(p => [String(p.x), p.color])), ...(s.style?.points ?? {}) },
       // Stack group (stacked clustered): series with the same `stack` are stacked,
       // groups are placed side by side.
       stack: s.stack ?? null,
@@ -382,7 +395,7 @@ function buildSceneAt(spec, resolved = [], opts = {}) {
       forecastStyle: s.style?.forecast ?? null,
       // Fill pattern: hatched, crosshatch, dots, lines.
       pattern: PATTERNS.includes(F.patterns?.[s.id]) ? F.patterns[s.id] : null,
-      color: accentColor(spec, s.id ?? `s${i}`, colorToken(s.style, r.role, ranks[i])),
+      color: accentSeriesColor(spec, s.id ?? `s${i}`, colorToken(s.style, r.role, ranks[i]), s.style?.color),
       role: r.role ?? 'actual',
       label: r.label ?? s.id,
       unit: r.unit ?? 'M',
@@ -420,6 +433,10 @@ function buildSceneAt(spec, resolved = [], opts = {}) {
   const tableIds = new Set(F.tableAll ? allSeries.slice(1).map(s => s.id) : (F.table ?? []).map(String))
   const tableSeries = allSeries.filter(s => tableIds.has(s.id) && s.points.length)
   const series = allSeries.filter(s => !tableSeries.includes(s))
+  // Default decimals (numberFormat.decimals unset): two significant digits per unit, the same
+  // static and live (decimals.js). The host's formatter receives them as its third argument.
+  const autoDec = autoDecimalsByUnit(allSeries.map(x => ({ unit: x.unit, points: x.points.filter(p => !hidden.has(String(p.x))) })))
+  const decOf = unit => userDecimals ?? autoDec[unit ?? ''] ?? null
   // Color scheme order (stacked fill order): top to bottom.
   // (single-accent mode: colors follow the emphasis, not the order)
   if (F.colorOrder === 'reverse' && !singleAccent(spec)) {
@@ -461,14 +478,26 @@ function buildSceneAt(spec, resolved = [], opts = {}) {
 
   // ── Legend (on top, rows that wrap) ──────────────────────────────────────
   const withData = series.filter(s => s.points.length)
-  // Series labels on the chart: the names of the
-  // bars right of the last column, at the height of their segment, instead of the legend.
-  const seriesOnChart = F.legend === 'series' && opts.legend !== false && withData.some(s => s.mark === 'bar')
+  // Direct legend (format.legend: 'direct', alias 'series'): the names of the bars right of the
+  // last column, at the height of their segment (stacked), spread so they never overlap,
+  // instead of the legend on top. By default (format.legend unset) on stacked columns of 2 to 5
+  // series with room on the right (≥ 480 px): the reader no longer matches colors. 'top' keeps
+  // the legend on top.
+  const barCount = withData.filter(s => s.mark === 'bar').length
+  // Only when every bar series has a segment in the last column (a name always sits by its
+  // segment) and labels are not placed outside the bars (they would meet the names).
+  const barEnds = withData.filter(s => s.mark === 'bar').map(s => s.points.at(-1))
+  const autoDirect = F.legend == null && stacked && barCount >= 2 && barCount <= 5 && width >= 480
+    && F.labels?.position !== 'outside'
+    && barEnds.every(p => p && p.y && String(p.x) === String(barEnds[0].x))
+  const seriesOnChart = (F.legend === 'direct' || F.legend === 'series' || autoDirect) && opts.legend !== false && barCount > 0
   const direct = opts.legend !== false && spec?.endLabels !== false && F.endLabels !== false && withData.length > 0 && (seriesOnChart || withData.length <= 4)
     && (seriesOnChart || withData.some(s => s.mark !== 'bar'))
   const onChart = s => s.mark !== 'bar' || seriesOnChart
   const legendSeries = (direct ? series.filter(s => !onChart(s) || !s.points.length) : series).filter(s => !s.maskedOut)
-  const legendPos = F.legend === 'none' || F.legend === 'bottom' ? F.legend : 'top'
+  // A single series: no legend by default (the title names it); format.legend set brings it back.
+  const singleSeries = F.legend == null && series.filter(s => !s.maskedOut).length <= 1
+  const legendPos = F.legend === 'none' || F.legend === 'bottom' ? F.legend : singleSeries ? 'none' : 'top'
   // The legend follows its own size, otherwise the chart text size (drawing and layout).
   const legendScale = SIZE_STEP[F.legendSize] ?? FS
   // CAGR in the series name (label content → CAGR in the series label).
@@ -583,8 +612,22 @@ function buildSceneAt(spec, resolved = [], opts = {}) {
   // actual of one series, which assumes a time axis.
   // The duration of an explicit CAGR is given (periods) or derived from the bounds.
   const explicitCagr = a => a?.from?.key != null && a?.to?.key != null
-  const cagrs = anns.filter(a => a?.type === 'cagr' && (explicitCagr(a)
-    || (grain !== 'category' && series.some(s => s.id === a.series && s.points.length >= 2))))
+  // Why a requested annotation is not drawn (scene.warnings; the views log them in development).
+  const warnings = []
+  const cagrName = a => (explicitCagr(a) ? `CAGR ${a.from.key} → ${a.to.key}` : a.of === 'total' ? 'CAGR of the total' : `CAGR of series "${a.series ?? '?'}"`)
+  // of: 'total': the growth of the stacked column total (first → last column without bounds).
+  const cagrs = anns.filter(a => {
+    if (a?.type !== 'cagr') return false
+    if (explicitCagr(a)) return true
+    if (a.of === 'total') {
+      if (!stacked) { warnings.push(`${cagrName(a)}: not drawn, the chart is not stacked.`); return false }
+      if (grain === 'category') { warnings.push(`${cagrName(a)}: not drawn, a category axis has no first and last year; set from: { key } and to: { key }.`); return false }
+      return true
+    }
+    if (!series.some(s => s.id === a.series && s.points.length >= 2)) { warnings.push(`${cagrName(a)}: not drawn, the series is missing or has fewer than two points; set from / to, or a series with data.`); return false }
+    if (grain === 'category') { warnings.push(`${cagrName(a)}: not drawn, a category axis has no first and last year; set from: { key } and to: { key }.`); return false }
+    return true
+  })
   const wantTotals = stacked && !share && anns.some(a => a?.type === 'totals')
   const wantAreaTotals = (F.areaMode ?? spec?.areaMode) === 'stacked' && anns.some(a => a?.type === 'totals')
   // A series' mean (over its visible points) reads as a value line.
@@ -625,7 +668,7 @@ function buildSceneAt(spec, resolved = [], opts = {}) {
   // (the text actually written: number, "+ (%)", series or category name; at the chosen label size; totals included).
   const rotSize = 10 * FS * (SIZE_STEP[F.labels?.size] ?? 1)
   const rotText = (s, p) => {
-    const v = format(p.y, s.unit, userDecimals)
+    const v = format(p.y, s.unit, decOf(s.unit))
     const c = F.labels?.content
     return c === 'valueShare' ? `${v} (100%)` : c === 'seriesShare' ? `${s.label} 100%` : c === 'series' ? s.label : c === 'category' ? (spec?.x?.names?.[p.x] ?? formatX(p.x, grain)) : c === 'share' ? '100%' : v
   }
@@ -857,7 +900,7 @@ function buildSceneAt(spec, resolved = [], opts = {}) {
   const headW = Math.max(0, ...[...tableSeries.map(ts => ts.label), ...kpiRows.map(r => r.label)].map(t => estimateWidth(String(t ?? ''), 10) + 16))
   const plotLeft = Math.max(left ? gutterOf(left) : 12, headW)
   // Table columns, right of everything (end-of-line names included).
-  const tableColText = (s, k) => (s.colVals[k] == null ? '–' : format(s.colVals[k], s.unit, userDecimals))
+  const tableColText = (s, k) => (s.colVals[k] == null ? '–' : format(s.colVals[k], s.unit, decOf(s.unit)))
   const tableColW = tableColKeys.map(k => Math.ceil(Math.max(estimateWidth(spec?.x?.names?.[k] ?? formatX(k, grain), tickFont),
     ...series.filter(s => s.mark !== undefined && !s.other).map(s => estimateWidth(tableColText(s, k), 10)))) + 14)
   const tableW = tableColW.reduce((a, w) => a + w, 0)
@@ -867,7 +910,7 @@ function buildSceneAt(spec, resolved = [], opts = {}) {
   const empty = !keys.length || (!left && !right)
   const base = {
     width, height, plot, legend: legend.items, labels: [], annotations: [],
-    bars: [], lines: [], areas: [], gridlines: [], columns: [], endLabels: [], empty,
+    bars: [], lines: [], areas: [], gridlines: [], columns: [], endLabels: [], empty, warnings,
     axes: { x: { y: plotBottom, ticks: [], line: !!xo.line, rotate, labels: xLabels, tickMarks: !!xo.tickMarks }, left: null, right: null },
     gridColor: F.gridColor ?? null, fontScale: FS, legendScale, legendY: legendPos === 'bottom' ? height - legendH : 0, gridStyle: F.grid === 'dash' ? 'dash' : 'solid', gridTone: F.gridTone === 'dark' ? 'dark' : 'light',
   }
@@ -1241,7 +1284,7 @@ function buildSceneAt(spec, resolved = [], opts = {}) {
         const col = base.bars.filter(b => b.key === k && groupOf(series.find(x => x.id === b.seriesId) ?? {}) === g)
         if (col.length < 2) continue
         const unit = series.find(x => x.id === col[0].seriesId)?.unit ?? 'M'
-        const r = consistentRound(col.map(b => b.value), v => format(v, unit, userDecimals))
+        const r = consistentRound(col.map(b => b.value), v => format(v, unit, decOf(unit)))
         if (r) col.forEach((b, i) => { consistent[`${b.seriesId}|${k}`] = r[i] })
       }
     }
@@ -1301,7 +1344,7 @@ function buildSceneAt(spec, resolved = [], opts = {}) {
     // "Chosen": only the chosen points carry their number (labels one by one).
     const want = k => (s.labels === 'some' ? (F.labelKeys?.[s.id] ?? []).map(String).includes(String(k)) : s.labels === 'all' || k === lastKeyOf(s))
     // The text of a cell formatted in the sheet wins (format taken from the sheet).
-    const text = (v, k) => (k != null && s.points.find(p => p.x === k)?.text) || format(k != null && consistent[`${s.id}|${k}`] != null ? consistent[`${s.id}|${k}`] : v, s.unit, userDecimals)
+    const text = (v, k) => (k != null && s.points.find(p => p.x === k)?.text) || format(k != null && consistent[`${s.id}|${k}`] != null ? consistent[`${s.id}|${k}`] : v, s.unit, decOf(s.unit))
     if (s.mark === 'bar') {
       for (const b of base.bars.filter(x => x.seriesId === s.id && want(x.key))) {
         const t = contentOf(s, b.value, b.key, text(b.value, b.key))
@@ -1364,7 +1407,7 @@ function buildSceneAt(spec, resolved = [], opts = {}) {
         const total = col.reduce((sum, b) => sum + b.value, 0)
         const top = Math.min(...col.map(b => b.y))
         outside.push({
-          key: groups.length > 1 ? `total|${k}|${g}` : `total|${k}`, x: col[0].x + col[0].width / 2, y: top - 4, text: format(total, series.find(s => s.id === col[0].seriesId)?.unit ?? 'M', userDecimals),
+          key: groups.length > 1 ? `total|${k}|${g}` : `total|${k}`, x: col[0].x + col[0].width / 2, y: top - 4, text: format(total, series.find(s => s.id === col[0].seriesId)?.unit ?? 'M', decOf(series.find(s => s.id === col[0].seriesId)?.unit ?? 'M')),
           size: LABEL, color: 'black', anchor: 'middle', droppable: k !== lastK,
         })
       }
@@ -1374,7 +1417,7 @@ function buildSceneAt(spec, resolved = [], opts = {}) {
   if ((F.grandTotal || anns.some(a => a?.type === 'grandTotal')) && base.bars.length && !share) {
     const sum = base.bars.reduce((t, b) => t + b.value, 0)
     const unit = barSeries[0]?.unit ?? 'M'
-    outside.push({ key: 'grandTotal', x: plot.right, y: plot.top - 6, text: `${t('Total', L)} ${format(sum, unit, userDecimals)}`, size: LABEL, color: 'black', anchor: 'end' })
+    outside.push({ key: 'grandTotal', x: plot.right, y: plot.top - 6, text: `${t('Total', L)} ${format(sum, unit, decOf(unit))}`, size: LABEL, color: 'black', anchor: 'end' })
   }
   // Totals of a stacked area chart: at the top of the stack.
   if (areaMode === 'stacked' && anns.some(a => a?.type === 'totals')) {
@@ -1383,7 +1426,7 @@ function buildSceneAt(spec, resolved = [], opts = {}) {
       if (!side) continue
       const y = yScaleOf(side)
       const unit = series.find(s => s.mark === 'area' && s.axis === side)?.unit ?? 'M'
-      outside.push({ key: `total|${k}`, x: cx(k), y: y(areaTop[`${side}|${k}`]) - 5, text: format(areaTop[`${side}|${k}`], unit, userDecimals), size: LABEL, color: 'black', anchor: 'middle' })
+      outside.push({ key: `total|${k}`, x: cx(k), y: y(areaTop[`${side}|${k}`]) - 5, text: format(areaTop[`${side}|${k}`], unit, decOf(unit)), size: LABEL, color: 'black', anchor: 'middle' })
     }
   }
 
@@ -1393,7 +1436,7 @@ function buildSceneAt(spec, resolved = [], opts = {}) {
     if (!ax) continue
     const yy = ax.scale(v.value)
     // `silent`: a reference without a number (the zero of a growth chart).
-    const text = v.silent ? null : v.label ? `${v.label} ${format(v.value, ax.unit, userDecimals)}` : format(v.value, ax.unit, userDecimals)
+    const text = v.silent ? null : v.label ? `${v.label} ${format(v.value, ax.unit, decOf(ax.unit))}` : format(v.value, ax.unit, decOf(ax.unit))
     // Label above (default) or below the line, on the right (default) or left.
     const atLeft = v.labelAt === 'left'
     base.annotations.push({
@@ -1431,7 +1474,7 @@ function buildSceneAt(spec, resolved = [], opts = {}) {
       // On a bar, both min and max read at the top: below the bar, the
       // number would fall on the date axis.
       const py = bar ? bar.y : y(p.y)
-      return { kind, x: cx(p.x), y: py, onBar: !!bar, text: `${t(kind === 'max' ? 'Max' : 'Min', L)} ${format(p.y, s.unit, userDecimals)}` }
+      return { kind, x: cx(p.x), y: py, onBar: !!bar, text: `${t(kind === 'max' ? 'Max' : 'Min', L)} ${format(p.y, s.unit, decOf(s.unit))}` }
     }
     const items = [at(hi, 'max'), ...(lo !== hi ? [at(lo, 'min')] : [])]
     base.annotations.push({ type: 'extremes', seriesId: s.id, items })
@@ -1507,7 +1550,8 @@ function buildSceneAt(spec, resolved = [], opts = {}) {
     const delta = vb - va
     const sgn = delta >= 0 ? '+' : '−'
     // Arrow modes (double-click on the arrow): amount, %, or both.
-    const abs = `${sgn}${format(Math.abs(delta), unitA, userDecimals)}`
+    // A difference keeps two significant digits of its own (+2.4 between 40 and 42.4).
+    const abs = `${sgn}${format(Math.abs(delta), unitA, userDecimals ?? Math.max(decOf(unitA) ?? 0, autoDecimals([Math.abs(delta) * (unitA === 'pct' ? 100 : 1)])))}`
     const pct = loc(`${sgn}${Math.abs((delta / Math.abs(va)) * 100).toFixed(0)}%`)
     // "% of end": the other relative mode (the difference over the end value).
     const pctEnd = vb ? loc(`${sgn}${Math.abs((delta / Math.abs(vb)) * 100).toFixed(0)}%`) : pct
@@ -1522,7 +1566,10 @@ function buildSceneAt(spec, resolved = [], opts = {}) {
   for (const d of ordered) {
     const A = endOf(d.from)
     const B = endOf(d.to)
-    if (!A || !B || !A.v || (d.from.key === d.to.key && d.from.series === d.to.series && d.from.vline === d.to.vline)) continue
+    if (!A || !B || !A.v || (d.from.key === d.to.key && d.from.series === d.to.series && d.from.vline === d.to.vline)) {
+      warnings.push(`Difference arrow ${d.from.key} → ${d.to.key}: not drawn, ${!A || !B ? 'no value at one of its ends' : !A.v ? 'its start is zero' : 'both ends are the same point'}.`)
+      continue
+    }
     const unitA = d.from.series || d.to.series ? A.unit : A.unit ?? 'M'
     const text = arrowText(A.v, B.v, unitA, d.mode ?? F.diffMode)
     const pillW = estimateWidth(text, 10.5) + 16
@@ -1571,21 +1618,51 @@ function buildSceneAt(spec, resolved = [], opts = {}) {
     obstacles.push({ x0: bx - pillW / 2, x1: bx + pillW / 2, y0: yTop - 9, y1: yTop + 9 })
   }
 
+  // The stacked column total at a category (every segment of the column), as a point.
+  const totalAt = k => {
+    const col = base.bars.filter(b => b.key === k)
+    return col.length ? { x: k, y: col.reduce((t, b) => t + b.value, 0), type: col.every(b => b.forecast) ? 'forecast' : 'actual' } : null
+  }
+  // The drawn top of ONE segment of a stacked column (an arrow on a series starts there, not at
+  // the top of the stack).
+  const segmentTop = (sid, k) => {
+    const b = stacked && base.bars.find(x => x.seriesId === sid && x.key === k)
+    return b ? (b.negative ? b.y + b.height : b.y) : null
+  }
   for (const a of cagrs) {
     let first, last, periods, sid
-    if (explicitCagr(a)) {
+    // On stacked columns, a CAGR that names no series measures the column total (where its arrow
+    // stands); naming a series (a.series, from.series, to.series) measures that series.
+    const noSeries = a.series == null && a.from?.series == null && a.to?.series == null
+    const ofTotal = stacked && (a.of === 'total' || (a.of == null && !share && explicitCagr(a) && noSeries))
+    // The series each end measures (null: the column total, or a single-series end).
+    let ends = [null, null]
+    if (ofTotal) {
+      if (explicitCagr(a)) { first = totalAt(String(a.from.key)); last = totalAt(String(a.to.key)) }
+      else {
+        // From the first to the last ACTUAL column: a forecast does not make growth.
+        const pool = keys.filter(k => !String(k).startsWith('_')).map(totalAt).filter(p => p && p.type !== 'forecast')
+        first = pool[0]
+        last = pool.at(-1)
+      }
+      if (first && last && first.x === last.x) last = first
+      periods = explicitCagr(a) && a.periods > 0 ? a.periods : first && last ? yearsBetween(first, last, grain) : 0
+      if (!(periods > 0) && grain === 'category' && first && last) periods = Math.abs(keys.indexOf(String(last.x)) - keys.indexOf(String(first.x)))
+      sid = null
+    } else if (explicitCagr(a)) {
       // An end's point: in its series, otherwise in the first series that
       // has a number at that category (bars first).
-      const at = end => {
+      const at = (end, i) => {
         const k = String(end.key)
-        const own = series.find(x => x.id === (end.series ?? a.series))?.points.find(p => p.x === k)
-        if (own) return own
+        const mine = series.find(x => x.id === (end.series ?? a.series))
+        const own = mine?.points.find(p => p.x === k)
+        if (own) { ends[i] = mine.id; return own }
         const pool = [...series.filter(x => x.mark === 'bar'), ...series.filter(x => x.mark !== 'bar')]
-        for (const sr of pool) { const p = sr.points.find(q => q.x === k); if (p) return p }
+        for (const sr of pool) { const p = sr.points.find(q => q.x === k); if (p) { ends[i] = sr.id; return p } }
         return null
       }
-      first = at(a.from)
-      last = at(a.to)
+      first = at(a.from, 0)
+      last = at(a.to, 1)
       periods = a.periods > 0 ? a.periods : first && last ? yearsBetween(first, last, grain) : 0
       // Columns that name no year (a category axis of periods: 'H1', 'Wave 2'): one period per
       // column between the two ends, rather than no arrow at all.
@@ -1599,15 +1676,33 @@ function buildSceneAt(spec, resolved = [], opts = {}) {
       last = pool.at(-1)
       periods = first && last ? yearsBetween(first, last, grain) : 0
       sid = s.id
+      ends = [s.id, s.id]
     }
-    if (!first || !last || first === last || !keys.includes(first.x) || !keys.includes(last.x)) continue
-    if (!(first.y > 0 && last.y > 0 && periods > 0)) continue
+    if (!first || !last || first === last || !keys.includes(first.x) || !keys.includes(last.x)) {
+      warnings.push(`${cagrName(a)}: not drawn, ${!first || !last ? 'no value at one of its ends' : first === last ? 'both ends are the same point' : 'one of its ends is hidden'}.`)
+      continue
+    }
+    if (!(first.y > 0 && last.y > 0 && periods > 0)) {
+      warnings.push(`${cagrName(a)}: not drawn, ${periods > 0 ? 'a growth rate needs two positive values' : 'no period between its ends'} (${first.y} → ${last.y}).`)
+      continue
+    }
+    // A rate over a small base (11 → 14) reads as spectacular and says nothing: under
+    // minBase at either end, no arrow. Both ends are positive here, so no absolute value.
+    if (a.minBase > 0 && Math.min(first.y, last.y) < a.minBase) {
+      warnings.push(`${cagrName(a)}: not drawn, ${first.y < a.minBase ? 'its start' : 'its end'} is below minBase (${first.y} → ${last.y}, minBase ${a.minBase}).`)
+      continue
+    }
     const rate = (last.y / first.y) ** (1 / periods) - 1
     const lift = (labelled ? 16 : 0) + 10
     const xa = cx(first.x)
     const xb = cx(last.x)
-    let ya = Math.max(plot.top + 6, (topAt(first.x) ?? plot.bottom) - lift)
-    let yb = Math.max(plot.top + 6, (topAt(last.x) ?? plot.bottom) - lift)
+    // On a stacked column, a series' arrow starts at its own segment (the total's, above the stack).
+    const endY = (sidEnd, k) => {
+      const seg = sidEnd != null && !ofTotal ? segmentTop(sidEnd, k) : null
+      return seg != null && seg > (topAt(k) ?? seg) + 0.5 ? seg - 4 : Math.max(plot.top + 6, (topAt(k) ?? plot.bottom) - lift)
+    }
+    let ya = endY(ends[0], first.x)
+    let yb = endY(ends[1], last.x)
     // An arc that goes above everything it spans (and always slightly curved).
     const [i0, i1] = [keys.indexOf(first.x), keys.indexOf(last.x)].sort((p, q) => p - q)
     let peak = Math.min(ya, yb)
@@ -1647,7 +1742,7 @@ function buildSceneAt(spec, resolved = [], opts = {}) {
       ctrlY = (4 * my - ya - yb) / 2
     }
     base.annotations.push({
-      type: 'cagr', seriesId: sid, fromKey: first.x, toKey: last.x, xa, ya, xb, yb, ctrlX, ctrlY, mx, my, text, pillW,
+      type: 'cagr', seriesId: sid, ...(ofTotal ? { of: 'total' } : {}), fromKey: first.x, toKey: last.x, xa, ya, xb, yb, ctrlX, ctrlY, mx, my, text, pillW,
       // Color (CAGR arrow color): set by the reading layer per bounds, otherwise the spec's.
       d: `M${xa},${ya} Q${ctrlX},${ctrlY} ${xb},${yb}`, tone: F.cagrTones?.[`${first.x}|${last.x}`] ?? a.tone ?? 'gray-500',
     })
@@ -1838,7 +1933,7 @@ function buildSceneAt(spec, resolved = [], opts = {}) {
       const b = base.bars.find(x => x.seriesId === sid && x.key === k)
       const v = b?.value ?? valueAt(sr ?? { points: [] }, k)?.y
       const text = String(tpl)
-        .replaceAll('{value}', v != null && sr ? format(v, sr.unit, userDecimals) : '')
+        .replaceAll('{value}', v != null && sr ? format(v, sr.unit, decOf(sr.unit)) : '')
         .replaceAll('{share}', b ? shareText(b.value, k, sid) : '')
         .replaceAll('{series}', sr?.label ?? '')
         .replaceAll('{category}', k != null ? fx(k) : '')
@@ -1930,7 +2025,7 @@ function buildSceneAt(spec, resolved = [], opts = {}) {
       return {
         seriesId: s.id, label: s.label, color: p.type === 'forecast' && s.role === 'actual' && s.mark === 'bar' ? FORECAST_TOKEN : s.color,
         mark: s.mark, dash: DASH_ARRAY[s.dash], value: p.y, type: p.type,
-        text: format(p.y, s.unit, userDecimals),
+        text: format(p.y, s.unit, decOf(s.unit)),
       }
     }).filter(Boolean),
   }))
@@ -1967,6 +2062,8 @@ export function buildProfileScene(spec, resolved = [], opts = {}) {
       points: (r.points ?? []).filter(p => p && p.x != null && Number.isFinite(p.y) && !hidden.has(String(p.x))),
     }
   })
+  const autoDec = autoDecimalsByUnit(series)
+  const decOf = unit => userDecimals ?? autoDec[unit ?? ''] ?? null
   const seen = []
   for (const s of series) for (const p of s.points) if (!seen.includes(String(p.x))) seen.push(String(p.x))
   const keys = (grain === 'category' && Array.isArray(spec?.x?.keys) ? spec.x.keys.map(String) : axisKeys(seen, grain))
@@ -2015,7 +2112,7 @@ export function buildProfileScene(spec, resolved = [], opts = {}) {
     for (const p of pts) {
       if (s.labels === 'last' && p.key !== last) continue
       if (s.labels === 'some' && !(F.labelKeys?.[s.id] ?? []).map(String).includes(p.key)) continue
-      outside.push({ key: `${s.id}|${p.key}`, x: p.x + 7, y: p.y + 3.5, text: format(p.value, s.unit, userDecimals), size: 10, color: labelInk(s.color), anchor: 'start', droppable: p.key !== last })
+      outside.push({ key: `${s.id}|${p.key}`, x: p.x + 7, y: p.y + 3.5, text: format(p.value, s.unit, decOf(s.unit)), size: 10, color: labelInk(s.color), anchor: 'start', droppable: p.key !== last })
     }
   }
   base.labels = resolveCollisions(outside, estimateWidth)

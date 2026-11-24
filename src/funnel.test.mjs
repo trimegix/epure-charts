@@ -55,7 +55,7 @@ test('left-aligned bars', () => {
 
 test('formatter and unit; empty', () => {
   const sc = buildFunnelScene({ unit: 'M' }, [{ key: 'a', label: 'A', value: 50 }, { key: 'b', label: 'B', value: 20 }], OPTS)
-  assert.ok(sc.labels.some(l => l.text === '€50.0M'))
+  assert.ok(sc.labels.some(l => l.text === '50'), 'two significant digits: 50, not 50.0')
   const f = buildFunnelScene({}, stages, { ...OPTS, format: v => `${v} cos` })
   assert.ok(f.labels.some(l => l.text === '1250 cos'))
   for (const e of [buildFunnelScene({}, [], OPTS), buildFunnelScene({}, [{ key: 'z', label: 'Z', value: 0 }], OPTS)]) {
