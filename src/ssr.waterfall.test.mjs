@@ -30,7 +30,7 @@ test('WaterfallFigure renders a complete SVG on the server', () => {
   assert.match(html, /<desc>Source: Company data<\/desc>/)
   assert.ok((html.match(/<rect /g) ?? []).length >= 5)
   assert.match(html, /Revenue growth|Revenue/)
-  assert.match(html, /\+€40M/)
+  assert.match(html, />\+40</)
   // Semantic tokens with their palette fallbacks.
   assert.match(html, /var\(--chart-pos, var\(--green\)\)/)
   assert.match(html, /<\/svg>$/)
@@ -74,9 +74,12 @@ test('locale fr: engine words and number punctuation', () => {
   assert.deepEqual(scene.legend.map(l => l.label), ['Ancrage', 'Création de valeur', 'Destruction de valeur'])
   assert.deepEqual(scene.table.heads.map(x => x.text), ['Valeur', 'Cumul'])
   const cell = scene.table.rows.find(r => r.key === 'value|growth').full
-  assert.equal(cell, '+40 M€')
-  // Axis ticks above a billion: '€1.5B' → '1,5 Md€'.
-  assert.ok(scene.axes.left.ticks.some(x => /Md€$/.test(x.label)), scene.axes.left.ticks.map(x => x.label).join('|'))
+  assert.equal(cell, '+40')
+  // Default format: bare numbers, French thousands ('1 400').
+  assert.ok(scene.axes.left.ticks.some(x => /^1\u202f\d00$/.test(x.label)), scene.axes.left.ticks.map(x => x.label).join('|'))
+  // A currency formatter: axis ticks above a billion, '€1.5B' → '1,5 Md€'.
+  const eur = buildWaterfallScene({ locale: 'fr', yAxis: { labels: true } }, bridge, { width: 900, height: 360, format: (v, u, d) => `€${v.toFixed(d ?? 0)}M` })
+  assert.ok(eur.axes.left.ticks.some(x => /Md€$/.test(x.label)), eur.axes.left.ticks.map(x => x.label).join('|'))
   assert.match(scene.annotations[0].text, /\(\+\d+\u00a0%\)$/)
 })
 
@@ -107,5 +110,5 @@ test('indexed to 100: same proportions, no absolute figure', () => {
   const zero = buildWaterfallScene({ index: 100 }, { unit: 'M', steps: [{ ...small.steps[0], value: 0 }, ...small.steps.slice(1)] }, { width: 600, height: 300 })
   assert.equal(zero.indexIgnored, true)
   assert.equal(zero.indexed, false)
-  assert.ok(zero.labels.some(l => /€/.test(l.text)))
+  assert.ok(zero.labels.some(l => l.text === '+40'), 'absolute figures')
 })

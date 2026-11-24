@@ -26,6 +26,7 @@
 //   · scope: the id prefix of the clip path and patterns (unique per chart on a page;
 //     by default a hash of the scene, stable between server and browser).
 import FigureSvg from './FigureSvg.jsx'
+import { sceneDrawn } from './sceneProbe.js'
 import PatternDefs from './patterns.jsx'
 import { tok, fontFamily, fs, fsNote } from './customStyle.js'
 import { estimateWidth } from './scene.js'
@@ -135,6 +136,7 @@ function Profile({ scene: P, layers: L, part, children, table, rest }) {
 }
 
 export default function ChartFigure({ scene, label, responsive = false, dataTable = false, labelStyle = null, part = none, layers = NO_LAYERS, scope: scopeIn, className, children = null, ...rest }) {
+  sceneDrawn(scene)
   if (!scene || scene.empty) return null
   const shell = { meta: scene.meta, label, responsive, dataTable, className }
   if (scene.profile) {

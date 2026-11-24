@@ -9,7 +9,7 @@ import { useIsoLayoutEffect } from './useIsoLayoutEffect.js'
 import { createPortal } from 'react-dom'
 import { useCharts } from './useCharts'
 import ChartHeader from './ChartHeader'
-import { validateSpec, withDataDefaults } from './spec'
+import { validateChartSpec, withDataDefaults } from './spec'
 import { withDefaults } from './defaults'
 import { buildScene, buildProfileScene, formatX, ROLE_TOKEN, estimateWidth, snapDateLo } from './scene'
 import { useReadingPrefs } from './useReadingPrefs'
@@ -21,6 +21,7 @@ import { publishDomain, withdrawDomain, unionFor, breakFor, useSameScaleVersion,
 import { targetMark } from './useWheelPlacement'
 import { lineMarks } from './barPlacement.js'
 import { beginStep, endStep } from './chartPrefs'
+import { devWarn } from './devWarn.js'
 import BarhView from './BarhView.jsx'
 import ChartFigure from './ChartFigure.jsx'
 import { Swatch } from './chartMarks.jsx'
@@ -138,8 +139,9 @@ export default function ChartView({
   const fmtAxis = useMemo(() => (ax ? makeFormatter(format, ax.decimals ?? null, ax.magnitude ?? null, ax.num ?? null) : null), [format, ax])
   // The real formatters, for the format preview in the format bar.
   const formatters = useMemo(() => ({ value: fmt, axis: fmtAxis ?? fmt }), [fmt, fmtAxis])
-  const errors = useMemo(() => validateSpec(spec, { resolved: all }), [spec, all])
   const full = useMemo(() => withDefaults(spec, all), [spec, all])
+  // The one validation of the live and the static entries (buildScene → scene.errors).
+  const errors = useMemo(() => validateChartSpec(full, { resolved: all }), [full, all])
   // Fluid height: follows the width within a readable range.
   const height = fixedHeight ?? Math.round(Math.min(320, Math.max(220, width * 0.4)))
   // The settings button floats in the plot corner (chart without header or slot): its area is reserved.
@@ -211,6 +213,8 @@ export default function ChartView({
     // sameV: the union changed elsewhere on the page.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [natural, same, sameV, xSame, full, all, width, height, fmt, fmtAxis, legend])
+  // Development: say why a requested annotation is not drawn (once per message).
+  useEffect(() => { for (const w of scene?.warnings ?? []) devWarn(`chart "${spec.id}": ${w}`) }, [scene, spec.id])
   // The drawn plot width is republished: the other members match their density to it.
   const drawnW = scene?.plot?.width ? Math.round(scene.plot.width * 100) / 100 : null
   useEffect(() => {

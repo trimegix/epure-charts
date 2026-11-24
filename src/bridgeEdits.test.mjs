@@ -32,7 +32,7 @@ test('subtotal after a lever: the running total reached, computed', () => {
   assert.equal(b.steps[i - 1].key, 'margin')
   assert.equal(bridgeLevels(b.steps)[i].level, 130)
   const sc = buildWaterfallScene({ labels: 'all' }, b, { width: 700, height: 280 })
-  assert.equal(sc.labels.find(l => l.key === 'sub:margin').text, '€130M')
+  assert.equal(sc.labels.find(l => l.key === 'sub:margin').text, '130')
 })
 
 test('colors: per family, then per bar', () => {

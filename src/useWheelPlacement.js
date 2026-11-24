@@ -15,11 +15,9 @@
 //     or a line, it is re-placed from the marks read back from the SVG.
 import { useState } from 'react'
 import { useIsoLayoutEffect } from './useIsoLayoutEffect.js'
-import { barSpot, coverOf, lineMarks } from './barPlacement.js'
+import { barSpot, barRoom, coverOf, lineMarks } from './barPlacement.js'
 
 // A format bar never stretches across a whole large card: beyond that, its controls fold ("⋯").
-const BAR_MAX = 760
-const roomOf = box => Math.max(120, Math.min(BAR_MAX, box.right - box.left - 16))
 
 /**
  * Positions a format bar or action menu (`mode`) next to its anchor, avoiding chart marks.
@@ -105,11 +103,11 @@ export function useWheelPlacement(ref, anchor, mode) {
       } else if (box) {
         const T = (anchor.marks ?? []).find(m => m.weight >= 1000)
         if (T) {
-          const cap = roomOf(box)
+          const cap = barRoom(box.right - box.left - 16, vw)
           el.style.maxWidth = `${cap}px`
           el.dataset.room = String(cap)
           // The actual width (content that does not shrink can exceed max-width).
-          const fw = Math.max(Math.min(w, cap), Math.min(el.scrollWidth || 0, box.right - box.left - 16))
+          const fw = Math.max(Math.min(w, cap), Math.min(el.scrollWidth || 0, cap))
           const at = ([dx, dy]) => barSpot({
             T: { ...T, x: T.x + dx, y: T.y + dy }, box: { left: box.left + dx, right: box.right + dx, top: box.top + dy, bottom: box.bottom + dy },
             w: fw, h, marks: dx || dy ? anchor.marks.map(m => ({ ...m, x: m.x + dx, y: m.y + dy })) : anchor.marks, vw, vh: window.innerHeight,
@@ -121,11 +119,14 @@ export function useWheelPlacement(ref, anchor, mode) {
           // Without an object (the whole chart): the reading selector row, right-aligned,
           // never before it. Too long: its controls fold.
           const minLeft = Number.isFinite(anchor.minLeft) ? anchor.minLeft : box.left + 16
-          const room = Math.min(BAR_MAX, box.right - 24 - minLeft)
-          el.style.maxWidth = `${Math.max(240, room)}px`
-          el.dataset.room = String(Math.max(240, room))
-          const fw = Math.min(w, Math.max(240, room))
+          // A narrow chart: the bar keeps its minimum width and overhangs the card to the right
+          // (then back inside the window, below).
+          const room = barRoom(box.right - 24 - minLeft, vw)
+          el.style.maxWidth = `${room}px`
+          el.dataset.room = String(room)
+          const fw = Math.min(w, room)
           left = Math.max(minLeft, box.right - fw - 24)
+          ww = fw
           top = anchor.lineTop ?? box.top + 40
         }
       } else {

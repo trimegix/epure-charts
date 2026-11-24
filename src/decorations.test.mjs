@@ -18,7 +18,7 @@ test('labels: "last" only shows the last figure, above its bar', () => {
   assert.equal(sc.labels.length, 1)
   const bar = sc.bars.find(b => b.key === '2024')
   assert.ok(sc.labels[0].y < bar.y)
-  assert.equal(sc.labels[0].text, '€17.3M')
+  assert.equal(sc.labels[0].text, '17', 'two significant digits by default (decimals.js)')
 })
 
 test('labels: "all" on a dense series gives way, never overlaps, keeps the last one', () => {
@@ -39,7 +39,7 @@ test('stack totals: the sum above each column', () => {
   const sc = buildScene(spec([S('a', 'bar'), S('b', 'bar')], { bars: 'stacked', annotations: [{ type: 'totals' }] }),
     [res('A', [['2023', 10], ['2024', 20]]), res('B', [['2023', 5], ['2024', 5]])], OPTS)
   const t = sc.labels.filter(l => l.key.startsWith('total|'))
-  assert.deepEqual(t.map(l => l.text), ['€15.0M', '€25.0M'])
+  assert.deepEqual(t.map(l => l.text), ['15', '25'])
   const top24 = Math.min(...sc.bars.filter(b => b.key === '2024').map(b => b.y))
   assert.ok(t[1].y < top24)
 })
@@ -68,7 +68,7 @@ test('value line: inside the frame even beyond the data, named', () => {
   const sc = buildScene(spec([S('a', 'bar')], { annotations: [{ type: 'valueLine', value: 30, label: 'Target' }] }), [res('A', YEARS)], OPTS)
   const v = sc.annotations.find(a => a.type === 'valueLine')
   assert.ok(v.y >= sc.plot.top && v.y <= sc.plot.bottom)
-  assert.equal(v.text, 'Target €30.0M')
+  assert.equal(v.text, 'Target 30')
 })
 
 test('spec: valid and rejected decorations', () => {
